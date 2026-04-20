@@ -1,651 +1,2164 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" data-mode="light">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AntuNexus — Equipo de Ventas | Cortinas Roller a Medida</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-  <style>
-    :root {
-      --primary:   #1a1a2e;
-      --accent:    #e94560;
-      --accent2:   #0f3460;
-      --light:     #f4f6fb;
-      --card-bg:   #ffffff;
-      --text:      #2d2d2d;
-      --subtext:   #6b7280;
-      --border:    #e5e7eb;
-      --shadow:    0 4px 24px rgba(0,0,0,0.08);
-      --shadow-hover: 0 12px 40px rgba(233,69,96,0.18);
-    }
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=1640"/>
+<title>AntuNexus — Design System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* AntuNexus Design System - Base styles */
+:root {
+  /* Neutrals — warm, low saturation */
+  --ink-1: oklch(0.18 0.015 70);   /* strongest text */
+  --ink-2: oklch(0.32 0.012 70);
+  --ink-3: oklch(0.48 0.010 70);
+  --ink-4: oklch(0.62 0.008 70);   /* subtle labels */
+  --line: oklch(0.90 0.006 70);
+  --line-2: oklch(0.94 0.005 70);
+  --paper: oklch(0.985 0.003 75);  /* bg */
+  --paper-2: oklch(0.97 0.004 75); /* alt bg */
+  --paper-3: oklch(0.94 0.005 75);
+  --white: oklch(1 0 0);
 
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  /* Radii */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-xl: 20px;
+  --r-pill: 999px;
 
-    body {
-      font-family: 'Inter', sans-serif;
-      background: var(--light);
-      color: var(--text);
-      min-height: 100vh;
-    }
+  /* Fonts */
+  --font-sans: "Inter Tight", "SF Pro Display", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
+  --font-serif: "Instrument Serif", Georgia, serif;
 
-    /* ── HERO / HEADER ── */
-    header {
-      background: linear-gradient(135deg, var(--primary) 0%, var(--accent2) 100%);
-      color: #fff;
-      padding: 48px 24px 56px;
-      text-align: center;
-      position: relative;
-      overflow: hidden;
-    }
-    header::before {
-      content: '';
-      position: absolute;
-      inset: 0;
-      background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.04'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
-    }
+  /* Per-app colors (defaults, overridden by JS) */
+  --accent: oklch(0.70 0.15 65);
+  --accent-deep: oklch(0.55 0.16 55);
+  --accent-soft: oklch(0.95 0.04 75);
+  --accent-ink: oklch(0.28 0.08 55);
+}
 
-    .header-inner {
-      position: relative;
-      max-width: 960px;
-      margin: 0 auto;
-    }
+:root[data-mode="dark"] {
+  --ink-1: oklch(0.98 0.005 75);
+  --ink-2: oklch(0.85 0.008 70);
+  --ink-3: oklch(0.68 0.008 70);
+  --ink-4: oklch(0.52 0.010 70);
+  --line: oklch(0.22 0.012 70);
+  --line-2: oklch(0.18 0.010 70);
+  --paper: oklch(0.14 0.010 70);
+  --paper-2: oklch(0.17 0.012 70);
+  --paper-3: oklch(0.20 0.013 70);
+  --white: oklch(0.22 0.012 70);
+}
 
-    .logo-wrapper {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      gap: 14px;
-      margin-bottom: 28px;
-    }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  font-family: var(--font-sans);
+  font-feature-settings: "ss01", "cv11";
+  color: var(--ink-1);
+  background: var(--paper-2);
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.011em;
+  line-height: 1.45;
+}
+button { font: inherit; color: inherit; cursor: pointer; border: none; background: none; }
+input, textarea, select { font: inherit; color: inherit; }
+a { color: inherit; text-decoration: none; }
 
-    .logo-img {
-      height: 64px;
-      object-fit: contain;
-      filter: brightness(0) invert(1);
-    }
+/* Scrollbars */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 999px; }
+::-webkit-scrollbar-track { background: transparent; }
 
-    .logo-fallback {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .logo-icon {
-      width: 52px;
-      height: 52px;
-      background: var(--accent);
-      border-radius: 14px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 26px;
-      font-weight: 700;
-      color: #fff;
-      letter-spacing: -1px;
-    }
-    .logo-text {
-      font-size: 2rem;
-      font-weight: 700;
-      letter-spacing: -0.5px;
-    }
-    .logo-text span { color: var(--accent); }
+/* Utility */
+.mono { font-family: var(--font-mono); letter-spacing: -0.01em; }
+.serif { font-family: var(--font-serif); letter-spacing: -0.02em; }
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  font-weight: 500;
+}
 
-    header h1 {
-      font-size: clamp(1.4rem, 4vw, 2.2rem);
-      font-weight: 600;
-      letter-spacing: -0.3px;
-      margin-bottom: 10px;
-    }
-    header p {
-      font-size: 1rem;
-      color: rgba(255,255,255,0.72);
-      max-width: 520px;
-      margin: 0 auto;
-      line-height: 1.6;
-    }
+/* App-page shell */
+.page {
+  min-height: 100vh;
+  background: var(--paper-2);
+  color: var(--ink-1);
+}
 
-    .badge {
-      display: inline-block;
-      margin-top: 18px;
-      background: rgba(255,255,255,0.12);
-      border: 1px solid rgba(255,255,255,0.2);
-      color: #fff;
-      font-size: 0.78rem;
-      font-weight: 500;
-      letter-spacing: 0.8px;
-      text-transform: uppercase;
-      padding: 6px 16px;
-      border-radius: 999px;
-    }
+/* Generic card */
+.card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+}
 
-    /* ── MAIN ── */
-    main {
-      max-width: 1120px;
-      margin: 0 auto;
-      padding: 56px 24px 80px;
-    }
+/* Placeholder imagery — striped SVG-esque */
+.ph {
+  background:
+    repeating-linear-gradient(135deg,
+      oklch(0.94 0.006 75) 0 8px,
+      oklch(0.97 0.004 75) 8px 16px);
+  border: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  color: var(--ink-4);
+  font-size: 11px;
+  letter-spacing: 0.03em;
+}
 
-    .section-title {
-      text-align: center;
-      margin-bottom: 48px;
-    }
-    .section-title h2 {
-      font-size: 1.75rem;
-      font-weight: 700;
-      color: var(--primary);
-    }
-    .section-title p {
-      color: var(--subtext);
-      margin-top: 8px;
-      font-size: 0.97rem;
-    }
-    .section-title .divider {
-      width: 48px;
-      height: 4px;
-      background: var(--accent);
-      border-radius: 4px;
-      margin: 14px auto 0;
-    }
+/* Device frames */
+.frame-mobile {
+  width: 320px;
+  height: 640px;
+  border-radius: 36px;
+  border: 8px solid oklch(0.18 0.010 70);
+  background: var(--paper);
+  overflow: hidden;
+  position: relative;
+  box-shadow: 0 30px 60px -20px oklch(0.20 0.02 70 / 0.25),
+              0 10px 20px -8px oklch(0.20 0.02 70 / 0.10);
+}
+.frame-tablet {
+  width: 520px;
+  height: 700px;
+  border-radius: 24px;
+  border: 10px solid oklch(0.18 0.010 70);
+  background: var(--paper);
+  overflow: hidden;
+  position: relative;
+  box-shadow: 0 30px 60px -20px oklch(0.20 0.02 70 / 0.25),
+              0 10px 20px -8px oklch(0.20 0.02 70 / 0.10);
+}
+.frame-desktop {
+  width: 960px;
+  height: 620px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  overflow: hidden;
+  position: relative;
+  box-shadow: 0 30px 60px -20px oklch(0.20 0.02 70 / 0.20),
+              0 10px 20px -8px oklch(0.20 0.02 70 / 0.08);
+}
 
-    /* ── GRID ── */
-    .cards-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      gap: 28px;
-    }
+/* Desktop chrome */
+.chrome-bar {
+  height: 34px;
+  background: var(--paper-2);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  gap: 8px;
+}
+.chrome-dots { display: flex; gap: 6px; }
+.chrome-dot { width: 10px; height: 10px; border-radius: 999px; background: var(--line); }
+.chrome-url {
+  flex: 1;
+  margin: 0 80px 0 20px;
+  height: 22px;
+  background: var(--paper);
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-4);
+}
 
-    /* ── CARD ── */
-    .card {
-      background: var(--card-bg);
-      border-radius: 20px;
-      box-shadow: var(--shadow);
-      overflow: hidden;
-      transition: transform 0.28s ease, box-shadow 0.28s ease;
-      border: 1px solid var(--border);
-    }
-    .card:hover {
-      transform: translateY(-6px);
-      box-shadow: var(--shadow-hover);
-    }
+/* Status bar iPhone-ish */
+.statusbar {
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 22px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-1);
+}
+.statusbar-right { display: flex; gap: 5px; align-items: center; }
 
-    .card-header {
-      background: linear-gradient(135deg, var(--primary) 0%, var(--accent2) 100%);
-      padding: 32px 24px 20px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      position: relative;
-    }
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 14px;
+  border-radius: var(--r-md);
+  font-weight: 500;
+  font-size: 14px;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.btn-primary {
+  background: var(--accent);
+  color: oklch(0.12 0.015 var(--accent-hue, 65));
+  color: #fff;
+}
+.btn-primary:hover { background: var(--accent-deep); }
+.btn-ghost { color: var(--ink-2); }
+.btn-ghost:hover { background: var(--paper-3); }
+.btn-outline {
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink-1);
+}
+.btn-outline:hover { border-color: var(--ink-4); }
 
-    .avatar {
-      width: 96px;
-      height: 96px;
-      border-radius: 50%;
-      border: 4px solid rgba(255,255,255,0.25);
-      object-fit: cover;
-      background: #ddd;
-    }
+/* Focus */
+button:focus-visible, a:focus-visible, input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 
-    .avatar-initials {
-      width: 96px;
-      height: 96px;
-      border-radius: 50%;
-      border: 4px solid rgba(255,255,255,0.25);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 2rem;
-      font-weight: 700;
-      color: #fff;
-      background: var(--accent);
-      flex-shrink: 0;
-    }
+/* Transitions */
+.fade-in { animation: fadeIn 0.3s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 
-    .card-role-badge {
-      margin-top: 14px;
-      background: rgba(233,69,96,0.85);
-      color: #fff;
-      font-size: 0.72rem;
-      font-weight: 600;
-      letter-spacing: 0.6px;
-      text-transform: uppercase;
-      padding: 4px 14px;
-      border-radius: 999px;
-    }
+/* Hide scrollbar inside mockups */
+.hide-scroll::-webkit-scrollbar { display: none; }
+.hide-scroll { scrollbar-width: none; }
 
-    .card-body {
-      padding: 22px 24px 28px;
-    }
+/* AntuNexus — prototype-specific styles */
 
-    .card-name {
-      font-size: 1.2rem;
-      font-weight: 700;
-      color: var(--primary);
-      text-align: center;
-      margin-bottom: 4px;
-    }
+/* ---------- Main shell / canvas ---------- */
+.proto-canvas {
+  min-height: 100vh;
+  background: var(--paper-2);
+  padding: 28px 32px 80px;
+  color: var(--ink-1);
+}
+.proto-head {
+  max-width: 1680px;
+  margin: 0 auto 28px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+}
+.proto-head-left { display: flex; align-items: center; gap: 12px; }
+.proto-head-right { display: flex; align-items: center; gap: 8px; }
+.proto-nav {
+  display: inline-flex;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  padding: 3px;
+}
+.proto-nav button {
+  padding: 7px 14px;
+  border-radius: var(--r-pill);
+  font-size: 13px;
+  color: var(--ink-3);
+  font-weight: 500;
+}
+.proto-nav button.active {
+  background: var(--ink-1);
+  color: var(--paper);
+}
 
-    .card-specialty {
-      text-align: center;
-      font-size: 0.87rem;
-      color: var(--subtext);
-      margin-bottom: 18px;
-    }
+/* ---------- DS showcase ---------- */
+.ds-showcase { max-width: 1680px; margin: 0 auto; }
+.ds-hero {
+  background: linear-gradient(180deg, var(--paper), var(--paper-2));
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  padding: 48px 48px 36px;
+  margin-bottom: 40px;
+  overflow: hidden;
+  position: relative;
+}
+.ds-hero::before {
+  content: "";
+  position: absolute;
+  right: -120px;
+  top: -120px;
+  width: 340px;
+  height: 340px;
+  border-radius: 50%;
+  background: radial-gradient(circle, oklch(0.85 0.12 65 / 0.35), transparent 70%);
+  filter: blur(10px);
+}
+.ds-hero-inner { position: relative; max-width: 780px; }
+.ds-hero-title {
+  font-family: var(--font-serif);
+  font-size: 60px;
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+  margin: 12px 0 16px;
+  font-weight: 400;
+}
+.ds-hero-title .serif { font-style: italic; }
+.ds-hero-sub {
+  font-size: 17px;
+  color: var(--ink-2);
+  line-height: 1.55;
+  max-width: 640px;
+}
+.ds-hero-apps {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-top: 36px;
+}
+.ds-hero-app {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+.ds-hero-app-name { font-size: 14px; font-weight: 500; }
+.ds-hero-app-cat { font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-4); text-transform: uppercase; letter-spacing: 0.04em; }
 
-    .card-info {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      margin-bottom: 20px;
-    }
-    .info-row {
-      display: flex;
-      align-items: flex-start;
-      gap: 10px;
-      font-size: 0.88rem;
-      color: var(--text);
-    }
-    .info-icon {
-      width: 18px;
-      height: 18px;
-      flex-shrink: 0;
-      margin-top: 1px;
-      color: var(--accent);
-    }
-    .info-label {
-      color: var(--subtext);
-      font-size: 0.78rem;
-      display: block;
-      margin-bottom: 1px;
-    }
+/* Sections */
+.ds-section { padding: 36px 0; }
+.ds-section.alt { background: var(--paper); border-radius: var(--r-xl); padding: 36px; margin: 24px 0; border: 1px solid var(--line); }
+.ds-section-head { max-width: 720px; margin-bottom: 28px; }
+.ds-section-title {
+  font-family: var(--font-serif);
+  font-size: 36px;
+  letter-spacing: -0.02em;
+  font-weight: 400;
+  margin: 6px 0 10px;
+}
+.ds-section-sub { color: var(--ink-2); font-size: 15px; line-height: 1.5; }
 
-    .skills {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      margin-top: 16px;
-    }
-    .skill-tag {
-      background: var(--light);
-      border: 1px solid var(--border);
-      color: var(--accent2);
-      font-size: 0.74rem;
-      font-weight: 500;
-      padding: 4px 10px;
-      border-radius: 999px;
-    }
+/* Swatches */
+.swatch-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+.swatch-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+.swatch-stack { display: flex; flex-direction: column; }
+.swatch {
+  padding: 14px 16px;
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 52px;
+}
+.swatch-hue { opacity: 0.8; }
+.swatch-meta { display: flex; gap: 10px; align-items: center; padding: 14px 16px; border-top: 1px solid var(--line); }
+.swatch-name { font-size: 13px; font-weight: 500; }
+.swatch-cat { font-size: 10.5px; color: var(--ink-4); text-transform: uppercase; letter-spacing: 0.04em; }
+.neutral-row { margin-top: 28px; }
+.neutral-bar { display: grid; grid-template-columns: repeat(9, 1fr); margin-top: 8px; border-radius: var(--r-md); overflow: hidden; border: 1px solid var(--line); }
+.neutral-cell { height: 64px; display: flex; align-items: flex-end; padding: 8px; font-size: 11px; }
 
-    .card-cta {
-      display: block;
-      width: 100%;
-      text-align: center;
-      background: linear-gradient(135deg, var(--accent) 0%, #c73652 100%);
-      color: #fff;
-      font-size: 0.88rem;
-      font-weight: 600;
-      padding: 11px 0;
-      border-radius: 10px;
-      text-decoration: none;
-      letter-spacing: 0.3px;
-      transition: opacity 0.2s;
-      margin-top: 8px;
-    }
-    .card-cta:hover { opacity: 0.88; }
+/* Type */
+.type-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 14px; }
+.type-card { background: var(--paper); border: 1px solid var(--line); border-radius: var(--r-md); padding: 24px; }
+.type-card > *:not(:last-child) { margin-bottom: 12px; }
 
-    /* ── FOOTER ── */
-    footer {
-      background: var(--primary);
-      color: rgba(255,255,255,0.6);
-      text-align: center;
-      padding: 28px 24px;
-      font-size: 0.85rem;
-    }
-    footer strong { color: #fff; }
-    footer a { color: var(--accent); text-decoration: none; }
-    footer a:hover { text-decoration: underline; }
+/* Components */
+.components-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.comp-card { background: var(--paper); border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; }
+.comp-card-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line-2); background: var(--paper-2); }
+.comp-card-name { font-size: 11px; color: var(--ink-3); }
+.comp-card-body { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.comp-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+.chip-dot { background: var(--paper-2); color: var(--ink-2); border: 1px solid var(--line); }
+.chip-dot-mark { width: 6px; height: 6px; border-radius: 999px; }
+.comp-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  height: 36px;
+  color: var(--ink-4);
+}
+.comp-input-wrap input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 13px;
+  color: var(--ink-1);
+}
+.comp-input-wrap input::placeholder { color: var(--ink-4); }
+.comp-input-kbd {
+  font-size: 10px;
+  padding: 2px 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink-3);
+}
+.comp-tabs { display: flex; gap: 14px; border-bottom: 1px solid var(--line-2); }
+.tab { padding: 8px 0; font-size: 13px; color: var(--ink-3); border-bottom: 2px solid transparent; }
+.tab-active { color: var(--ink-1); border-bottom-color: currentColor; font-weight: 500; }
 
-    @media (max-width: 480px) {
-      .cards-grid { grid-template-columns: 1fr; }
-      header { padding: 36px 16px 44px; }
-    }
-  </style>
+/* Tokens (spacing/radius/shadow) */
+.tokens-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.tokens-card { background: var(--paper-2); border: 1px solid var(--line); border-radius: var(--r-md); padding: 20px; }
+.space-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.space-row { display: flex; align-items: center; gap: 12px; height: 18px; }
+.space-bar { height: 8px; background: oklch(0.85 0.12 65); border-radius: 3px; }
+.radius-list { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 12px; }
+.radius-item { text-align: center; }
+.radius-box { height: 48px; background: oklch(0.88 0.10 65); margin-bottom: 6px; }
+.shadow-list { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+.shadow-item { text-align: center; }
+.shadow-box { height: 52px; background: var(--paper); border-radius: 10px; margin-bottom: 8px; border: 1px solid var(--line-2); }
+
+/* ---------- Device grid (prototype view) ---------- */
+.device-grid {
+  display: flex;
+  gap: 32px;
+  justify-content: center;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  max-width: 1680px;
+  margin: 0 auto;
+}
+.device-label {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-4);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 12px;
+}
+.device-wrap { display: flex; flex-direction: column; align-items: center; }
+
+/* ---------- Mobile screens ---------- */
+.m-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--paper);
+}
+.m-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 18px 10px;
+  gap: 10px;
+}
+.m-avatar {
+  width: 30px; height: 30px;
+  border-radius: 999px;
+  background: var(--accent, oklch(0.70 0.15 65));
+  color: #fff;
+  display: grid; place-items: center;
+  font-size: 11px; font-weight: 600;
+}
+.m-back { color: var(--ink-2); padding: 4px; }
+.m-body { flex: 1; }
+
+.m-bottomnav {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  padding: 8px 8px 14px;
+  background: var(--paper);
+  border-top: 1px solid var(--line-2);
+}
+.m-nav-btn {
+  display: flex; flex-direction: column;
+  align-items: center; gap: 2px;
+  padding: 4px;
+  color: var(--ink-4);
+}
+.m-nav-btn.active { color: var(--accent, var(--ink-1)); }
+.m-nav-icon { position: relative; }
+.m-nav-badge {
+  position: absolute;
+  top: -4px; right: -8px;
+  background: oklch(0.6 0.18 25);
+  color: #fff;
+  font-size: 9px;
+  min-width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  display: grid; place-items: center;
+  padding: 0 3px;
+  font-weight: 600;
+}
+.m-nav-lbl { font-size: 10px; }
+
+.hub-apps { padding: 4px 14px 0; display: flex; flex-direction: column; gap: 8px; }
+.hub-app-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  color: var(--ink-1);
+  transition: all 0.15s;
+}
+.hub-app-card:hover { border-color: var(--accent); background: var(--paper-2); }
+.hub-activity {
+  display: flex; gap: 10px; align-items: center;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line-2);
+}
+.hub-activity:last-child { border-bottom: none; }
+
+.m-tab {
+  padding: 8px 0;
+  font-size: 13px;
+  border-bottom: 2px solid transparent;
+  text-transform: capitalize;
+  font-weight: 500;
+}
+
+.progress {
+  height: 6px;
+  background: var(--paper-3);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+.progress-fill { height: 100%; border-radius: 999px; transition: width 0.4s ease; }
+
+.stat-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 12px;
+  color: var(--ink-3);
+}
+.stat-num { font-size: 22px; font-weight: 600; color: var(--ink-1); letter-spacing: -0.02em; margin-top: 4px; }
+.stat-lbl { font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-4); text-transform: uppercase; letter-spacing: 0.04em; }
+
+.ord-card { background: var(--paper); border: 1px solid var(--line); border-radius: var(--r-md); padding: 14px; }
+
+.reserva-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 12px;
+}
+.reserva-icon {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  display: grid; place-items: center;
+}
+
+.kpi {
+  padding: 12px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  text-align: left;
+}
+.kpi-n { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
+.kpi-l { font-family: var(--font-mono); font-size: 10px; color: var(--ink-4); text-transform: uppercase; }
+
+.pim-list { display: flex; flex-direction: column; }
+.pim-item {
+  display: flex; gap: 12px; align-items: center;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line-2);
+}
+.pim-mini-bar {
+  height: 4px;
+  background: var(--paper-3);
+  border-radius: 999px;
+  margin-top: 4px;
+  overflow: hidden;
+  width: 100%;
+}
+
+/* ---------- Tablet (Telita) ---------- */
+.tb-screen {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  height: 100%;
+  background: var(--paper-2);
+}
+.tb-side { background: var(--paper); border-right: 1px solid var(--line); }
+.tb-nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px;
+  font-size: 13px;
+  color: var(--ink-3);
+  border-left: 2px solid transparent;
+}
+.tb-nav-item.active { color: var(--ink-1); border-left-color: var(--accent); background: var(--accent-soft); font-weight: 500; }
+.tb-main { padding: 20px; overflow-y: auto; }
+.tb-head { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px; }
+
+/* ---------- Desktop ---------- */
+.dk-screen {
+  display: grid;
+  grid-template-columns: 210px 1fr;
+  height: 100%;
+  background: var(--paper-2);
+}
+.dk-side { background: var(--paper); border-right: 1px solid var(--line); overflow-y: auto; }
+.dk-nav-section {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-4);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 14px 16px 4px;
+}
+.dk-nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 16px;
+  font-size: 13px;
+  color: var(--ink-3);
+  border-left: 2px solid transparent;
+  cursor: pointer;
+}
+.dk-nav-item.active { color: var(--ink-1); border-left-color: var(--accent); background: var(--accent-soft); font-weight: 500; }
+.dk-nav-item:hover:not(.active) { background: var(--paper-2); color: var(--ink-1); }
+.dk-main { padding: 22px; overflow-y: auto; }
+.dk-head { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 18px; }
+.dk-breadcrumb { font-size: 11px; color: var(--ink-4); }
+
+.pim-table { overflow: hidden; }
+.pim-th, .pim-tr {
+  display: flex;
+  gap: 12px;
+  padding: 12px 16px;
+  align-items: center;
+}
+.pim-th {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ink-4);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--paper-2);
+  border-bottom: 1px solid var(--line);
+}
+.pim-tr {
+  border-bottom: 1px solid var(--line-2);
+  font-size: 13px;
+}
+.pim-tr:last-child { border-bottom: none; }
+.pim-tr .mono { font-size: 11.5px; color: var(--ink-3); }
+.chk {
+  width: 14px; height: 14px;
+  border: 1.5px solid var(--line);
+  border-radius: 4px;
+  display: block;
+}
+
+/* ---------- Tweaks panel ---------- */
+.tweaks-panel {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  width: 280px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: 0 24px 48px -20px oklch(0.2 0.02 70 / .25);
+  z-index: 50;
+  overflow: hidden;
+}
+.tweaks-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line-2);
+}
+.tweaks-title { font-size: 13px; font-weight: 600; }
+.tweaks-sub { font-family: var(--font-mono); font-size: 10px; color: var(--ink-4); text-transform: uppercase; letter-spacing: 0.04em; }
+.tweaks-body { padding: 14px; display: flex; flex-direction: column; gap: 14px; max-height: 60vh; overflow-y: auto; }
+.tweaks-row-label { font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-4); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
+.tweaks-app-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.tweaks-app-btn {
+  aspect-ratio: 1;
+  border-radius: 8px;
+  border: 1.5px solid transparent;
+  transition: all 0.15s;
+  display: grid; place-items: center;
+  font-size: 14px; font-weight: 600; color: #fff;
+  font-family: var(--font-serif);
+}
+.tweaks-app-btn.active { border-color: var(--ink-1); outline: 2px solid var(--paper); outline-offset: -4px; }
+.tweaks-seg {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 2px;
+}
+.tweaks-seg button {
+  padding: 6px 10px;
+  font-size: 12px;
+  border-radius: 6px;
+  color: var(--ink-3);
+}
+.tweaks-seg button.active { background: var(--paper); color: var(--ink-1); box-shadow: 0 1px 2px oklch(0.2 0.02 70 / 0.08); }
+
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script>
+// AntuNexus — Design System Tokens
+// "Antu" = sol en mapudungun. Paleta corporativa cálida, cada app con color distintivo estilo Adobe.
+
+const THEME = /*EDITMODE-BEGIN*/{
+  "activeApp": "pimtonexus",
+  "mode": "dark",
+  "density": "comfortable",
+  "radius": 12,
+  "accent": "default"
+}/*EDITMODE-END*/;
+
+// Paleta por app. Cada app = un hue distintivo, misma chroma/lightness base.
+const APPS = {
+  antunexus: {
+    name: "AntuNexus",
+    tagline: "Plataforma única. Productos distintos.",
+    symbol: "◉",
+    hue: 65,
+    accent: "oklch(0.70 0.15 65)",
+    accentDeep: "oklch(0.55 0.16 55)",
+    accentSoft: "oklch(0.95 0.04 75)",
+    accentInk: "oklch(0.28 0.08 55)",
+    description: "Hub corporativo y SSO",
+    category: "Corporate"
+  },
+  telita: {
+    name: "Telita",
+    tagline: "ERP de operaciones textiles",
+    symbol: "◐",
+    hue: 25,
+    accent: "oklch(0.62 0.17 25)",
+    accentDeep: "oklch(0.48 0.17 22)",
+    accentSoft: "oklch(0.95 0.03 30)",
+    accentInk: "oklch(0.28 0.09 25)",
+    description: "Producción, stock, órdenes",
+    category: "ERP"
+  },
+  ecommerce: {
+    name: "Telita Shop",
+    tagline: "Ecommerce de Telita",
+    symbol: "◑",
+    hue: 350,
+    accent: "oklch(0.58 0.19 350)",
+    accentDeep: "oklch(0.44 0.18 350)",
+    accentSoft: "oklch(0.95 0.03 350)",
+    accentInk: "oklch(0.28 0.10 350)",
+    description: "Tienda online integrada SSO",
+    category: "Commerce"
+  },
+  comunidapp: {
+    name: "Comunidapp",
+    tagline: "Administración de comunidades",
+    symbol: "◒",
+    hue: 155,
+    accent: "oklch(0.56 0.14 155)",
+    accentDeep: "oklch(0.42 0.13 155)",
+    accentSoft: "oklch(0.95 0.03 155)",
+    accentInk: "oklch(0.28 0.08 155)",
+    description: "Condominios, edificios, gastos comunes",
+    category: "PropTech"
+  },
+  pimtonexus: {
+    name: "Pimtonexus",
+    tagline: "PIM empresarial multi-tenant",
+    symbol: "◓",
+    hue: 250,
+    accent: "oklch(0.54 0.17 250)",
+    accentDeep: "oklch(0.40 0.17 250)",
+    accentSoft: "oklch(0.95 0.03 250)",
+    accentInk: "oklch(0.26 0.10 250)",
+    description: "Catálogo, atributos, omnicanal",
+    category: "PIM"
+  },
+  sso: {
+    name: "Nexus ID",
+    tagline: "Identidad única para todo",
+    symbol: "◔",
+    hue: 290,
+    accent: "oklch(0.52 0.18 290)",
+    accentDeep: "oklch(0.38 0.17 290)",
+    accentSoft: "oklch(0.95 0.03 290)",
+    accentInk: "oklch(0.26 0.10 290)",
+    description: "Single Sign-On corporativo",
+    category: "Auth"
+  },
+  vantura: {
+    name: "Vantura",
+    tagline: "Logística de entregas",
+    symbol: "◕",
+    hue: 210,
+    accent: "oklch(0.60 0.13 210)",
+    accentDeep: "oklch(0.45 0.13 210)",
+    accentSoft: "oklch(0.95 0.03 210)",
+    accentInk: "oklch(0.28 0.08 210)",
+    description: "Rutas, flotas, trazabilidad",
+    category: "Logistics"
+  },
+  porticos: {
+    name: "Pórticos",
+    tagline: "Control de accesos",
+    symbol: "◖",
+    hue: 45,
+    accent: "oklch(0.58 0.14 45)",
+    accentDeep: "oklch(0.42 0.14 45)",
+    accentSoft: "oklch(0.95 0.03 45)",
+    accentInk: "oklch(0.28 0.08 45)",
+    description: "Accesos y visitas (en desarrollo)",
+    category: "Security"
+  }
+};
+
+// Exponer globalmente
+window.THEME = THEME;
+window.APPS = APPS;
+
+</script>
 </head>
 <body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+// AntuNexus — primitives shared between screens
+const { useState, useEffect, useRef, useMemo } = React;
 
-<!-- ══════════ HEADER ══════════ -->
-<header>
-  <div class="header-inner">
-    <div class="logo-wrapper">
-      <!-- Intenta cargar el logo de AntuNexus; si falla, muestra el fallback -->
-      <img
-        class="logo-img"
-        src="https://antunexus.com/wp-content/uploads/logo.png"
-        alt="AntuNexus Logo"
-        onerror="this.style.display='none'; document.getElementById('logo-fb').style.display='flex';"
-      />
-      <div id="logo-fb" class="logo-fallback" style="display:none;">
-        <div class="logo-icon">AN</div>
-        <div class="logo-text">Antu<span>Nexus</span></div>
+// ---------- Placeholder ----------
+function Placeholder({ label = "imagen", w, h, style }) {
+  return (
+    <div className="ph" style={{ width: w, height: h, borderRadius: 8, ...style }}>
+      {label}
+    </div>
+  );
+}
+
+// ---------- Logo Mark ----------
+function AntuLogo({ size = 20, color }) {
+  // abstract sun-over-horizon mark
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <circle cx="12" cy="10" r="5" stroke={color || "currentColor"} strokeWidth="1.6"/>
+      <circle cx="12" cy="10" r="2" fill={color || "currentColor"}/>
+      <line x1="2" y1="19" x2="22" y2="19" stroke={color || "currentColor"} strokeWidth="1.6" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
+// ---------- Icons (minimal stroke set) ----------
+const Icon = ({ name, size = 18, stroke = 1.6 }) => {
+  const props = { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: stroke, strokeLinecap: "round", strokeLinejoin: "round" };
+  const paths = {
+    home: <><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></>,
+    search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></>,
+    bell: <><path d="M6 8a6 6 0 0 1 12 0v5l2 3H4l2-3Z"/><path d="M10 19a2 2 0 0 0 4 0"/></>,
+    user: <><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></>,
+    menu: <><line x1="3" y1="7" x2="21" y2="7"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="17" x2="21" y2="17"/></>,
+    chart: <><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></>,
+    box: <><path d="M3 7l9-4 9 4v10l-9 4-9-4Z"/><path d="M3 7l9 4 9-4"/><path d="M12 11v10"/></>,
+    cart: <><circle cx="9" cy="20" r="1.5"/><circle cx="17" cy="20" r="1.5"/><path d="M3 4h2l2.5 12h11l2-8H6"/></>,
+    building: <><rect x="4" y="3" width="16" height="18" rx="1"/><path d="M9 8h2M13 8h2M9 12h2M13 12h2M9 16h2M13 16h2"/></>,
+    tag: <><path d="M3 12V4h8l10 10-8 8Z"/><circle cx="8" cy="8" r="1.5"/></>,
+    lock: <><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></>,
+    truck: <><rect x="2" y="7" width="12" height="10" rx="1"/><path d="M14 10h5l3 4v3h-8"/><circle cx="7" cy="18" r="1.5"/><circle cx="17" cy="18" r="1.5"/></>,
+    shield: <><path d="M12 3l8 3v6c0 4-3 7-8 9-5-2-8-5-8-9V6Z"/></>,
+    settings: <><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4 4l2 2M18 18l2 2M2 12h3M19 12h3M4 20l2-2M18 6l2-2"/></>,
+    chevronRight: <><path d="M9 6l6 6-6 6"/></>,
+    chevronDown: <><path d="M6 9l6 6 6-6"/></>,
+    plus: <><path d="M12 5v14M5 12h14"/></>,
+    arrow: <><path d="M5 12h14M13 6l6 6-6 6"/></>,
+    check: <><path d="M5 12l5 5 9-11"/></>,
+    filter: <><path d="M3 5h18M6 12h12M10 19h4"/></>,
+    star: <><path d="M12 3l2.9 6 6.6.9-4.8 4.5 1.2 6.6L12 17.8 6.1 21l1.2-6.6L2.5 10l6.6-.9Z"/></>,
+    package: <><path d="M3 7l9-4 9 4v10l-9 4-9-4Z"/><path d="M3 7l9 4 9-4M12 11v10"/></>,
+    qrcode: <><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3M20 14v7M14 17h3v4"/></>,
+    dots: <><circle cx="5" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="19" cy="12" r="1.5" fill="currentColor"/></>,
+    fingerprint: <><path d="M6 10a6 6 0 0 1 12 0v2M6 14c0 4 2 7 3 7M18 14c0 3-1 5-2 6M12 10v4c0 2 1 5 2 6M9 12c0 4 0 6 1 8"/></>,
+    wifi: <><path d="M5 12a10 10 0 0 1 14 0"/><path d="M8.5 15a6 6 0 0 1 7 0"/><circle cx="12" cy="18" r="1" fill="currentColor"/></>,
+    battery: <><rect x="3" y="8" width="16" height="8" rx="1.5"/><rect x="5" y="10" width="10" height="4" fill="currentColor" stroke="none"/><path d="M20 11v2"/></>,
+    signal: <><rect x="2" y="12" width="3" height="6"/><rect x="8" y="9" width="3" height="9"/><rect x="14" y="5" width="3" height="13"/></>,
+    close: <><path d="M6 6l12 12M18 6L6 18"/></>,
+    heart: <><path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2 4 4 0 0 1 7 2c0 5.5-7 10-7 10Z"/></>,
+    scissors: <><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4L9 15M20 20L9 9"/></>,
+    wrench: <><path d="M14.7 6.3a4 4 0 1 0 3 3l5 5-2 2-5-5-1 1-3-3 1-1Z"/></>,
+    doc: <><path d="M7 3h8l4 4v14H7Z"/><path d="M15 3v4h4"/></>,
+    cal: <><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/></>,
+    mail: <><rect x="3" y="5" width="18" height="14" rx="1"/><path d="M3 7l9 6 9-6"/></>,
+    users: <><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 20a6 6 0 0 1 12 0M14 20a5 5 0 0 1 7 0"/></>,
+    pin: <><path d="M12 21s-6-7-6-11a6 6 0 0 1 12 0c0 4-6 11-6 11Z"/><circle cx="12" cy="10" r="2"/></>
+  };
+  return <svg {...props}>{paths[name]}</svg>;
+};
+
+// ---------- Status bar ----------
+function StatusBar() {
+  return (
+    <div className="statusbar">
+      <span>9:41</span>
+      <div className="statusbar-right">
+        <Icon name="signal" size={14}/>
+        <Icon name="wifi" size={14}/>
+        <Icon name="battery" size={16}/>
       </div>
     </div>
-    <h1>Nuestro Equipo de Ventas</h1>
-    <p>Especialistas en cortinas roller a medida — listos para asesorarte y transformar tus espacios con soluciones personalizadas.</p>
-    <span class="badge">&#x1F3E2; Anthropic.com &nbsp;|&nbsp; Cortinas Roller a Medida</span>
-  </div>
-</header>
+  );
+}
 
-<!-- ══════════ MAIN ══════════ -->
-<main>
-  <div class="section-title">
-    <h2>Conoce a nuestros asesores</h2>
-    <p>Cada integrante está capacitado para ofrecerte la mejor solución en cortinas roller personalizadas.</p>
-    <div class="divider"></div>
-  </div>
-
-  <div class="cards-grid">
-
-    <!-- ── CARD 1 ── -->
-    <div class="card">
-      <div class="card-header">
-        <div class="avatar-initials">CM</div>
-        <span class="card-role-badge">Gerente de Ventas</span>
+// ---------- Frame chrome ----------
+function DesktopChrome({ url }) {
+  return (
+    <div className="chrome-bar">
+      <div className="chrome-dots">
+        <span className="chrome-dot" style={{background: "oklch(0.75 0.12 25)"}}/>
+        <span className="chrome-dot" style={{background: "oklch(0.82 0.12 80)"}}/>
+        <span className="chrome-dot" style={{background: "oklch(0.75 0.12 150)"}}/>
       </div>
-      <div class="card-body">
-        <div class="card-name">Carlos Mendoza</div>
-        <div class="card-specialty">Cortinas Roller Blackout & Screen</div>
-        <div class="card-info">
-          <div class="info-row">
-            <svg class="info-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.948V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
-            </svg>
-            <div>
-              <span class="info-label">Teléfono</span>
-              +56 9 8765 4321
+      <div className="chrome-url">{url}</div>
+    </div>
+  );
+}
+
+// ---------- App badge ----------
+function AppBadge({ app, size = 36, interactive }) {
+  const a = window.APPS[app];
+  const sz = size;
+  return (
+    <div
+      className="app-badge"
+      style={{
+        width: sz, height: sz,
+        borderRadius: sz * 0.28,
+        background: `linear-gradient(135deg, ${a.accent}, ${a.accentDeep})`,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        color: "white",
+        fontSize: sz * 0.44,
+        fontWeight: 600,
+        fontFamily: "var(--font-serif)",
+        letterSpacing: "-0.02em",
+        flexShrink: 0,
+        boxShadow: `0 2px 10px -2px ${a.accent}55`,
+        cursor: interactive ? "pointer" : "default",
+        transition: "transform 0.2s ease"
+      }}
+    >
+      {a.name[0]}
+    </div>
+  );
+}
+
+Object.assign(window, { Placeholder, AntuLogo, Icon, StatusBar, DesktopChrome, AppBadge });
+
+// AntuNexus — Design System showcase (tokens, colors, type, components)
+
+function DSShowcase() {
+  const apps = window.APPS;
+  const keys = Object.keys(apps);
+
+  return (
+    <div className="ds-showcase">
+      {/* Hero */}
+      <section className="ds-hero">
+        <div className="ds-hero-inner">
+          <span className="eyebrow">AntuNexus · Design System v0.1</span>
+          <h1 className="ds-hero-title">
+            Una <span className="serif">plataforma</span>, ocho productos,<br/>
+            colores que hablan por sí solos.
+          </h1>
+          <p className="ds-hero-sub">
+            Antu significa «sol» en mapudungun. Desde ese centro cálido irradia un sistema de color inspirado en Adobe:
+            cada app tiene su propio hue distintivo, pero compartimos neutrales, tipografía, espaciado y componentes.
+          </p>
+          <div className="ds-hero-apps">
+            {keys.map(k => (
+              <div key={k} className="ds-hero-app">
+                <AppBadge app={k} size={52}/>
+                <div>
+                  <div className="ds-hero-app-name">{apps[k].name}</div>
+                  <div className="ds-hero-app-cat">{apps[k].category}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Color system */}
+      <section className="ds-section">
+        <header className="ds-section-head">
+          <span className="eyebrow">01 · Color</span>
+          <h2 className="ds-section-title">Un color por producto</h2>
+          <p className="ds-section-sub">
+            Todas las paletas comparten la misma chroma (≈0.15) y luminosidad (≈0.58) — solo cambia el hue.
+            Esto garantiza contraste y equilibrio visual consistentes entre apps.
+          </p>
+        </header>
+
+        <div className="swatch-grid">
+          {keys.map(k => {
+            const a = apps[k];
+            return (
+              <div key={k} className="swatch-card">
+                <div className="swatch-stack">
+                  <div className="swatch" style={{ background: a.accentDeep }}>
+                    <span>700</span>
+                    <span className="mono swatch-hue">h {a.hue}°</span>
+                  </div>
+                  <div className="swatch" style={{ background: a.accent }}>
+                    <span>500</span>
+                  </div>
+                  <div className="swatch" style={{ background: a.accentSoft, color: a.accentInk }}>
+                    <span>100</span>
+                  </div>
+                </div>
+                <div className="swatch-meta">
+                  <AppBadge app={k} size={28}/>
+                  <div>
+                    <div className="swatch-name">{a.name}</div>
+                    <div className="swatch-cat mono">{a.category}</div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="neutral-row">
+          <div className="eyebrow">Neutrales cálidos · usados por todas las apps</div>
+          <div className="neutral-bar">
+            {["oklch(0.14 0.01 70)","oklch(0.32 0.012 70)","oklch(0.48 0.01 70)","oklch(0.62 0.008 70)","oklch(0.82 0.005 70)","oklch(0.90 0.006 70)","oklch(0.94 0.005 70)","oklch(0.97 0.004 75)","oklch(0.985 0.003 75)"].map((c,i) => (
+              <div key={i} className="neutral-cell" style={{ background: c }}>
+                <span className="mono" style={{ color: i < 4 ? "#fff" : "var(--ink-3)"}}>{[900,700,600,500,300,200,150,100,50][i]}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Typography */}
+      <section className="ds-section alt">
+        <header className="ds-section-head">
+          <span className="eyebrow">02 · Tipografía</span>
+          <h2 className="ds-section-title">Inter Tight + Instrument Serif + JetBrains Mono</h2>
+          <p className="ds-section-sub">
+            Sans neogrotesca para interfaz, serif editorial para títulos que respiran, monospace para datos, IDs y metadata.
+          </p>
+        </header>
+        <div className="type-grid">
+          <div className="type-card">
+            <span className="eyebrow">Display · Serif</span>
+            <p className="serif" style={{ fontSize: 52, lineHeight: 1.05, letterSpacing: "-0.03em" }}>
+              Operaciones textiles, fluidas.
+            </p>
+            <span className="mono" style={{ color: "var(--ink-4)", fontSize: 12 }}>Instrument Serif · 52/55 · -3% tracking</span>
+          </div>
+          <div className="type-card">
+            <span className="eyebrow">H1 · Sans</span>
+            <p style={{ fontSize: 32, fontWeight: 600, lineHeight: 1.15, letterSpacing: "-0.02em" }}>
+              Tu catálogo, listo para todos los canales
+            </p>
+            <span className="mono" style={{ color: "var(--ink-4)", fontSize: 12 }}>Inter Tight 600 · 32/37</span>
+          </div>
+          <div className="type-card">
+            <span className="eyebrow">Body</span>
+            <p style={{ fontSize: 15, lineHeight: 1.55, color: "var(--ink-2)" }}>
+              Administrá gastos comunes, reservas, multas y visitas sin planillas.
+              Los residentes pagan desde el celular, la administración cierra el mes en una tarde.
+            </p>
+            <span className="mono" style={{ color: "var(--ink-4)", fontSize: 12 }}>Inter Tight 400 · 15/23</span>
+          </div>
+          <div className="type-card">
+            <span className="eyebrow">Mono · datos</span>
+            <p className="mono" style={{ fontSize: 14, color: "var(--ink-2)" }}>
+              SKU-TL-0482 · $38.400 · 24 un.<br/>
+              ORD#2026-0041 · pendiente<br/>
+              lat -33.4569 · lng -70.6483
+            </p>
+            <span className="mono" style={{ color: "var(--ink-4)", fontSize: 12 }}>JetBrains Mono 400 · 14/20</span>
+          </div>
+        </div>
+      </section>
+
+      {/* Components */}
+      <section className="ds-section">
+        <header className="ds-section-head">
+          <span className="eyebrow">03 · Componentes base</span>
+          <h2 className="ds-section-title">Mismos ladrillos, pintados distinto</h2>
+          <p className="ds-section-sub">
+            Los componentes (botones, inputs, tabs, cards, chips) heredan del token <span className="mono">--accent</span> de la app activa.
+            Cambiar de app cambia todo el shell sin refactor.
+          </p>
+        </header>
+
+        <div className="components-row">
+          {["antunexus","telita","comunidapp","pimtonexus"].map(key => {
+            const a = apps[key];
+            return (
+              <div
+                key={key}
+                className="comp-card"
+                style={{
+                  "--accent": a.accent,
+                  "--accent-deep": a.accentDeep,
+                  "--accent-soft": a.accentSoft,
+                  "--accent-ink": a.accentInk
+                }}
+              >
+                <div className="comp-card-head">
+                  <AppBadge app={key} size={24}/>
+                  <span className="mono comp-card-name">{a.name}</span>
+                </div>
+                <div className="comp-card-body">
+                  <div className="comp-row">
+                    <button className="btn btn-primary" style={{ background: "var(--accent)", color: "#fff" }}>Confirmar</button>
+                    <button className="btn btn-outline">Cancelar</button>
+                    <button className="btn btn-ghost">Más</button>
+                  </div>
+                  <div className="comp-row">
+                    <span className="chip" style={{ background: "var(--accent-soft)", color: "var(--accent-ink)" }}>Activo</span>
+                    <span className="chip" style={{ background: "var(--paper-3)", color: "var(--ink-2)"}}>Pendiente</span>
+                    <span className="chip chip-dot"><span className="chip-dot-mark" style={{ background: "var(--accent)"}}/> 12 nuevos</span>
+                  </div>
+                  <div className="comp-input-wrap">
+                    <Icon name="search" size={16}/>
+                    <input placeholder="Buscar productos…"/>
+                    <span className="mono comp-input-kbd">⌘K</span>
+                  </div>
+                  <div className="comp-tabs">
+                    <span className="tab tab-active" style={{ borderColor: "var(--accent)"}}>Resumen</span>
+                    <span className="tab">Detalle</span>
+                    <span className="tab">Historial</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* Spacing + radius */}
+      <section className="ds-section alt">
+        <header className="ds-section-head">
+          <span className="eyebrow">04 · Espaciado, radios, sombras</span>
+          <h2 className="ds-section-title">Una escala para todo</h2>
+        </header>
+
+        <div className="tokens-row">
+          <div className="tokens-card">
+            <div className="eyebrow">Spacing · 4px base</div>
+            <div className="space-list">
+              {[4,8,12,16,24,32,48,64].map(n => (
+                <div key={n} className="space-row">
+                  <div className="space-bar" style={{ width: n * 2 }}/>
+                  <span className="mono">{n}</span>
+                </div>
+              ))}
             </div>
           </div>
-          <div class="info-row">
-            <svg class="info-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
-            </svg>
-            <div>
-              <span class="info-label">Email</span>
-              c.mendoza@antunexus.com
+          <div className="tokens-card">
+            <div className="eyebrow">Radii</div>
+            <div className="radius-list">
+              {[{n:"sm", v:6},{n:"md",v:10},{n:"lg",v:14},{n:"xl",v:20},{n:"pill",v:999}].map(r => (
+                <div key={r.n} className="radius-item">
+                  <div className="radius-box" style={{ borderRadius: r.v }}/>
+                  <span className="mono">{r.n} · {r.v === 999 ? "999" : r.v + "px"}</span>
+                </div>
+              ))}
             </div>
           </div>
-          <div class="info-row">
-            <svg class="info-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-            </svg>
-            <div>
-              <span class="info-label">Experiencia</span>
-              8 años en el rubro
+          <div className="tokens-card">
+            <div className="eyebrow">Elevación</div>
+            <div className="shadow-list">
+              {[
+                { n: "01 · flat", s: "none" },
+                { n: "02 · raise", s: "0 2px 6px -2px oklch(0.2 0.02 70 / .12)" },
+                { n: "03 · float", s: "0 10px 24px -10px oklch(0.2 0.02 70 / .18)" },
+                { n: "04 · pop",   s: "0 24px 48px -20px oklch(0.2 0.02 70 / .25)" },
+              ].map(s => (
+                <div key={s.n} className="shadow-item">
+                  <div className="shadow-box" style={{ boxShadow: s.s }}/>
+                  <span className="mono">{s.n}</span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
-        <div class="skills">
-          <span class="skill-tag">Blackout</span>
-          <span class="skill-tag">Screen</span>
-          <span class="skill-tag">Motorización</span>
-          <span class="skill-tag">Proyectos</span>
+      </section>
+    </div>
+  );
+}
+
+window.DSShowcase = DSShowcase;
+
+// AntuNexus — Mobile screens per app
+// Each screen is wrapped in a component that returns the inner content of a mobile frame.
+
+// ===== ANTUNEXUS HUB (launcher / homepage) =====
+function HubMobile({ onOpenApp }) {
+  const apps = window.APPS;
+  const order = ["telita","ecommerce","comunidapp","pimtonexus","sso","vantura","porticos"];
+  return (
+    <div className="m-screen" style={{ background: "var(--paper-2)" }}>
+      <StatusBar/>
+      <div className="m-topbar">
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <AntuLogo size={22}/>
+          <span style={{ fontWeight: 600, fontSize: 15 }}>AntuNexus</span>
         </div>
-        <a href="mailto:c.mendoza@antunexus.com" class="card-cta">Contactar</a>
+        <div className="m-avatar">MR</div>
+      </div>
+
+      <div className="m-body hide-scroll" style={{ overflowY: "auto" }}>
+        <div style={{ padding: "6px 18px 14px" }}>
+          <p className="eyebrow" style={{ marginBottom: 6 }}>Buen día, María</p>
+          <h1 className="serif" style={{ fontSize: 30, lineHeight: 1.1, letterSpacing: "-0.02em" }}>
+            Tu jornada,<br/>en una sesión.
+          </h1>
+        </div>
+
+        <div style={{ padding: "0 18px" }}>
+          <div className="card" style={{ padding: 14, display: "flex", gap: 10, alignItems: "center" }}>
+            <div style={{ width: 36, height: 36, borderRadius: 10, background: "var(--accent-soft)", color: "var(--accent-ink)", display: "grid", placeItems: "center" }}>
+              <Icon name="shield" size={18}/>
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 500 }}>Sesión única activa</div>
+              <div className="mono" style={{ fontSize: 11, color: "var(--ink-4)"}}>3 apps abiertas · 2h restantes</div>
+            </div>
+            <Icon name="chevronRight" size={16}/>
+          </div>
+        </div>
+
+        <div style={{ padding: "20px 18px 6px", display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+          <span className="eyebrow">Tus aplicaciones</span>
+          <span className="mono" style={{ fontSize: 11, color: "var(--ink-4)"}}>{order.length}</span>
+        </div>
+
+        <div className="hub-apps">
+          {order.map(k => {
+            const a = apps[k];
+            return (
+              <button
+                key={k}
+                className="hub-app-card"
+                onClick={() => onOpenApp && onOpenApp(k)}
+                style={{ "--accent": a.accent, "--accent-deep": a.accentDeep }}
+              >
+                <AppBadge app={k} size={42}/>
+                <div style={{ flex: 1, textAlign: "left", minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 500 }}>{a.name}</div>
+                  <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-4)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {a.description}
+                  </div>
+                </div>
+                <Icon name="chevronRight" size={14}/>
+              </button>
+            );
+          })}
+        </div>
+
+        <div style={{ padding: "14px 18px 40px" }}>
+          <div className="eyebrow" style={{ marginBottom: 10 }}>Actividad reciente</div>
+          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+            {[
+              { app: "telita", t: "Orden #2026-041 aprobada", m: "hace 8 min" },
+              { app: "comunidapp", t: "3 pagos recibidos", m: "hoy, 10:24" },
+              { app: "pimtonexus", t: "Sync catálogo Shopify ✓", m: "ayer" }
+            ].map((row,i) => (
+              <div key={i} className="hub-activity">
+                <AppBadge app={row.app} size={24}/>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13 }}>{row.t}</div>
+                  <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-4)"}}>{row.m}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <BottomNav items={[
+        { i: "home", l: "Inicio", active: true },
+        { i: "search", l: "Buscar" },
+        { i: "bell", l: "Avisos", badge: 4 },
+        { i: "user", l: "Perfil" }
+      ]}/>
+    </div>
+  );
+}
+
+// ===== TELITA (ERP textil) =====
+function TelitaMobile({ onBack }) {
+  const [tab, setTab] = React.useState("resumen");
+  return (
+    <div className="m-screen" style={{ "--accent": APPS.telita.accent, "--accent-deep": APPS.telita.accentDeep, "--accent-soft": APPS.telita.accentSoft, "--accent-ink": APPS.telita.accentInk }}>
+      <StatusBar/>
+      <AppTopBar app="telita" onBack={onBack}/>
+
+      <div className="m-body hide-scroll" style={{ overflowY: "auto" }}>
+        <div style={{ padding: "10px 18px 14px" }}>
+          <p className="eyebrow">Producción · semana 17</p>
+          <h1 style={{ fontSize: 26, fontWeight: 600, letterSpacing: "-0.02em", marginTop: 4 }}>
+            4.820 <span className="serif" style={{ color: "var(--ink-4)", fontWeight: 400, fontSize: 22 }}>/ 6.000m</span>
+          </h1>
+          <div className="progress">
+            <div className="progress-fill" style={{ width: "80%", background: "var(--accent)"}}/>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>
+            <span className="mono" style={{ fontSize: 11, color: "var(--ink-4)"}}>80% del objetivo</span>
+            <span className="mono" style={{ fontSize: 11, color: "var(--accent-ink)"}}>▲ 12% vs sem 16</span>
+          </div>
+        </div>
+
+        <div style={{ padding: "0 14px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div className="stat-card">
+            <Icon name="scissors" size={16}/>
+            <div className="stat-num">18</div>
+            <div className="stat-lbl">órdenes activas</div>
+          </div>
+          <div className="stat-card">
+            <Icon name="box" size={16}/>
+            <div className="stat-num">2.314</div>
+            <div className="stat-lbl">rollos en stock</div>
+          </div>
+        </div>
+
+        <div style={{ padding: "20px 18px 6px", display: "flex", gap: 14, borderBottom: "1px solid var(--line)" }}>
+          {["resumen","órdenes","stock"].map(t => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className="m-tab"
+              style={{
+                borderColor: tab === t ? "var(--accent)" : "transparent",
+                color: tab === t ? "var(--ink-1)" : "var(--ink-3)"
+              }}
+            >{t}</button>
+          ))}
+        </div>
+
+        <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+          {[
+            { id: "ORD-0041", cli: "Falabella · col. otoño", m: "1.200m · gabardina", status: "En telar", pct: 62 },
+            { id: "ORD-0039", cli: "Paris · lino cream", m: "600m · lino", status: "Terminado", pct: 100 },
+            { id: "ORD-0044", cli: "BCC Distribución", m: "2.000m · denim", status: "Urdido", pct: 24 }
+          ].map(o => (
+            <div key={o.id} className="ord-card">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span className="mono" style={{ fontSize: 11, color: "var(--ink-4)"}}>{o.id}</span>
+                <span className="chip" style={{
+                  background: o.pct === 100 ? "var(--accent-soft)" : "var(--paper-3)",
+                  color: o.pct === 100 ? "var(--accent-ink)" : "var(--ink-2)"
+                }}>{o.status}</span>
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 500, marginTop: 4 }}>{o.cli}</div>
+              <div className="mono" style={{ fontSize: 11, color: "var(--ink-3)"}}>{o.m}</div>
+              <div className="progress" style={{ marginTop: 10 }}>
+                <div className="progress-fill" style={{ width: o.pct + "%", background: "var(--accent)"}}/>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ padding: "0 14px 40px" }}>
+          <button className="btn btn-primary" style={{ background: "var(--accent)", width: "100%" }}>
+            <Icon name="plus" size={16}/> Nueva orden de producción
+          </button>
+        </div>
+      </div>
+
+      <BottomNav items={[
+        { i: "chart", l: "Producción", active: true },
+        { i: "box", l: "Stock" },
+        { i: "doc", l: "Órdenes", badge: 3 },
+        { i: "user", l: "Perfil" }
+      ]}/>
+    </div>
+  );
+}
+
+// ===== COMUNIDAPP =====
+function ComunidappMobile({ onBack }) {
+  return (
+    <div className="m-screen" style={{ "--accent": APPS.comunidapp.accent, "--accent-deep": APPS.comunidapp.accentDeep, "--accent-soft": APPS.comunidapp.accentSoft, "--accent-ink": APPS.comunidapp.accentInk }}>
+      <StatusBar/>
+      <AppTopBar app="comunidapp" onBack={onBack}/>
+
+      <div className="m-body hide-scroll" style={{ overflowY: "auto" }}>
+        <div style={{ padding: "8px 18px 16px", display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ width: 48, height: 48, borderRadius: 12, background: "var(--accent-soft)", color: "var(--accent-ink)", display: "grid", placeItems: "center" }}>
+            <Icon name="building" size={22}/>
+          </div>
+          <div>
+            <div className="eyebrow">Edificio Cordillera · Dpto 412</div>
+            <div style={{ fontSize: 16, fontWeight: 600, marginTop: 2 }}>Camila Ibáñez</div>
+          </div>
+        </div>
+
+        <div style={{ padding: "0 18px" }}>
+          <div className="card gastos-card" style={{ padding: 18, background: "linear-gradient(135deg, var(--accent-soft), var(--paper))", borderColor: "var(--accent-soft)" }}>
+            <div className="eyebrow">Gasto común · abril 2026</div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 6 }}>
+              <span className="serif" style={{ fontSize: 34, letterSpacing: "-0.02em" }}>$142.380</span>
+              <span className="mono" style={{ fontSize: 12, color: "var(--ink-4)"}}>CLP</span>
+            </div>
+            <div className="mono" style={{ fontSize: 11, color: "var(--ink-3)", marginTop: 2 }}>Vence 10 mayo · 20 días</div>
+
+            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+              <button className="btn btn-primary" style={{ background: "var(--accent)", flex: 1 }}>Pagar ahora</button>
+              <button className="btn btn-outline" style={{ padding: "10px 12px" }}><Icon name="doc" size={16}/></button>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ padding: "22px 18px 8px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
+            <span className="eyebrow">Reservas y espacios</span>
+            <span className="mono" style={{ fontSize: 11, color: "var(--accent-ink)", cursor: "pointer"}}>Ver todo</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            {[
+              { n: "Quincho", s: "Disponible 5 may", i: "users" },
+              { n: "Gym", s: "3 franjas hoy", i: "heart" },
+              { n: "Sala mult.", s: "Reservado 2 may", i: "cal" },
+              { n: "Piscina", s: "Cerrada", i: "pin" }
+            ].map(r => (
+              <div key={r.n} className="reserva-card">
+                <div className="reserva-icon"><Icon name={r.i} size={18}/></div>
+                <div style={{ fontSize: 13, fontWeight: 500, marginTop: 6 }}>{r.n}</div>
+                <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-4)" }}>{r.s}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ padding: "16px 18px 40px" }}>
+          <div className="eyebrow" style={{ marginBottom: 10 }}>Cartelera</div>
+          <div className="card">
+            {[
+              { t: "Corte de agua programado", d: "Martes 6 may · 9–13h" },
+              { t: "Asamblea mensual", d: "Jueves 8 may · 19:30" }
+            ].map((n,i) => (
+              <div key={i} style={{ padding: 14, borderBottom: i === 0 ? "1px solid var(--line-2)" : "none", display: "flex", gap: 10 }}>
+                <span style={{ width: 6, height: 6, borderRadius: 999, background: "var(--accent)", marginTop: 7, flexShrink: 0 }}/>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>{n.t}</div>
+                  <div className="mono" style={{ fontSize: 11, color: "var(--ink-4)"}}>{n.d}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <BottomNav items={[
+        { i: "home", l: "Inicio", active: true },
+        { i: "cal", l: "Reservas" },
+        { i: "bell", l: "Cartelera", badge: 2 },
+        { i: "user", l: "Cuenta" }
+      ]}/>
+    </div>
+  );
+}
+
+// ===== PIMTONEXUS =====
+function PimtonexusMobile({ onBack }) {
+  return (
+    <div className="m-screen" style={{ "--accent": APPS.pimtonexus.accent, "--accent-deep": APPS.pimtonexus.accentDeep, "--accent-soft": APPS.pimtonexus.accentSoft, "--accent-ink": APPS.pimtonexus.accentInk }}>
+      <StatusBar/>
+      <AppTopBar app="pimtonexus" onBack={onBack}/>
+
+      <div className="m-body hide-scroll" style={{ overflowY: "auto" }}>
+        <div style={{ padding: "10px 18px 8px" }}>
+          <p className="eyebrow">Catálogo · tenant Falabella</p>
+          <h1 style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.02em" }}>
+            12.480 <span style={{ fontWeight: 400, color: "var(--ink-4)" }}>productos</span>
+          </h1>
+        </div>
+
+        <div style={{ padding: "0 14px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+            <div className="kpi"><div className="kpi-n">92%</div><div className="kpi-l">completitud</div></div>
+            <div className="kpi"><div className="kpi-n">3</div><div className="kpi-l">canales sync</div></div>
+            <div className="kpi"><div className="kpi-n">48</div><div className="kpi-l">pendientes</div></div>
+          </div>
+        </div>
+
+        <div style={{ padding: "18px 18px 8px", display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+          <span className="eyebrow">Productos recientes</span>
+          <Icon name="filter" size={15}/>
+        </div>
+
+        <div className="pim-list">
+          {[
+            { sku: "FL-POL-0482", name: "Polera oversize algodón", c: 98, ch: 3 },
+            { sku: "FL-JEA-1201", name: "Jean recto pierna ancha", c: 86, ch: 2 },
+            { sku: "FL-ZAP-3310", name: "Zapatilla trail running", c: 72, ch: 3 },
+            { sku: "FL-VES-0812", name: "Vestido midi lino", c: 64, ch: 1 },
+            { sku: "FL-CAM-4421", name: "Camisa hilo fino", c: 91, ch: 3 }
+          ].map(p => (
+            <div key={p.sku} className="pim-item">
+              <Placeholder label="foto" w={48} h={48} style={{ borderRadius: 8 }}/>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
+                <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-4)"}}>{p.sku}</div>
+                <div className="pim-mini-bar">
+                  <div style={{ width: p.c + "%", background: "var(--accent)", height: "100%"}}/>
+                </div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div className="mono" style={{ fontSize: 12, color: "var(--accent-ink)", fontWeight: 500 }}>{p.c}%</div>
+                <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-4)"}}>{p.ch}/3 canales</div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ padding: "10px 14px 40px" }}>
+          <button className="btn btn-outline" style={{ width: "100%" }}>
+            <Icon name="qrcode" size={16}/> Escanear producto
+          </button>
+        </div>
+      </div>
+
+      <BottomNav items={[
+        { i: "box", l: "Productos", active: true },
+        { i: "tag", l: "Atributos" },
+        { i: "chart", l: "Canales" },
+        { i: "settings", l: "Admin" }
+      ]}/>
+    </div>
+  );
+}
+
+// ===== Shared mobile bits =====
+function AppTopBar({ app, onBack }) {
+  const a = APPS[app];
+  return (
+    <div className="m-topbar">
+      <button onClick={onBack} className="m-back"><Icon name="chevronRight" size={16} style={{ transform: "rotate(180deg)" }}/></button>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <AppBadge app={app} size={22}/>
+        <span style={{ fontWeight: 600, fontSize: 14 }}>{a.name}</span>
+      </div>
+      <Icon name="dots" size={18}/>
+    </div>
+  );
+}
+
+function BottomNav({ items }) {
+  return (
+    <div className="m-bottomnav">
+      {items.map((it, i) => (
+        <button key={i} className={"m-nav-btn " + (it.active ? "active" : "")}>
+          <span className="m-nav-icon">
+            <Icon name={it.i} size={20}/>
+            {it.badge ? <span className="m-nav-badge">{it.badge}</span> : null}
+          </span>
+          <span className="m-nav-lbl">{it.l}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+Object.assign(window, { HubMobile, TelitaMobile, ComunidappMobile, PimtonexusMobile, AppTopBar, BottomNav });
+
+// Tablet + Desktop mockups — condensed, lower-fidelity companions
+
+function TelitaTablet() {
+  const app = APPS.telita;
+  return (
+    <div className="tb-screen" style={{ "--accent": app.accent, "--accent-deep": app.accentDeep, "--accent-soft": app.accentSoft, "--accent-ink": app.accentInk }}>
+      <div className="tb-side">
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "14px 14px 20px" }}>
+          <AppBadge app="telita" size={28}/>
+          <span style={{ fontWeight: 600, fontSize: 14 }}>Telita</span>
+        </div>
+        {[
+          { i: "chart", l: "Producción", active: true },
+          { i: "box", l: "Stock" },
+          { i: "doc", l: "Órdenes" },
+          { i: "users", l: "Clientes" },
+          { i: "settings", l: "Ajustes" }
+        ].map(x => (
+          <div key={x.l} className={"tb-nav-item " + (x.active ? "active" : "")}>
+            <Icon name={x.i} size={16}/><span>{x.l}</span>
+          </div>
+        ))}
+      </div>
+      <div className="tb-main">
+        <div className="tb-head">
+          <div>
+            <span className="eyebrow">Producción · semana 17</span>
+            <h2 style={{ fontSize: 22, fontWeight: 600, letterSpacing: "-0.02em" }}>Panel operativo</h2>
+          </div>
+          <button className="btn btn-primary" style={{ background: "var(--accent)" }}>
+            <Icon name="plus" size={14}/> Nueva orden
+          </button>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 14 }}>
+          <div className="card" style={{ padding: 18 }}>
+            <div className="eyebrow">Metros tejidos · últimos 7 días</div>
+            <FakeChart hue={app.hue} accent={app.accent}/>
+          </div>
+          <div className="card" style={{ padding: 18 }}>
+            <div className="eyebrow">Estado por orden</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+              {[
+                { n: "ORD-0041", p: 62 },
+                { n: "ORD-0039", p: 100 },
+                { n: "ORD-0044", p: 24 },
+                { n: "ORD-0046", p: 48 }
+              ].map(o => (
+                <div key={o.n}>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span className="mono" style={{ fontSize: 11 }}>{o.n}</span>
+                    <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)"}}>{o.p}%</span>
+                  </div>
+                  <div className="progress" style={{ marginTop: 4 }}>
+                    <div className="progress-fill" style={{ width: o.p + "%", background: "var(--accent)" }}/>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
+  );
+}
 
-    <!-- ── CARD 2 ── -->
-    <div class="card">
-      <div class="card-header">
-        <div class="avatar-initials" style="background:#0f3460;">SR</div>
-        <span class="card-role-badge">Asesora Comercial</span>
+function ComunidappDesktop() {
+  const app = APPS.comunidapp;
+  return (
+    <div className="dk-screen" style={{ "--accent": app.accent, "--accent-deep": app.accentDeep, "--accent-soft": app.accentSoft, "--accent-ink": app.accentInk }}>
+      <div className="dk-side">
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "16px 14px 22px" }}>
+          <AppBadge app="comunidapp" size={28}/>
+          <span style={{ fontWeight: 600, fontSize: 14 }}>Comunidapp</span>
+          <span className="mono" style={{ fontSize: 10, color: "var(--ink-4)", marginLeft: "auto" }}>ADMIN</span>
+        </div>
+        <div className="dk-nav-section">General</div>
+        {[
+          { i: "home", l: "Resumen", a: true },
+          { i: "users", l: "Residentes" },
+          { i: "building", l: "Unidades" },
+          { i: "cal", l: "Reservas" }
+        ].map(x => (
+          <div key={x.l} className={"dk-nav-item " + (x.a ? "active" : "")}>
+            <Icon name={x.i} size={15}/><span>{x.l}</span>
+          </div>
+        ))}
+        <div className="dk-nav-section">Finanzas</div>
+        {[
+          { i: "doc", l: "Gastos comunes" },
+          { i: "chart", l: "Cobranza" },
+          { i: "tag", l: "Multas" }
+        ].map(x => (
+          <div key={x.l} className="dk-nav-item">
+            <Icon name={x.i} size={15}/><span>{x.l}</span>
+          </div>
+        ))}
       </div>
-      <div class="card-body">
-        <div class="card-name">Sofía Rojas</div>
-        <div class="card-specialty">Decoración & Diseño de Interiores</div>
-        <div class="card-info">
-          <div class="info-row">
-            <svg class="info-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.948V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
-            </svg>
-            <div>
-              <span class="info-label">Teléfono</span>
-              +56 9 7654 3210
-            </div>
+      <div className="dk-main">
+        <div className="dk-head">
+          <div>
+            <span className="eyebrow">Edificio Cordillera · Providencia</span>
+            <h2 style={{ fontSize: 22, fontWeight: 600, letterSpacing: "-0.02em" }}>Resumen de abril</h2>
           </div>
-          <div class="info-row">
-            <svg class="info-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
-            </svg>
-            <div>
-              <span class="info-label">Email</span>
-              s.rojas@antunexus.com
+          <div style={{ display: "flex", gap: 8 }}>
+            <div className="comp-input-wrap" style={{ width: 240 }}>
+              <Icon name="search" size={14}/>
+              <input placeholder="Buscar residente, unidad…"/>
             </div>
-          </div>
-          <div class="info-row">
-            <svg class="info-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-            </svg>
-            <div>
-              <span class="info-label">Experiencia</span>
-              5 años en el rubro
-            </div>
+            <button className="btn btn-outline"><Icon name="filter" size={14}/></button>
+            <button className="btn btn-primary" style={{ background: "var(--accent)" }}>
+              <Icon name="plus" size={14}/> Emitir gastos
+            </button>
           </div>
         </div>
-        <div class="skills">
-          <span class="skill-tag">Traslúcidas</span>
-          <span class="skill-tag">Roller Duo</span>
-          <span class="skill-tag">Color a Medida</span>
-          <span class="skill-tag">Diseño</span>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+          {[
+            { l: "Recaudado", v: "$18,4M", d: "de $21,6M" },
+            { l: "Morosidad", v: "14,8%", d: "▼ 2,1 pp" },
+            { l: "Reservas", v: "42", d: "este mes" },
+            { l: "Tickets", v: "7", d: "abiertos" }
+          ].map(k => (
+            <div key={k.l} className="card" style={{ padding: 14 }}>
+              <div className="eyebrow">{k.l}</div>
+              <div style={{ fontSize: 22, fontWeight: 600, letterSpacing: "-0.02em", marginTop: 4 }}>{k.v}</div>
+              <div className="mono" style={{ fontSize: 11, color: "var(--ink-4)" }}>{k.d}</div>
+            </div>
+          ))}
         </div>
-        <a href="mailto:s.rojas@antunexus.com" class="card-cta">Contactar</a>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 12, marginTop: 14 }}>
+          <div className="card" style={{ padding: 18 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
+              <div className="eyebrow">Cobranza últimos 6 meses</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <span className="mono" style={{ fontSize: 10, color: "var(--ink-4)" }}>● recaudado</span>
+                <span className="mono" style={{ fontSize: 10, color: "var(--ink-4)" }}>○ emitido</span>
+              </div>
+            </div>
+            <FakeChart hue={app.hue} accent={app.accent} bars/>
+          </div>
+          <div className="card" style={{ padding: 18 }}>
+            <div className="eyebrow" style={{ marginBottom: 10 }}>Últimos pagos</div>
+            {[
+              { u: "Dpto 412 · C. Ibáñez", m: "$142.380" },
+              { u: "Dpto 206 · R. Soto", m: "$138.900" },
+              { u: "Dpto 703 · M. Pardo", m: "$151.200" },
+              { u: "Dpto 108 · L. Vera", m: "$129.800" }
+            ].map(p => (
+              <div key={p.u} style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid var(--line-2)" }}>
+                <span style={{ fontSize: 13 }}>{p.u}</span>
+                <span className="mono" style={{ fontSize: 12, color: "var(--accent-ink)" }}>{p.m}</span>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
+  );
+}
 
-    <!-- ── CARD 3 ── -->
-    <div class="card">
-      <div class="card-header">
-        <div class="avatar-initials" style="background:#16a085;">JV</div>
-        <span class="card-role-badge">Técnico & Asesor</span>
+function PimtonexusDesktop() {
+  const app = APPS.pimtonexus;
+  return (
+    <div className="dk-screen" style={{ "--accent": app.accent, "--accent-deep": app.accentDeep, "--accent-soft": app.accentSoft, "--accent-ink": app.accentInk }}>
+      <div className="dk-side">
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "16px 14px 22px" }}>
+          <AppBadge app="pimtonexus" size={28}/>
+          <span style={{ fontWeight: 600, fontSize: 14 }}>Pimtonexus</span>
+        </div>
+        {[
+          { i: "box", l: "Productos", a: true, n: 12480 },
+          { i: "tag", l: "Atributos", n: 182 },
+          { i: "package", l: "Variantes", n: 3204 },
+          { i: "chart", l: "Canales", n: 3 },
+          { i: "users", l: "Equipo" },
+          { i: "settings", l: "Admin" }
+        ].map(x => (
+          <div key={x.l} className={"dk-nav-item " + (x.a ? "active" : "")}>
+            <Icon name={x.i} size={15}/>
+            <span>{x.l}</span>
+            {x.n && <span className="mono" style={{ fontSize: 10, color: "var(--ink-4)", marginLeft: "auto" }}>{x.n.toLocaleString()}</span>}
+          </div>
+        ))}
       </div>
-      <div class="card-body">
-        <div class="card-name">Jorge Valenzuela</div>
-        <div class="card-specialty">Instalación & Medición a Domicilio</div>
-        <div class="card-info">
-          <div class="info-row">
-            <svg class="info-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.948V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
-            </svg>
-            <div>
-              <span class="info-label">Teléfono</span>
-              +56 9 6543 2109
-            </div>
+      <div className="dk-main">
+        <div className="dk-head">
+          <div>
+            <div className="dk-breadcrumb mono">Catálogo / Tenant: Falabella / Productos</div>
+            <h2 style={{ fontSize: 22, fontWeight: 600, letterSpacing: "-0.02em", marginTop: 2 }}>Productos</h2>
           </div>
-          <div class="info-row">
-            <svg class="info-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
-            </svg>
-            <div>
-              <span class="info-label">Email</span>
-              j.valenzuela@antunexus.com
-            </div>
-          </div>
-          <div class="info-row">
-            <svg class="info-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-            </svg>
-            <div>
-              <span class="info-label">Experiencia</span>
-              10 años en instalaciones
-            </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn btn-outline"><Icon name="filter" size={14}/> Filtros · 3</button>
+            <button className="btn btn-outline"><Icon name="doc" size={14}/> Exportar</button>
+            <button className="btn btn-primary" style={{ background: "var(--accent)" }}>
+              <Icon name="plus" size={14}/> Nuevo producto
+            </button>
           </div>
         </div>
-        <div class="skills">
-          <span class="skill-tag">Instalación</span>
-          <span class="skill-tag">Medición</span>
-          <span class="skill-tag">Motorizado</span>
-          <span class="skill-tag">Garantía</span>
+
+        <div className="pim-table card">
+          <div className="pim-th">
+            <span style={{ width: 20 }}><Icon name="check" size={12}/></span>
+            <span style={{ flex: 2 }}>Producto</span>
+            <span style={{ flex: 1 }}>SKU</span>
+            <span style={{ flex: 1 }}>Completitud</span>
+            <span style={{ flex: 1 }}>Canales</span>
+            <span style={{ width: 80 }}>Estado</span>
+          </div>
+          {[
+            { n: "Polera oversize algodón", sku: "FL-POL-0482", c: 98, ch: 3, s: "Publicado" },
+            { n: "Jean recto pierna ancha", sku: "FL-JEA-1201", c: 86, ch: 2, s: "Revisión" },
+            { n: "Zapatilla trail running", sku: "FL-ZAP-3310", c: 72, ch: 3, s: "Publicado" },
+            { n: "Vestido midi lino", sku: "FL-VES-0812", c: 64, ch: 1, s: "Borrador" },
+            { n: "Camisa hilo fino", sku: "FL-CAM-4421", c: 91, ch: 3, s: "Publicado" },
+            { n: "Pantalón chino slim", sku: "FL-PAN-0019", c: 58, ch: 0, s: "Borrador" },
+            { n: "Chaqueta impermeable", sku: "FL-CHA-2203", c: 80, ch: 2, s: "Publicado" }
+          ].map(p => (
+            <div key={p.sku} className="pim-tr">
+              <span style={{ width: 20 }}><span className="chk"/></span>
+              <span style={{ flex: 2, display: "flex", gap: 10, alignItems: "center" }}>
+                <Placeholder label="" w={28} h={28} style={{ borderRadius: 6 }}/>
+                <span style={{ fontSize: 13 }}>{p.n}</span>
+              </span>
+              <span style={{ flex: 1 }} className="mono">{p.sku}</span>
+              <span style={{ flex: 1 }}>
+                <div className="pim-mini-bar" style={{ width: "80%" }}>
+                  <div style={{ width: p.c + "%", background: "var(--accent)", height: "100%"}}/>
+                </div>
+                <span className="mono" style={{ fontSize: 10.5, color: "var(--ink-4)" }}>{p.c}%</span>
+              </span>
+              <span style={{ flex: 1 }} className="mono">{p.ch}/3</span>
+              <span style={{ width: 80 }}>
+                <span className="chip" style={{
+                  background: p.s === "Publicado" ? "var(--accent-soft)" : "var(--paper-3)",
+                  color: p.s === "Publicado" ? "var(--accent-ink)" : "var(--ink-2)"
+                }}>{p.s}</span>
+              </span>
+            </div>
+          ))}
         </div>
-        <a href="mailto:j.valenzuela@antunexus.com" class="card-cta">Contactar</a>
       </div>
     </div>
+  );
+}
 
-    <!-- ── CARD 4 ── -->
-    <div class="card">
-      <div class="card-header">
-        <div class="avatar-initials" style="background:#8e44ad;">AL</div>
-        <span class="card-role-badge">Asesora Corporativa</span>
+// Simple fake chart (SVG ok — just lines/rects)
+function FakeChart({ hue = 65, accent, bars }) {
+  const points = [22, 34, 28, 46, 40, 58, 52];
+  const w = 320, h = 140, pad = 10;
+  if (bars) {
+    return (
+      <svg width="100%" viewBox={`0 0 ${w} ${h}`} style={{ marginTop: 6 }}>
+        {points.map((p, i) => {
+          const bh = (p / 70) * (h - pad * 2);
+          const x = pad + i * ((w - pad * 2) / 7);
+          return (
+            <g key={i}>
+              <rect x={x + 4} y={h - pad - (bh - 4)} width={18} height={bh - 4} fill={accent} rx="2" opacity="0.25"/>
+              <rect x={x + 4} y={h - pad - bh * 0.75} width={18} height={bh * 0.75} fill={accent} rx="2"/>
+            </g>
+          );
+        })}
+      </svg>
+    );
+  }
+  const path = points.map((p, i) => {
+    const x = pad + i * ((w - pad * 2) / (points.length - 1));
+    const y = h - pad - (p / 70) * (h - pad * 2);
+    return `${i === 0 ? "M" : "L"} ${x} ${y}`;
+  }).join(" ");
+  const area = path + ` L ${w - pad} ${h - pad} L ${pad} ${h - pad} Z`;
+  return (
+    <svg width="100%" viewBox={`0 0 ${w} ${h}`} style={{ marginTop: 6 }}>
+      <defs>
+        <linearGradient id={"g" + hue} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={accent} stopOpacity="0.25"/>
+          <stop offset="100%" stopColor={accent} stopOpacity="0"/>
+        </linearGradient>
+      </defs>
+      <path d={area} fill={`url(#g${hue})`}/>
+      <path d={path} fill="none" stroke={accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+      {points.map((p, i) => {
+        const x = pad + i * ((w - pad * 2) / (points.length - 1));
+        const y = h - pad - (p / 70) * (h - pad * 2);
+        return <circle key={i} cx={x} cy={y} r="3" fill={accent}/>;
+      })}
+    </svg>
+  );
+}
+
+Object.assign(window, { TelitaTablet, ComunidappDesktop, PimtonexusDesktop, FakeChart });
+
+// AntuNexus — main shell: view switching + tweaks panel
+
+const { useState: uS, useEffect: uE } = React;
+
+function ProtoShell() {
+  const [view, setView] = uS(() => localStorage.getItem("antu.view") || "system");
+  const [activeApp, setActiveApp] = uS(() => localStorage.getItem("antu.app") || window.THEME.activeApp);
+  const [mode, setMode] = uS(() => localStorage.getItem("antu.mode") || window.THEME.mode);
+  const [tweaksOpen, setTweaksOpen] = uS(false);
+  const [mobileScreen, setMobileScreen] = uS("hub");
+
+  uE(() => { localStorage.setItem("antu.view", view); }, [view]);
+  uE(() => { localStorage.setItem("antu.app", activeApp); }, [activeApp]);
+  uE(() => {
+    localStorage.setItem("antu.mode", mode);
+    document.documentElement.setAttribute("data-mode", mode);
+  }, [mode]);
+
+  // Apply active app accent to root
+  uE(() => {
+    const a = APPS[activeApp];
+    if (!a) return;
+    const root = document.documentElement;
+    root.style.setProperty("--accent", a.accent);
+    root.style.setProperty("--accent-deep", a.accentDeep);
+    root.style.setProperty("--accent-soft", a.accentSoft);
+    root.style.setProperty("--accent-ink", a.accentInk);
+  }, [activeApp, mode]);
+
+  // Tweaks protocol
+  uE(() => {
+    const handler = (e) => {
+      if (e.data?.type === "__activate_edit_mode") setTweaksOpen(true);
+      if (e.data?.type === "__deactivate_edit_mode") setTweaksOpen(false);
+    };
+    window.addEventListener("message", handler);
+    window.parent.postMessage({ type: "__edit_mode_available" }, "*");
+    return () => window.removeEventListener("message", handler);
+  }, []);
+
+  const setTheme = (updates) => {
+    window.parent.postMessage({ type: "__edit_mode_set_keys", edits: updates }, "*");
+  };
+
+  return (
+    <div className="proto-canvas">
+      <div className="proto-head">
+        <div className="proto-head-left">
+          <AntuLogo size={26}/>
+          <div>
+            <span className="eyebrow">AntuNexus · Prototipo v0.1</span>
+            <h1 className="serif" style={{ fontSize: 26, letterSpacing: "-0.02em", lineHeight: 1 }}>
+              Un sistema, muchos colores.
+            </h1>
+          </div>
+        </div>
+        <div className="proto-head-right">
+          <div className="proto-nav">
+            <button className={view === "system" ? "active" : ""} onClick={() => setView("system")}>Sistema</button>
+            <button className={view === "responsive" ? "active" : ""} onClick={() => setView("responsive")}>Responsive</button>
+            <button className={view === "flow" ? "active" : ""} onClick={() => setView("flow")}>Flujo mobile</button>
+          </div>
+        </div>
       </div>
-      <div class="card-body">
-        <div class="card-name">Ana Lara</div>
-        <div class="card-specialty">Proyectos Empresariales & Oficinas</div>
-        <div class="card-info">
-          <div class="info-row">
-            <svg class="info-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.948V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
-            </svg>
-            <div>
-              <span class="info-label">Teléfono</span>
-              +56 9 5432 1098
-            </div>
-          </div>
-          <div class="info-row">
-            <svg class="info-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
-            </svg>
-            <div>
-              <span class="info-label">Email</span>
-              a.lara@antunexus.com
-            </div>
-          </div>
-          <div class="info-row">
-            <svg class="info-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-            </svg>
-            <div>
-              <span class="info-label">Experiencia</span>
-              6 años en proyectos B2B
-            </div>
+
+      {view === "system" && <DSShowcase/>}
+      {view === "responsive" && <ResponsiveView activeApp={activeApp}/>}
+      {view === "flow" && <FlowView screen={mobileScreen} onScreen={setMobileScreen}/>}
+
+      {tweaksOpen && (
+        <TweaksPanel
+          activeApp={activeApp}
+          setActiveApp={(k) => { setActiveApp(k); setTheme({ activeApp: k }); }}
+          mode={mode}
+          setMode={(m) => { setMode(m); setTheme({ mode: m }); }}
+          view={view}
+          setView={setView}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---------- Responsive view: mobile + tablet + desktop side by side for chosen app ----------
+function ResponsiveView({ activeApp }) {
+  const appToShow = activeApp === "antunexus" ? "telita" : activeApp;
+  const a = APPS[appToShow];
+
+  const mobileFor = {
+    telita: <TelitaMobile/>,
+    comunidapp: <ComunidappMobile/>,
+    pimtonexus: <PimtonexusMobile/>,
+    antunexus: <HubMobile/>,
+    ecommerce: <TelitaMobile/>, // reuse as placeholder
+    sso: <HubMobile/>,
+    vantura: <TelitaMobile/>,
+    porticos: <HubMobile/>
+  }[appToShow] || <TelitaMobile/>;
+
+  const tabletFor = <TelitaTablet/>;
+  const desktopFor = appToShow === "pimtonexus" ? <PimtonexusDesktop/> : <ComunidappDesktop/>;
+
+  return (
+    <div>
+      <div style={{ maxWidth: 1680, margin: "0 auto 24px", display: "flex", alignItems: "center", gap: 14 }}>
+        <AppBadge app={appToShow} size={42}/>
+        <div>
+          <div className="eyebrow">Caso aplicado</div>
+          <div className="serif" style={{ fontSize: 28, letterSpacing: "-0.02em" }}>{a.name} · {a.tagline}</div>
+        </div>
+        <div style={{ marginLeft: "auto" }} className="mono" style={{ fontSize: 11, color: "var(--ink-4)" }}>
+          Abre Tweaks ↘ para cambiar de app
+        </div>
+      </div>
+
+      <div className="device-grid">
+        <div className="device-wrap">
+          <div className="device-label">Mobile · 375 × 812</div>
+          <div className="frame-mobile">{mobileFor}</div>
+        </div>
+        <div className="device-wrap">
+          <div className="device-label">Tablet · 820 × 1180</div>
+          <div className="frame-tablet">{tabletFor}</div>
+        </div>
+        <div className="device-wrap">
+          <div className="device-label">Desktop · 1440 × 900</div>
+          <div className="frame-desktop">
+            <DesktopChrome url={`app.${appToShow === "antunexus" ? "antunexus" : appToShow}.com`}/>
+            <div style={{ height: "calc(100% - 34px)" }}>{desktopFor}</div>
           </div>
         </div>
-        <div class="skills">
-          <span class="skill-tag">Corporativo</span>
-          <span class="skill-tag">Grandes Vanos</span>
-          <span class="skill-tag">Presupuestos</span>
-          <span class="skill-tag">Cotización</span>
-        </div>
-        <a href="mailto:a.lara@antunexus.com" class="card-cta">Contactar</a>
       </div>
     </div>
+  );
+}
 
-    <!-- ── CARD 5 ── -->
-    <div class="card">
-      <div class="card-header">
-        <div class="avatar-initials" style="background:#d35400;">MP</div>
-        <span class="card-role-badge">Asesor Residencial</span>
-      </div>
-      <div class="card-body">
-        <div class="card-name">Matías Pino</div>
-        <div class="card-specialty">Hogares & Decoración Residencial</div>
-        <div class="card-info">
-          <div class="info-row">
-            <svg class="info-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.948V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
-            </svg>
-            <div>
-              <span class="info-label">Teléfono</span>
-              +56 9 4321 0987
-            </div>
-          </div>
-          <div class="info-row">
-            <svg class="info-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
-            </svg>
-            <div>
-              <span class="info-label">Email</span>
-              m.pino@antunexus.com
-            </div>
-          </div>
-          <div class="info-row">
-            <svg class="info-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-            </svg>
-            <div>
-              <span class="info-label">Experiencia</span>
-              4 años en ventas residenciales
-            </div>
-          </div>
-        </div>
-        <div class="skills">
-          <span class="skill-tag">Residencial</span>
-          <span class="skill-tag">Luz Filtrada</span>
-          <span class="skill-tag">Tejidos</span>
-          <span class="skill-tag">Asesoría</span>
-        </div>
-        <a href="mailto:m.pino@antunexus.com" class="card-cta">Contactar</a>
-      </div>
-    </div>
+// ---------- Flow view: navigable mobile mockups ----------
+function FlowView({ screen, onScreen }) {
+  const screens = [
+    { k: "hub", name: "AntuNexus Hub", cmp: <HubMobile onOpenApp={onScreen}/> },
+    { k: "telita", name: "Telita ERP", cmp: <TelitaMobile onBack={() => onScreen("hub")}/> },
+    { k: "comunidapp", name: "Comunidapp", cmp: <ComunidappMobile onBack={() => onScreen("hub")}/> },
+    { k: "pimtonexus", name: "Pimtonexus", cmp: <PimtonexusMobile onBack={() => onScreen("hub")}/> }
+  ];
+  const current = screens.find(s => s.k === screen) || screens[0];
 
-    <!-- ── CARD 6 ── -->
-    <div class="card">
-      <div class="card-header">
-        <div class="avatar-initials" style="background:#27ae60;">IC</div>
-        <span class="card-role-badge">Especialista Técnica</span>
+  return (
+    <div style={{ maxWidth: 1680, margin: "0 auto", display: "grid", gridTemplateColumns: "1fr 360px 1fr", gap: 40, alignItems: "flex-start" }}>
+      <div style={{ paddingTop: 60 }}>
+        <span className="eyebrow">Navegación mobile</span>
+        <h2 className="serif" style={{ fontSize: 40, letterSpacing: "-0.02em", lineHeight: 1.05, marginTop: 8 }}>
+          Una sesión,<br/>muchas aplicaciones.
+        </h2>
+        <p style={{ fontSize: 15, color: "var(--ink-2)", lineHeight: 1.5, marginTop: 14, maxWidth: 340 }}>
+          Desde el hub de AntuNexus entrás a cualquier producto con sesión única.
+          El color del shell cambia según la app — el sistema, no.
+        </p>
+        <div style={{ marginTop: 24, display: "flex", flexDirection: "column", gap: 6 }}>
+          {screens.map(s => (
+            <button
+              key={s.k}
+              onClick={() => onScreen(s.k)}
+              className="flow-step"
+              style={{
+                display: "flex", alignItems: "center", gap: 12,
+                padding: "10px 12px", borderRadius: 10,
+                background: screen === s.k ? "var(--paper)" : "transparent",
+                border: "1px solid " + (screen === s.k ? "var(--line)" : "transparent"),
+                textAlign: "left",
+                cursor: "pointer"
+              }}
+            >
+              <AppBadge app={s.k === "hub" ? "antunexus" : s.k} size={28}/>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 500 }}>{s.name}</div>
+                <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-4)" }}>0{screens.indexOf(s) + 1} · mobile</div>
+              </div>
+              {screen === s.k && <Icon name="chevronRight" size={14} style={{ marginLeft: "auto", color: "var(--ink-3)" }}/>}
+            </button>
+          ))}
+        </div>
       </div>
-      <div class="card-body">
-        <div class="card-name">Isabel Castro</div>
-        <div class="card-specialty">Automatización & Cortinas Smart Home</div>
-        <div class="card-info">
-          <div class="info-row">
-            <svg class="info-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.948V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
-            </svg>
-            <div>
-              <span class="info-label">Teléfono</span>
-              +56 9 3210 9876
-            </div>
-          </div>
-          <div class="info-row">
-            <svg class="info-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
-            </svg>
-            <div>
-              <span class="info-label">Email</span>
-              i.castro@antunexus.com
-            </div>
-          </div>
-          <div class="info-row">
-            <svg class="info-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-            </svg>
-            <div>
-              <span class="info-label">Experiencia</span>
-              7 años en domótica
-            </div>
-          </div>
+
+      <div className="device-wrap" style={{ margin: "0 auto" }}>
+        <div className="frame-mobile" key={current.k}>
+          <div className="fade-in" style={{ height: "100%" }}>{current.cmp}</div>
         </div>
-        <div class="skills">
-          <span class="skill-tag">Smart Home</span>
-          <span class="skill-tag">Motorizado</span>
-          <span class="skill-tag">App Control</span>
-          <span class="skill-tag">Alexa / Google</span>
+      </div>
+
+      <div style={{ paddingTop: 60 }}>
+        <span className="eyebrow">Observaciones</span>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 12 }}>
+          {[
+            { t: "Color como identidad", d: "Cada app cambia el accent pero mantiene neutrales cálidos y componentes base." },
+            { t: "Mobile-first real", d: "La información crítica (KPIs, CTAs) entra en 375px sin scroll lateral." },
+            { t: "Bottom-nav con badges", d: "Navegación primaria siempre a pulgar, badges para pendientes por rol." },
+            { t: "Tipografía editorial", d: "Instrument Serif para títulos, Inter Tight para UI, JetBrains Mono para datos." }
+          ].map((n,i) => (
+            <div key={i} style={{ padding: 14, background: "var(--paper)", border: "1px solid var(--line)", borderRadius: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>{n.t}</div>
+              <div style={{ fontSize: 13, color: "var(--ink-3)", marginTop: 4, lineHeight: 1.5 }}>{n.d}</div>
+            </div>
+          ))}
         </div>
-        <a href="mailto:i.castro@antunexus.com" class="card-cta">Contactar</a>
       </div>
     </div>
+  );
+}
 
-  </div><!-- /cards-grid -->
-</main>
+// ---------- Tweaks panel ----------
+function TweaksPanel({ activeApp, setActiveApp, mode, setMode, view, setView }) {
+  return (
+    <div className="tweaks-panel">
+      <div className="tweaks-head">
+        <div>
+          <div className="tweaks-title">Tweaks</div>
+          <div className="tweaks-sub">Prototype controls</div>
+        </div>
+        <AntuLogo size={16}/>
+      </div>
+      <div className="tweaks-body">
+        <div>
+          <div className="tweaks-row-label">Vista</div>
+          <div className="tweaks-seg" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+            <button className={view === "system" ? "active" : ""} onClick={() => setView("system")}>Sistema</button>
+            <button className={view === "responsive" ? "active" : ""} onClick={() => setView("responsive")}>Responsive</button>
+            <button className={view === "flow" ? "active" : ""} onClick={() => setView("flow")}>Flujo</button>
+          </div>
+        </div>
 
-<!-- ══════════ FOOTER ══════════ -->
-<footer>
-  <p>
-    &copy; 2026 <strong>AntuNexus</strong> &mdash; Todos los derechos reservados &nbsp;|&nbsp;
-    <a href="https://antunexus.com" target="_blank" rel="noopener">antunexus.com</a>
-    &nbsp;|&nbsp; Una empresa de
-    <a href="https://anthropic.com" target="_blank" rel="noopener">Anthropic.com</a>
-  </p>
-  <p style="margin-top:6px; font-size:0.78rem;">Cortinas Roller a Medida &mdash; Soluciones para hogares y empresas</p>
-</footer>
+        <div>
+          <div className="tweaks-row-label">App activa · color</div>
+          <div className="tweaks-app-grid">
+            {Object.keys(APPS).map(k => {
+              const a = APPS[k];
+              return (
+                <button
+                  key={k}
+                  className={"tweaks-app-btn " + (activeApp === k ? "active" : "")}
+                  style={{ background: `linear-gradient(135deg, ${a.accent}, ${a.accentDeep})` }}
+                  title={a.name}
+                  onClick={() => setActiveApp(k)}
+                >
+                  {a.name[0]}
+                </button>
+              );
+            })}
+          </div>
+          <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-4)", marginTop: 6 }}>
+            {APPS[activeApp].name} · h {APPS[activeApp].hue}°
+          </div>
+        </div>
 
+        <div>
+          <div className="tweaks-row-label">Modo</div>
+          <div className="tweaks-seg">
+            <button className={mode === "light" ? "active" : ""} onClick={() => setMode("light")}>Light</button>
+            <button className={mode === "dark" ? "active" : ""} onClick={() => setMode("dark")}>Dark</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { ProtoShell, ResponsiveView, FlowView, TweaksPanel });
+
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<ProtoShell/>);
+</script>
 </body>
 </html>
