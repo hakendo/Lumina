@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import api from '../../lib/api';
 import { useReportStore } from '../../store/reportStore';
 
-const CHART_TYPES = ['bar', 'line', 'area', 'pie'];
+const CHART_TYPES = ['bar', 'line', 'area', 'pie', 'scatter'];
 const AGG_TYPES = ['sum', 'avg', 'count', 'max', 'min'];
 
 export default function WidgetConfigPanel({ widget, onClose }) {
@@ -17,7 +17,7 @@ export default function WidgetConfigPanel({ widget, onClose }) {
   }, []);
 
   useEffect(() => {
-    if (!datasetId) return;
+    if (!datasetId) { setColumns([]); return; }
     api.get(`/datasets/${datasetId}/columns`).then(({ data }) => setColumns(data));
   }, [datasetId]);
 
@@ -28,10 +28,12 @@ export default function WidgetConfigPanel({ widget, onClose }) {
     onClose();
   };
 
+  const typeLabel = { chart: 'Gráfico', kpi: 'KPI', table: 'Tabla', map: 'Mapa', pivot: 'Tabla Pivot' };
+
   return (
     <div className="w-72 bg-white border-l border-slate-200 h-full overflow-y-auto flex flex-col">
       <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-        <span className="font-semibold text-sm text-slate-700 capitalize">{widget.widgetType} widget</span>
+        <span className="font-semibold text-sm text-slate-700">{typeLabel[widget.widgetType] || widget.widgetType}</span>
         <button onClick={onClose} className="text-slate-400 hover:text-slate-700 text-lg leading-none">✕</button>
       </div>
 
@@ -55,20 +57,25 @@ export default function WidgetConfigPanel({ widget, onClose }) {
                 {CHART_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
               </select>
             </Field>
-            <Field label="Eje X (categoría)">
-              <ColSelect value={cfg.xField} onChange={(v) => set('xField', v)} columns={columns} />
-            </Field>
-            <Field label="Eje Y (valor)">
-              <ColSelect value={cfg.yField} onChange={(v) => set('yField', v)} columns={columns} />
-            </Field>
+            {cfg.chartType === 'scatter' ? (
+              <>
+                <Field label="Eje X (numérico)"><ColSelect value={cfg.xField} onChange={(v) => set('xField', v)} columns={columns} /></Field>
+                <Field label="Eje Y (numérico)"><ColSelect value={cfg.yField} onChange={(v) => set('yField', v)} columns={columns} /></Field>
+                <Field label="Tamaño (opcional)"><ColSelect value={cfg.sizeField} onChange={(v) => set('sizeField', v)} columns={columns} placeholder="— Sin tamaño —" /></Field>
+                <Field label="Etiqueta (opcional)"><ColSelect value={cfg.labelField} onChange={(v) => set('labelField', v)} columns={columns} placeholder="— Sin etiqueta —" /></Field>
+              </>
+            ) : (
+              <>
+                <Field label="Eje X (categoría)"><ColSelect value={cfg.xField} onChange={(v) => set('xField', v)} columns={columns} /></Field>
+                <Field label="Eje Y (valor)"><ColSelect value={cfg.yField} onChange={(v) => set('yField', v)} columns={columns} /></Field>
+              </>
+            )}
           </>
         )}
 
         {widget.widgetType === 'kpi' && (
           <>
-            <Field label="Campo de valor">
-              <ColSelect value={cfg.valueField} onChange={(v) => set('valueField', v)} columns={columns} />
-            </Field>
+            <Field label="Campo de valor"><ColSelect value={cfg.valueField} onChange={(v) => set('valueField', v)} columns={columns} /></Field>
             <Field label="Agregación">
               <select value={cfg.aggregation || 'sum'} onChange={(e) => set('aggregation', e.target.value)} className="input-sm">
                 {AGG_TYPES.map((a) => <option key={a} value={a}>{a}</option>)}
@@ -95,14 +102,23 @@ export default function WidgetConfigPanel({ widget, onClose }) {
 
         {widget.widgetType === 'map' && (
           <>
-            <Field label="Campo Latitud">
-              <ColSelect value={cfg.latField} onChange={(v) => set('latField', v)} columns={columns} />
+            <Field label="Campo Latitud"><ColSelect value={cfg.latField} onChange={(v) => set('latField', v)} columns={columns} /></Field>
+            <Field label="Campo Longitud"><ColSelect value={cfg.lonField} onChange={(v) => set('lonField', v)} columns={columns} /></Field>
+            <Field label="Etiqueta"><ColSelect value={cfg.labelField} onChange={(v) => set('labelField', v)} columns={columns} placeholder="— Ninguna —" /></Field>
+          </>
+        )}
+
+        {widget.widgetType === 'pivot' && (
+          <>
+            <Field label="Filas (agrupar por)"><ColSelect value={cfg.rowField} onChange={(v) => set('rowField', v)} columns={columns} /></Field>
+            <Field label="Columnas (agrupar por, opcional)">
+              <ColSelect value={cfg.colField} onChange={(v) => set('colField', v)} columns={columns} placeholder="— Sin columnas —" />
             </Field>
-            <Field label="Campo Longitud">
-              <ColSelect value={cfg.lonField} onChange={(v) => set('lonField', v)} columns={columns} />
-            </Field>
-            <Field label="Etiqueta">
-              <ColSelect value={cfg.labelField} onChange={(v) => set('labelField', v)} columns={columns} placeholder="— Ninguna —" />
+            <Field label="Valores"><ColSelect value={cfg.valueField} onChange={(v) => set('valueField', v)} columns={columns} /></Field>
+            <Field label="Agregación">
+              <select value={cfg.aggregation || 'sum'} onChange={(e) => set('aggregation', e.target.value)} className="input-sm">
+                {AGG_TYPES.map((a) => <option key={a} value={a}>{a}</option>)}
+              </select>
             </Field>
           </>
         )}
@@ -118,7 +134,7 @@ export default function WidgetConfigPanel({ widget, onClose }) {
         </button>
       </div>
 
-      <style>{`.input-sm { width:100%; border:1px solid #e2e8f0; border-radius:0.5rem; padding:0.375rem 0.625rem; font-size:0.8rem; outline:none; } .input-sm:focus { outline:2px solid #6366f1; }`}</style>
+      <style>{`.input-sm{width:100%;border:1px solid #e2e8f0;border-radius:.5rem;padding:.375rem .625rem;font-size:.8rem;outline:none;}.input-sm:focus{outline:2px solid #6366f1;}`}</style>
     </div>
   );
 }

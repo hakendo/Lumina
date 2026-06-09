@@ -10,50 +10,126 @@ const includeWidgets = {
   widgets: { include: { dataset: { select: { id: true, name: true, sourceType: true } } } },
 };
 
+// ── List / create ─────────────────────────────────────────────────────────────
+
 router.get('/', auth, async (req, res) => {
-  const reports = await prisma.report.findMany({
-    where: { ownerId: req.user.id },
-    include: { _count: { select: { widgets: true } } },
-    orderBy: { updatedAt: 'desc' },
-  });
-  res.json(reports);
+  const [reports, favIds] = await Promise.all([
+    prisma.report.findMany({
+      where: { ownerId: req.user.id },
+      include: { _count: { select: { widgets: true } } },
+      orderBy: { updatedAt: 'desc' },
+    }),
+    prisma.userFavorite.findMany({
+      where: { userId: req.user.id },
+      select: { reportId: true },
+    }),
+  ]);
+  const favSet = new Set(favIds.map((f) => f.reportId));
+  res.json(reports.map((r) => ({ ...r, isFavorited: favSet.has(r.id) })));
 });
 
 router.post('/', auth, async (req, res) => {
   const { title, description } = req.body;
   if (!title) return res.status(400).json({ error: 'title required' });
   const report = await prisma.report.create({
-    data: { ownerId: req.user.id, title, description: description || '', layout: [], isPublic: false },
+    data: { ownerId: req.user.id, title, description: description || '', layout: [], filters: [], isPublic: false },
     include: includeWidgets,
   });
   res.json(report);
 });
 
+// ── Explore: public reports from all users ────────────────────────────────────
+
+router.get('/explore', auth, async (req, res) => {
+  const { q } = req.query;
+  const [reports, favIds] = await Promise.all([
+    prisma.report.findMany({
+      where: {
+        isPublic: true,
+        ...(q && { title: { contains: q, mode: 'insensitive' } }),
+      },
+      include: {
+        owner: { select: { name: true } },
+        _count: { select: { widgets: true, favoritedBy: true } },
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 50,
+    }),
+    prisma.userFavorite.findMany({
+      where: { userId: req.user.id },
+      select: { reportId: true },
+    }),
+  ]);
+  const favSet = new Set(favIds.map((f) => f.reportId));
+  res.json(reports.map((r) => ({ ...r, isFavorited: favSet.has(r.id) })));
+});
+
+// ── Favorites ─────────────────────────────────────────────────────────────────
+
+router.get('/favorites', auth, async (req, res) => {
+  const favs = await prisma.userFavorite.findMany({
+    where: { userId: req.user.id },
+    include: {
+      report: {
+        include: {
+          owner: { select: { name: true } },
+          _count: { select: { widgets: true } },
+        },
+      },
+    },
+    orderBy: { id: 'desc' },
+  });
+  res.json(favs.map((f) => ({ ...f.report, isFavorited: true })));
+});
+
+router.post('/:id/favorite', auth, async (req, res) => {
+  const report = await prisma.report.findUnique({ where: { id: req.params.id } });
+  if (!report || (!report.isPublic && report.ownerId !== req.user.id)) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+  const existing = await prisma.userFavorite.findUnique({
+    where: { userId_reportId: { userId: req.user.id, reportId: report.id } },
+  });
+  if (existing) {
+    await prisma.userFavorite.delete({ where: { id: existing.id } });
+    res.json({ isFavorited: false });
+  } else {
+    await prisma.userFavorite.create({ data: { userId: req.user.id, reportId: report.id } });
+    res.json({ isFavorited: true });
+  }
+});
+
+// ── CRUD ──────────────────────────────────────────────────────────────────────
+
 router.get('/:id', auth, async (req, res) => {
   const report = await prisma.report.findUnique({ where: { id: req.params.id }, include: includeWidgets });
   if (!report) return res.status(404).json({ error: 'Not found' });
   if (report.ownerId !== req.user.id && !report.isPublic) return res.status(403).json({ error: 'Forbidden' });
-  res.json(report);
+  const isFavorited = !!(await prisma.userFavorite.findUnique({
+    where: { userId_reportId: { userId: req.user.id, reportId: report.id } },
+  }));
+  res.json({ ...report, isFavorited });
 });
 
 router.put('/:id', auth, async (req, res) => {
   const report = await prisma.report.findUnique({ where: { id: req.params.id } });
   if (!report || report.ownerId !== req.user.id) return res.status(404).json({ error: 'Not found' });
 
-  const { title, description, layout, widgets } = req.body;
+  const { title, description, layout, filters, widgets } = req.body;
 
   if (widgets) {
     await prisma.reportWidget.deleteMany({ where: { reportId: report.id } });
-    await prisma.reportWidget.createMany({
-      data: widgets.map((w) => ({
-        id: w.id || undefined,
-        reportId: report.id,
-        datasetId: w.datasetId || null,
-        widgetType: w.widgetType,
-        config: w.config || {},
-        position: w.position || {},
-      })),
-    });
+    if (widgets.length) {
+      await prisma.reportWidget.createMany({
+        data: widgets.map((w) => ({
+          reportId: report.id,
+          datasetId: w.datasetId || null,
+          widgetType: w.widgetType,
+          config: w.config || {},
+          position: w.position || {},
+        })),
+      });
+    }
   }
 
   const updated = await prisma.report.update({
@@ -61,7 +137,8 @@ router.put('/:id', auth, async (req, res) => {
     data: {
       ...(title && { title }),
       ...(description !== undefined && { description }),
-      ...(layout && { layout }),
+      ...(layout !== undefined && { layout }),
+      ...(filters !== undefined && { filters }),
     },
     include: includeWidgets,
   });
@@ -75,6 +152,37 @@ router.delete('/:id', auth, async (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Duplicate ─────────────────────────────────────────────────────────────────
+
+router.post('/:id/duplicate', auth, async (req, res) => {
+  const src = await prisma.report.findUnique({ where: { id: req.params.id }, include: includeWidgets });
+  if (!src || (src.ownerId !== req.user.id && !src.isPublic)) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+  const copy = await prisma.report.create({
+    data: {
+      ownerId: req.user.id,
+      title: `${src.title} (copia)`,
+      description: src.description,
+      layout: src.layout,
+      filters: src.filters,
+      isPublic: false,
+      widgets: {
+        create: src.widgets.map((w) => ({
+          datasetId: w.datasetId,
+          widgetType: w.widgetType,
+          config: w.config,
+          position: w.position,
+        })),
+      },
+    },
+    include: includeWidgets,
+  });
+  res.json(copy);
+});
+
+// ── Share ─────────────────────────────────────────────────────────────────────
+
 router.post('/:id/share', auth, async (req, res) => {
   const report = await prisma.report.findUnique({ where: { id: req.params.id } });
   if (!report || report.ownerId !== req.user.id) return res.status(404).json({ error: 'Not found' });
@@ -82,12 +190,11 @@ router.post('/:id/share', auth, async (req, res) => {
   const isPublic = !report.isPublic;
   const slug = isPublic ? (report.slug || nanoid(10)) : report.slug;
 
-  const updated = await prisma.report.update({
-    where: { id: report.id },
-    data: { isPublic, slug },
-  });
+  const updated = await prisma.report.update({ where: { id: report.id }, data: { isPublic, slug } });
   res.json({ isPublic: updated.isPublic, slug: updated.slug });
 });
+
+// ── PDF export ────────────────────────────────────────────────────────────────
 
 router.get('/:id/export/pdf', auth, async (req, res) => {
   const report = await prisma.report.findUnique({ where: { id: req.params.id } });
@@ -107,11 +214,16 @@ router.get('/:id/export/pdf', auth, async (req, res) => {
   }
 });
 
-// Public route — no auth
+// ── Public (no auth) ──────────────────────────────────────────────────────────
+
 router.get('/public/:slug', async (req, res) => {
   const report = await prisma.report.findUnique({
     where: { slug: req.params.slug },
-    include: includeWidgets,
+    include: {
+      ...includeWidgets,
+      owner: { select: { name: true } },
+      _count: { select: { favoritedBy: true } },
+    },
   });
   if (!report || !report.isPublic) return res.status(404).json({ error: 'Not found' });
   res.json(report);

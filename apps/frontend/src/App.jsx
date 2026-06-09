@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard';
 import ReportBuilder from './pages/ReportBuilder';
 import Datasets from './pages/Datasets';
 import PublicReport from './pages/PublicReport';
+import Explore from './pages/Explore';
 
 function RequireAuth({ children }) {
   const token = useAuthStore((s) => s.token);
@@ -29,6 +30,7 @@ export default function App() {
         <Route path="/" element={<RequireAuth><Dashboard /></RequireAuth>} />
         <Route path="/report/:id" element={<RequireAuth><ReportBuilder /></RequireAuth>} />
         <Route path="/datasets" element={<RequireAuth><Datasets /></RequireAuth>} />
+        <Route path="/explore" element={<RequireAuth><Explore /></RequireAuth>} />
       </Routes>
     </BrowserRouter>
   );
