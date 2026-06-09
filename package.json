@@ -1,5 +1,5 @@
 {
-  "name": "nexus-reports",
+  "name": "lumina",
   "private": true,
   "workspaces": ["apps/frontend", "apps/backend"],
   "scripts": {

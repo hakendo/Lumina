@@ -27,7 +27,7 @@ export default function Login() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
       <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-sm">
-        <h1 className="text-2xl font-bold text-slate-800 mb-1">Nexus Reports</h1>
+        <h1 className="text-2xl font-bold text-slate-800 mb-1">Lúmina</h1>
         <p className="text-slate-500 text-sm mb-6">Inicia sesión para continuar</p>
 
         {error && <p className="text-red-600 text-sm mb-4 bg-red-50 p-3 rounded-lg">{error}</p>}

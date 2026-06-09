@@ -67,7 +67,7 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
-        <h1 className="text-lg font-bold text-slate-800">Nexus Reports</h1>
+        <h1 className="text-lg font-bold text-slate-800">Lúmina</h1>
         <div className="flex items-center gap-4">
           <Link to="/datasets" className="text-sm text-slate-600 hover:text-slate-900">Datasets</Link>
           <Link to="/explore" className="text-sm text-slate-600 hover:text-slate-900">Explorar</Link>
