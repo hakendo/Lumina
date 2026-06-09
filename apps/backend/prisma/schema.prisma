@@ -1,0 +1,77 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String         @id @default(cuid())
+  email        String         @unique
+  passwordHash String
+  name         String
+  createdAt    DateTime       @default(now())
+  datasets     Dataset[]
+  reports      Report[]
+  favorites    UserFavorite[]
+}
+
+model Dataset {
+  id         String        @id @default(cuid())
+  ownerId    String
+  owner      User          @relation(fields: [ownerId], references: [id])
+  name       String
+  sourceType String        // csv | excel | api | db
+  config     Json          @default("{}")
+  filePath   String?
+  createdAt  DateTime      @default(now())
+  rows       DatasetRow[]
+  widgets    ReportWidget[]
+}
+
+model DatasetRow {
+  id        String  @id @default(cuid())
+  datasetId String
+  dataset   Dataset @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  rowData   Json
+  rowIndex  Int
+}
+
+model Report {
+  id          String         @id @default(cuid())
+  ownerId     String
+  owner       User           @relation(fields: [ownerId], references: [id])
+  title       String
+  description String         @default("")
+  isPublic    Boolean        @default(false)
+  slug        String?        @unique
+  layout      Json           @default("[]")
+  filters     Json           @default("[]")
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  widgets     ReportWidget[]
+  favoritedBy UserFavorite[]
+}
+
+model UserFavorite {
+  id       String @id @default(cuid())
+  userId   String
+  user     User   @relation(fields: [userId], references: [id])
+  reportId String
+  report   Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, reportId])
+}
+
+model ReportWidget {
+  id        String  @id @default(cuid())
+  reportId  String
+  report    Report  @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  datasetId String?
+  dataset   Dataset? @relation(fields: [datasetId], references: [id])
+  widgetType String  // chart | kpi | table | map
+  config    Json    @default("{}")
+  position  Json    @default("{}")
+}
