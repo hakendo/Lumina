@@ -16,6 +16,7 @@ Plataforma de business intelligence web, multi-usuario, inspirada en Power BI. P
   - [Opción A — Railway (recomendado)](#opción-a--railway-recomendado)
   - [Opción B — VPS / servidor propio (Ubuntu)](#opción-b--vps--servidor-propio-ubuntu)
   - [Opción C — Docker Compose](#opción-c--docker-compose)
+  - [Opción D — Windows Server (IIS + NSSM)](#opción-d--windows-server-iis--nssm)
 - [API — Referencia rápida](#api--referencia-rápida)
 
 ---
@@ -172,8 +173,8 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 ```bash
 # 1. Clonar el repositorio
-git clone https://github.com/hakendo/Cart-presentaci-n.git
-cd Cart-presentaci-n
+git clone https://github.com/hakendo/Lumina.git
+cd Lumina
 
 # 2. Instalar todas las dependencias (frontend + backend juntos)
 npm install
@@ -285,7 +286,7 @@ GRANT ALL PRIVILEGES ON DATABASE lumina TO lumina_user;
 
 ```bash
 cd /var/www
-sudo git clone https://github.com/hakendo/Cart-presentaci-n.git lumina
+sudo git clone https://github.com/hakendo/Lumina.git lumina
 sudo chown -R $USER:$USER /var/www/lumina
 cd /var/www/lumina
 
@@ -509,6 +510,278 @@ VITE_API_URL=https://tu-dominio.com
 ```bash
 docker compose up -d
 docker compose logs -f   # ver logs en tiempo real
+```
+
+---
+
+### Opción D — Windows Server (IIS + NSSM)
+
+Pasos para desplegar en Windows Server 2019 / 2022 usando IIS como proxy inverso y NSSM para mantener el backend corriendo como servicio de Windows.
+
+#### 1. Instalar prerrequisitos
+
+Abre **PowerShell como Administrador** y ejecuta:
+
+```powershell
+# Instalar winget si no está disponible (viene con Windows Server 2022; en 2019 descargar manualmente)
+# https://github.com/microsoft/winget-cli/releases
+
+# Node.js 22 LTS
+winget install OpenJS.NodeJS.LTS
+
+# Git
+winget install Git.Git
+
+# PostgreSQL 16
+winget install PostgreSQL.PostgreSQL
+
+# NSSM (Non-Sucking Service Manager) — para correr Node como servicio de Windows
+winget install NSSM.NSSM
+```
+
+> Cierra y vuelve a abrir PowerShell para que los comandos `node`, `npm` y `git` queden disponibles en el PATH.
+
+#### 2. Configurar PostgreSQL
+
+Abre **pgAdmin** (se instala con PostgreSQL) o conéctate desde psql:
+
+```powershell
+# Conéctate con el usuario postgres
+psql -U postgres
+```
+
+```sql
+CREATE USER lumina_user WITH PASSWORD 'password_seguro';
+CREATE DATABASE lumina OWNER lumina_user;
+GRANT ALL PRIVILEGES ON DATABASE lumina TO lumina_user;
+\q
+```
+
+Verifica que PostgreSQL esté corriendo como servicio de Windows:
+
+```powershell
+Get-Service -Name "postgresql*"
+# Si está detenido:
+Start-Service -Name "postgresql-x64-16"
+```
+
+#### 3. Clonar y configurar la aplicación
+
+```powershell
+# Elegir directorio de instalación
+cd C:\inetpub
+
+git clone https://github.com/hakendo/Lumina.git lumina
+cd lumina
+
+# Instalar dependencias
+npm install
+
+# Crear archivo de entorno del backend
+Copy-Item apps\backend\.env.example apps\backend\.env
+notepad apps\backend\.env
+```
+
+Edita `apps\backend\.env` con los valores reales:
+
+```env
+DATABASE_URL="postgresql://lumina_user:password_seguro@localhost:5432/lumina"
+JWT_SECRET="un_string_largo_y_aleatorio"
+ENCRYPTION_KEY="64_caracteres_hexadecimales"
+PORT=3001
+UPLOAD_DIR="C:\\inetpub\\lumina\\apps\\backend\\uploads"
+FRONTEND_URL="https://tu-dominio.com"
+```
+
+```powershell
+# Aplicar migraciones
+cd apps\backend
+npx prisma migrate deploy
+cd ..\..
+
+# Compilar frontend
+cd apps\frontend
+npm run build
+cd ..\..
+```
+
+#### 4. Registrar el backend como servicio de Windows con NSSM
+
+```powershell
+# Registrar el servicio
+nssm install lumina-backend "C:\Program Files\nodejs\node.exe"
+nssm set lumina-backend AppDirectory "C:\inetpub\lumina\apps\backend"
+nssm set lumina-backend AppParameters "src\index.js"
+nssm set lumina-backend AppEnvironmentExtra "NODE_ENV=production"
+nssm set lumina-backend DisplayName "Lumina Backend"
+nssm set lumina-backend Description "Lumina BI – API Node.js"
+nssm set lumina-backend Start SERVICE_AUTO_START
+
+# Iniciar el servicio
+nssm start lumina-backend
+
+# Verificar estado
+nssm status lumina-backend
+```
+
+Desde ahora el backend arranca automáticamente con Windows. Para ver logs:
+
+```powershell
+# NSSM guarda stdout/stderr si se configura:
+nssm set lumina-backend AppStdout "C:\inetpub\lumina\logs\backend.log"
+nssm set lumina-backend AppStderr "C:\inetpub\lumina\logs\backend-error.log"
+nssm set lumina-backend AppRotateFiles 1
+```
+
+#### 5. Instalar y configurar IIS como proxy inverso
+
+**5.1 Habilitar IIS y los módulos necesarios:**
+
+```powershell
+# Instalar IIS con los módulos requeridos
+Install-WindowsFeature -Name Web-Server, Web-Asp-Net45, Web-Static-Content, Web-Http-Redirect -IncludeManagementTools
+
+# Instalar URL Rewrite Module (necesario para proxy inverso)
+# Descargar desde: https://www.iis.net/downloads/microsoft/url-rewrite
+# O via winget:
+winget install Microsoft.IISUrlRewrite
+
+# Instalar Application Request Routing (ARR — proxy inverso)
+# Descargar desde: https://www.iis.net/downloads/microsoft/application-request-routing
+# O via winget:
+winget install Microsoft.ApplicationRequestRouting
+```
+
+**5.2 Habilitar el proxy en ARR:**
+
+```powershell
+# Habilitar proxy en ARR via PowerShell con el módulo WebAdministration
+Import-Module WebAdministration
+Set-WebConfigurationProperty -pspath 'MACHINE/WEBROOT/APPHOST' `
+  -filter "system.webServer/proxy" -name "enabled" -value "True"
+```
+
+**5.3 Crear el sitio en IIS:**
+
+En el **Administrador de IIS** (o via PowerShell):
+
+```powershell
+Import-Module WebAdministration
+
+# Crear grupo de aplicaciones
+New-WebAppPool -Name "lumina"
+Set-ItemProperty "IIS:\AppPools\lumina" -Name processModel.identityType -Value "ApplicationPoolIdentity"
+
+# Crear sitio apuntando al frontend compilado
+New-Website -Name "lumina" `
+  -PhysicalPath "C:\inetpub\lumina\apps\frontend\dist" `
+  -ApplicationPool "lumina" `
+  -Port 80 `
+  -HostHeader "tu-dominio.com"
+```
+
+**5.4 Agregar `web.config` al frontend compilado** para SPA routing y proxy al backend:
+
+Crea el archivo `C:\inetpub\lumina\apps\frontend\dist\web.config`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+  <system.webServer>
+
+    <!-- Proxy inverso al backend para rutas de API -->
+    <rewrite>
+      <rules>
+        <rule name="API Auth" stopProcessing="true">
+          <match url="^auth/(.*)" />
+          <action type="Rewrite" url="http://localhost:3001/auth/{R:1}" />
+        </rule>
+        <rule name="API Datasets" stopProcessing="true">
+          <match url="^datasets/(.*)" />
+          <action type="Rewrite" url="http://localhost:3001/datasets/{R:1}" />
+        </rule>
+        <rule name="API Reports" stopProcessing="true">
+          <match url="^reports/(.*)" />
+          <action type="Rewrite" url="http://localhost:3001/reports/{R:1}" />
+        </rule>
+        <rule name="Health" stopProcessing="true">
+          <match url="^health$" />
+          <action type="Rewrite" url="http://localhost:3001/health" />
+        </rule>
+        <!-- SPA fallback — siempre devolver index.html -->
+        <rule name="SPA Fallback" stopProcessing="true">
+          <match url=".*" />
+          <conditions logicalGrouping="MatchAll">
+            <add input="{REQUEST_FILENAME}" matchType="IsFile" negate="true" />
+            <add input="{REQUEST_FILENAME}" matchType="IsDirectory" negate="true" />
+          </conditions>
+          <action type="Rewrite" url="/index.html" />
+        </rule>
+      </rules>
+    </rewrite>
+
+    <!-- Cabecera de tamaño máximo para subida de archivos (50 MB) -->
+    <security>
+      <requestFiltering>
+        <requestLimits maxAllowedContentLength="52428800" />
+      </requestFiltering>
+    </security>
+
+    <staticContent>
+      <mimeMap fileExtension=".webmanifest" mimeType="application/manifest+json" />
+    </staticContent>
+
+  </system.webServer>
+</configuration>
+```
+
+#### 6. SSL con win-acme (Let's Encrypt)
+
+```powershell
+# Descargar win-acme desde https://www.win-acme.com/
+# Extraer en C:\win-acme y ejecutar:
+cd C:\win-acme
+.\wacs.exe
+
+# Seguir el asistente:
+# - Seleccionar "Create new certificate"
+# - Elegir el sitio IIS "lumina"
+# - Confirmar el dominio tu-dominio.com
+# win-acme instala el certificado y configura la renovación automática como tarea de Windows
+```
+
+> win-acme crea una **Tarea Programada de Windows** que renueva el certificado automáticamente antes de que expire.
+
+#### 7. Firewall de Windows
+
+```powershell
+# Permitir tráfico HTTP y HTTPS
+New-NetFirewallRule -DisplayName "HTTP" -Direction Inbound -Protocol TCP -LocalPort 80 -Action Allow
+New-NetFirewallRule -DisplayName "HTTPS" -Direction Inbound -Protocol TCP -LocalPort 443 -Action Allow
+
+# El puerto 3001 del backend NO debe exponerse al exterior (IIS hace el proxy)
+```
+
+#### 8. Comandos de mantenimiento útiles
+
+```powershell
+# Ver estado del servicio backend
+nssm status lumina-backend
+
+# Reiniciar el backend (p.ej. tras un deploy)
+nssm restart lumina-backend
+
+# Ver logs en tiempo real
+Get-Content "C:\inetpub\lumina\logs\backend.log" -Wait -Tail 50
+
+# Actualizar la aplicación
+cd C:\inetpub\lumina
+git pull origin main
+npm install
+cd apps\backend && npx prisma migrate deploy && cd ..\..
+cd apps\frontend && npm run build && cd ..\..
+nssm restart lumina-backend
+# IIS sirve automáticamente el nuevo dist/ compilado
 ```
 
 ---
