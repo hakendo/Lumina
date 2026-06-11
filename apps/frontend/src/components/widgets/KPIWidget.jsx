@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 
 export default function KPIWidget({ config, data }) {
-  const { title = 'KPI', valueField, aggregation = 'sum', prefix = '', suffix = '', color = '#6366f1' } = config;
+  const { title = 'KPI', valueField, aggregation = 'sum', prefix = '', suffix = '', color = '#b8730f' } = config;
 
   const value = useMemo(() => {
     if (!data?.length || !valueField) return '—';
@@ -19,12 +19,12 @@ export default function KPIWidget({ config, data }) {
 
   return (
     <div className="h-full flex flex-col items-center justify-center text-center px-4">
-      <p className="text-xs font-medium text-slate-500 mb-2 uppercase tracking-wide">{title}</p>
-      <p className="text-4xl font-bold" style={{ color }}>
+      <p className="text-[11px] font-semibold text-ink-faint mb-2 uppercase tracking-widest">{title}</p>
+      <p className="font-mono font-semibold text-4xl tracking-tight" style={{ color }}>
         {prefix}{value}{suffix}
       </p>
       {aggregation !== 'sum' && (
-        <p className="text-xs text-slate-400 mt-1">{aggregation}</p>
+        <p className="font-mono text-[11px] text-ink-faint mt-1.5">{aggregation}</p>
       )}
     </div>
   );

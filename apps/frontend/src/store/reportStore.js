@@ -19,13 +19,21 @@ export const useReportStore = create((set, get) => ({
       isDirty: false,
     }),
 
+  // Actualiza metadatos del reporte (isPublic, slug, título…) sin tocar
+  // widgets/layout en edición — setReport resetearía cambios sin guardar.
+  patchReport: (patch) => set((s) => ({ report: { ...s.report, ...patch } })),
+
   updateLayout: (layout) => set({ layout, isDirty: true }),
 
   // ── Widgets ──────────────────────────────────────────────────────────────
   addWidget: (widget) =>
     set((s) => ({
       widgets: [...s.widgets, widget],
-      layout: [...s.layout, { i: widget.id, x: 0, y: Infinity, w: 6, h: 4 }],
+      layout: [
+        ...s.layout,
+        // Al fondo del grid (react-grid-layout v2 no acepta y: Infinity)
+        { i: widget.id, x: 0, y: s.layout.reduce((m, l) => Math.max(m, l.y + l.h), 0), w: 6, h: 4 },
+      ],
       isDirty: true,
     })),
 
@@ -47,7 +55,8 @@ export const useReportStore = create((set, get) => ({
 
   removeFilter: (id) =>
     set((s) => {
-      const { [id]: _, ...rest } = s.filterValues;
+      const rest = { ...s.filterValues };
+      delete rest[id];
       return { filters: s.filters.filter((f) => f.id !== id), filterValues: rest, isDirty: true };
     }),
 

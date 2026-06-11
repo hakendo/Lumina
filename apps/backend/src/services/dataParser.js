@@ -27,6 +27,36 @@ function resolveConfig(storedConfig) {
   return { ...pub, ...sensitive };
 }
 
+// Many APIs wrap the row array in an envelope ({ data: [...] }, { results: [...] }…).
+// Without an explicit dataPath, look for the first property holding an array of objects.
+const ENVELOPE_KEYS = ['data', 'results', 'items', 'rows', 'records'];
+
+function extractRows(json, dataPath) {
+  if (dataPath) {
+    const value = dataPath.split('.').reduce((obj, key) => obj?.[key], json);
+    return Array.isArray(value) ? value : (value !== undefined ? [value] : []);
+  }
+  if (Array.isArray(json)) return json;
+  if (json && typeof json === 'object') {
+    for (const key of [...ENVELOPE_KEYS, ...Object.keys(json)]) {
+      const v = json[key];
+      if (Array.isArray(v) && v.length && typeof v[0] === 'object') return v;
+    }
+  }
+  return [json];
+}
+
+// Widgets render cell values with String(v); nested objects/arrays would show
+// as "[object Object]". Store them as JSON text instead.
+function normalizeRow(row) {
+  if (row === null || typeof row !== 'object' || Array.isArray(row)) return { value: row };
+  const out = {};
+  for (const [k, v] of Object.entries(row)) {
+    out[k] = v !== null && typeof v === 'object' ? JSON.stringify(v) : v;
+  }
+  return out;
+}
+
 async function fetchAPI(storedConfig) {
   const config = resolveConfig(storedConfig);
   const { url, method = 'GET', headers = {}, body, dataPath } = config;
@@ -40,11 +70,7 @@ async function fetchAPI(storedConfig) {
   });
   if (!res.ok) throw new Error(`API returned ${res.status} ${res.statusText}`);
   const json = await res.json();
-  if (dataPath) {
-    const value = dataPath.split('.').reduce((obj, key) => obj?.[key], json);
-    return Array.isArray(value) ? value : (value !== undefined ? [value] : []);
-  }
-  return Array.isArray(json) ? json : [json];
+  return extractRows(json, dataPath).map(normalizeRow);
 }
 
 async function queryDB(storedConfig) {

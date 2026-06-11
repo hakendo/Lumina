@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { nanoid } from 'nanoid';
 import api from '../../lib/api';
 import { useReportStore } from '../../store/reportStore';
+import { Icon } from '../ui';
 
 const FILTER_TYPES = [
   { value: 'select', label: 'Selección' },
@@ -45,21 +46,28 @@ export default function FilterBar() {
     setAdding(false);
   };
 
+  const AddButton = (
+    <button onClick={() => setAdding(true)}
+      className="inline-flex items-center gap-1 text-xs text-lumen-deep hover:bg-lumen-soft px-2 py-1 rounded-lg transition cursor-pointer">
+      <Icon name="plus" size={12} /> Agregar filtro
+    </button>
+  );
+
   if (!filters.length && !adding) {
     return (
-      <div className="flex items-center gap-2 px-4 py-1.5 bg-slate-50 border-b border-slate-200">
-        <span className="text-xs text-slate-400">Sin filtros activos</span>
-        <button onClick={() => setAdding(true)}
-          className="text-xs text-indigo-600 hover:bg-indigo-50 px-2 py-0.5 rounded transition">
-          + Agregar filtro
-        </button>
+      <div className="flex items-center gap-2 px-4 py-1.5 bg-paper border-b border-line">
+        <Icon name="filter" size={12} className="text-ink-faint" />
+        <span className="text-xs text-ink-faint">Sin filtros activos</span>
+        {AddButton}
       </div>
     );
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2 px-4 py-2 bg-slate-50 border-b border-slate-200 min-h-[44px]">
-      <span className="text-xs font-medium text-slate-500">Filtros:</span>
+    <div className="flex flex-wrap items-center gap-2 px-4 py-2 bg-paper border-b border-line min-h-[44px]">
+      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-ink-soft">
+        <Icon name="filter" size={12} /> Filtros
+      </span>
 
       {filters.map((f) => (
         <FilterChip key={f.id} filter={f} value={filterValues[f.id]}
@@ -69,33 +77,41 @@ export default function FilterBar() {
       ))}
 
       {adding ? (
-        <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs">
+        <div className="flex items-center gap-1.5 bg-surface border border-line rounded-lg px-2 py-1 text-xs">
           <select value={draft.datasetId}
             onChange={(e) => { setDraft((d) => ({ ...d, datasetId: e.target.value, field: '' })); loadCols(e.target.value); }}
-            className="border-none outline-none text-xs bg-transparent">
-            <option value="">Dataset...</option>
+            className="border-none outline-none text-xs bg-transparent text-ink-soft">
+            <option value="">Dataset…</option>
             {datasets.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
           <select value={draft.field} onChange={(e) => setDraft((d) => ({ ...d, field: e.target.value }))}
-            className="border-none outline-none text-xs bg-transparent">
-            <option value="">Campo...</option>
+            className="border-none outline-none text-xs bg-transparent text-ink-soft">
+            <option value="">Campo…</option>
             {(colsByDs[draft.datasetId] || []).map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
           <select value={draft.type} onChange={(e) => setDraft((d) => ({ ...d, type: e.target.value }))}
-            className="border-none outline-none text-xs bg-transparent">
+            className="border-none outline-none text-xs bg-transparent text-ink-soft">
             {FILTER_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
           </select>
           <input value={draft.label} onChange={(e) => setDraft((d) => ({ ...d, label: e.target.value }))}
-            placeholder="Etiqueta (opcional)" className="border-none outline-none text-xs bg-transparent w-28" />
-          <button onClick={confirmAdd} className="text-indigo-600 font-medium hover:text-indigo-800">✓</button>
-          <button onClick={() => setAdding(false)} className="text-slate-400 hover:text-slate-700">✕</button>
+            placeholder="Etiqueta (opcional)" className="border-none outline-none text-xs bg-transparent w-28 placeholder:text-ink-faint" />
+          <button onClick={confirmAdd} title="Confirmar" className="text-sea hover:opacity-70 cursor-pointer"><Icon name="check" size={13} /></button>
+          <button onClick={() => setAdding(false)} title="Cancelar" className="text-ink-faint hover:text-ink cursor-pointer"><Icon name="x" size={13} /></button>
         </div>
       ) : (
-        <button onClick={() => setAdding(true)}
-          className="text-xs text-indigo-600 hover:bg-indigo-50 px-2 py-0.5 rounded transition">
-          + Agregar
-        </button>
+        AddButton
       )}
+    </div>
+  );
+}
+
+function ChipShell({ children, onRemove }) {
+  return (
+    <div className="flex items-center gap-1 bg-lumen-soft border border-lumen-line rounded-lg px-2 py-0.5 text-xs">
+      {children}
+      <button onClick={onRemove} className="text-lumen-deep/60 hover:text-lumen-deep ml-0.5 cursor-pointer" aria-label="Quitar filtro">
+        <Icon name="x" size={11} />
+      </button>
     </div>
   );
 }
@@ -105,45 +121,42 @@ function FilterChip({ filter, value, options, onChange, onRemove }) {
 
   if (filter.type === 'select') {
     return (
-      <div className="flex items-center gap-1 bg-indigo-50 border border-indigo-200 rounded-lg px-2 py-0.5 text-xs">
-        <span className="text-indigo-700 font-medium">{label}:</span>
+      <ChipShell onRemove={onRemove}>
+        <span className="text-lumen-deep font-semibold">{label}:</span>
         <select value={value || ''} onChange={(e) => onChange(e.target.value || null)}
-          className="border-none outline-none text-xs bg-transparent text-indigo-800 max-w-[120px]">
+          className="border-none outline-none text-xs bg-transparent text-ink max-w-[120px]">
           <option value="">Todos</option>
           {(options || []).map((o) => <option key={o} value={o}>{o}</option>)}
         </select>
-        <button onClick={onRemove} className="text-indigo-400 hover:text-indigo-700 ml-0.5">✕</button>
-      </div>
+      </ChipShell>
     );
   }
 
   if (filter.type === 'range') {
     const [min, max] = Array.isArray(value) ? value : ['', ''];
     return (
-      <div className="flex items-center gap-1 bg-indigo-50 border border-indigo-200 rounded-lg px-2 py-0.5 text-xs">
-        <span className="text-indigo-700 font-medium">{label}:</span>
+      <ChipShell onRemove={onRemove}>
+        <span className="text-lumen-deep font-semibold">{label}:</span>
         <input type="number" placeholder="mín" value={min} onChange={(e) => onChange([e.target.value, max])}
-          className="w-16 border-none outline-none text-xs bg-transparent text-indigo-800 tabular-nums" />
-        <span className="text-indigo-400">—</span>
+          className="w-16 border-none outline-none text-xs bg-transparent text-ink font-mono" />
+        <span className="text-lumen-deep/50">—</span>
         <input type="number" placeholder="máx" value={max} onChange={(e) => onChange([min, e.target.value])}
-          className="w-16 border-none outline-none text-xs bg-transparent text-indigo-800 tabular-nums" />
-        <button onClick={onRemove} className="text-indigo-400 hover:text-indigo-700 ml-0.5">✕</button>
-      </div>
+          className="w-16 border-none outline-none text-xs bg-transparent text-ink font-mono" />
+      </ChipShell>
     );
   }
 
   if (filter.type === 'daterange') {
     const [from, to] = Array.isArray(value) ? value : ['', ''];
     return (
-      <div className="flex items-center gap-1 bg-indigo-50 border border-indigo-200 rounded-lg px-2 py-0.5 text-xs">
-        <span className="text-indigo-700 font-medium">{label}:</span>
+      <ChipShell onRemove={onRemove}>
+        <span className="text-lumen-deep font-semibold">{label}:</span>
         <input type="date" value={from} onChange={(e) => onChange([e.target.value, to])}
-          className="border-none outline-none text-xs bg-transparent text-indigo-800" />
-        <span className="text-indigo-400">→</span>
+          className="border-none outline-none text-xs bg-transparent text-ink font-mono" />
+        <span className="text-lumen-deep/50">→</span>
         <input type="date" value={to} onChange={(e) => onChange([from, e.target.value])}
-          className="border-none outline-none text-xs bg-transparent text-indigo-800" />
-        <button onClick={onRemove} className="text-indigo-400 hover:text-indigo-700 ml-0.5">✕</button>
-      </div>
+          className="border-none outline-none text-xs bg-transparent text-ink font-mono" />
+      </ChipShell>
     );
   }
 

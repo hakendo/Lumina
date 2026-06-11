@@ -64,63 +64,63 @@ export default function PivotWidget({ config, data }) {
   }, [data, config]);
 
   if (!rowField || !valueField) {
-    return <div className="h-full flex items-center justify-center text-slate-400 text-sm">Configura los campos de la tabla pivot</div>;
+    return <div className="h-full flex items-center justify-center text-ink-faint text-sm">Configura los campos de la tabla pivot</div>;
   }
   if (!rowKeys.length) {
-    return <div className="h-full flex items-center justify-center text-slate-400 text-sm">Sin datos</div>;
+    return <div className="h-full flex items-center justify-center text-ink-faint text-sm">Sin datos</div>;
   }
 
   const showCols = colField;
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      {title && <p className="text-xs font-semibold text-slate-600 mb-1 px-1 flex-shrink-0">{title}</p>}
+      {title && <p className="text-xs font-semibold text-ink-soft mb-1 px-1 shrink-0">{title}</p>}
       <div className="flex-1 overflow-auto min-h-0">
         <table className="text-xs border-collapse w-full">
-          <thead className="sticky top-0 bg-slate-50 z-10">
+          <thead className="sticky top-0 bg-paper z-10">
             <tr>
-              <th className="text-left px-3 py-2 font-semibold text-slate-600 border-b border-r border-slate-200 bg-slate-100 whitespace-nowrap">
+              <th className="text-left px-3 py-2 font-mono font-medium text-ink-soft border-b border-r border-line bg-paper-deep whitespace-nowrap">
                 {rowField}
               </th>
               {showCols && colKeys.map((ck) => (
-                <th key={ck} className="px-3 py-2 font-semibold text-slate-600 border-b border-slate-200 text-right whitespace-nowrap">
+                <th key={ck} className="px-3 py-2 font-mono font-medium text-ink-soft border-b border-line text-right whitespace-nowrap">
                   {ck}
                 </th>
               ))}
-              <th className="px-3 py-2 font-semibold text-slate-700 border-b border-l border-slate-200 text-right whitespace-nowrap bg-slate-50">
+              <th className="px-3 py-2 font-mono font-medium text-ink border-b border-l border-line text-right whitespace-nowrap bg-paper">
                 {showCols ? 'Total' : aggregation}
               </th>
             </tr>
           </thead>
           <tbody>
             {rowKeys.map((rk, i) => (
-              <tr key={rk} className={i % 2 === 0 ? '' : 'bg-slate-50'}>
-                <td className="px-3 py-1.5 text-slate-700 border-b border-r border-slate-100 font-medium whitespace-nowrap">
+              <tr key={rk} className={i % 2 === 0 ? '' : 'bg-paper/60'}>
+                <td className="px-3 py-1.5 text-ink-soft border-b border-r border-line-soft font-medium whitespace-nowrap">
                   {rk}
                 </td>
                 {showCols && colKeys.map((ck) => {
                   const v = cells[`${rk}__${ck}`];
                   return (
-                    <td key={ck} className="px-3 py-1.5 text-slate-600 border-b border-slate-100 text-right tabular-nums">
+                    <td key={ck} className="px-3 py-1.5 text-ink-soft border-b border-line-soft text-right font-mono">
                       {fmt(v)}
                     </td>
                   );
                 })}
-                <td className="px-3 py-1.5 text-slate-800 border-b border-l border-slate-100 text-right font-semibold tabular-nums bg-slate-50">
+                <td className="px-3 py-1.5 text-ink border-b border-l border-line-soft text-right font-semibold font-mono bg-paper/60">
                   {fmt(rowTotals[rk])}
                 </td>
               </tr>
             ))}
           </tbody>
           <tfoot>
-            <tr className="bg-slate-100">
-              <td className="px-3 py-2 font-bold text-slate-700 border-t border-r border-slate-200">Total</td>
+            <tr className="bg-lumen-soft/50">
+              <td className="px-3 py-2 font-bold text-ink border-t border-r border-line">Total</td>
               {showCols && colKeys.map((ck) => (
-                <td key={ck} className="px-3 py-2 text-slate-700 border-t border-slate-200 text-right font-semibold tabular-nums">
+                <td key={ck} className="px-3 py-2 text-ink-soft border-t border-line text-right font-semibold font-mono">
                   {fmt(colTotals[ck])}
                 </td>
               ))}
-              <td className="px-3 py-2 font-bold text-slate-800 border-t border-l border-slate-200 text-right tabular-nums">
+              <td className="px-3 py-2 font-bold text-lumen-deep border-t border-l border-line text-right font-mono">
                 {fmt(grandTotal)}
               </td>
             </tr>

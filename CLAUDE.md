@@ -2,53 +2,58 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project Overview
+## Repository layout
 
-**AntuNexus — Cartas de Presentación** is a static, zero-build design system prototype and interactive mockup showcase for 8 AntuNexus applications. Everything lives in a single `index.html` file (~2,163 lines). There is no npm, no build step, and no tooling — open the file in a browser to run it.
+This repo contains two distinct things:
 
-## Running the App
+1. **Lúmina** (`apps/`) — the main project: a BI / reporting web app (npm workspaces monorepo).
+2. **AntuNexus prototype** (`index.html` at the repo root) — an older, standalone static design-system showcase. Single file, React via CDN + Babel Standalone, no build step. `site.zip` is a backup snapshot of it. Do not confuse it with the Lúmina app.
 
-No build or install steps. Open `index.html` directly:
+## Lúmina — main app
+
+### Running
 
 ```bash
-# Any static server works, e.g.:
-python3 -m http.server 8080
-# Then open http://localhost:8080
+npm install            # once, at repo root (workspaces)
+npm run dev            # backend + frontend concurrently
+npm run dev:backend    # Express API only
+npm run dev:frontend   # Vite dev server only
 ```
 
-There are no tests or linters configured.
+There are no tests configured. Frontend lint: `npm --workspace=apps/frontend run lint`.
 
-## Architecture
+### Architecture
 
-The entire application is a single `index.html` with three sections:
+**Backend** (`apps/backend/`): Express + Prisma (SQLite). Structure:
+- `src/routes/` — `auth.js` (JWT), `datasets.js` (CSV/Excel upload, API connectors, DB connectors), `reports.js` (CRUD, favorites, public share via slug, PDF export)
+- `src/services/` — `dataParser.js`, `encryption.js` (AES-256-GCM for connector credentials), `pdfExport.js`
+- `src/middleware/auth.js` — JWT verification
+- `prisma/schema.prisma` — User, Dataset, DataRow, Report, Widget models
 
-1. **CSS (lines 10–732):** Design system tokens, component styles, device frames, dark/light mode. Colors use OKLCH color space via CSS custom properties (`--accent`, `--ink-1`, `--paper`, etc.). App-specific hues are declared as per-app overrides applied to `<html>` at runtime.
+**Frontend** (`apps/frontend/`): React 19 + Vite + Tailwind CSS v4.
+- `src/pages/` — Login, Register, Dashboard, Datasets, Explore, ReportBuilder, PublicReport
+- `src/components/ui.jsx` — shared design-system primitives: `Icon` (inline SVG set), `Wordmark`, `AppHeader`, `Button`, `Field`, `EmptyState`, `SkeletonCards`, `Modal`. **Always use these instead of ad-hoc markup.**
+- `src/components/Canvas/` — report builder internals (WidgetRenderer with per-dataset row cache, WidgetConfigPanel, FilterBar)
+- `src/components/widgets/` — Chart (ECharts), KPI, Table, Pivot, Map (Leaflet)
+- `src/store/` — Zustand stores (`authStore`, `reportStore` with `isDirty` tracking + `applyFilters` helper)
+- `src/lib/api.js` — Axios instance; injects JWT, redirects to /login on 401
 
-2. **JavaScript / React (lines 733–2163):** In-browser React 18 + Babel Standalone (both loaded from CDN — no local bundling). Component structure:
-   - **Global config:** `THEME` object (activeApp, mode, density, radius) and `APPS` object defining 8 apps with distinct hues.
-   - **Primitives:** `AntuLogo`, `Icon`, `StatusBar`, `DesktopChrome`, `AppBadge`, `Placeholder`
-   - **Screen components per app (mobile/tablet/desktop):** `HubMobile`, `TelitaMobile`, `TelitaTablet`, `ComunidappMobile`, `ComunidappDesktop`, `PimtonexusMobile`, `PimtonexusDesktop`
-   - **System views:** `DSShowcase` (design system docs), `ResponsiveView` (side-by-side device frames), `FlowView` (mobile flow demo)
-   - **Shell:** `ProtoShell` — top-level component managing view switching, app selection, dark/light toggle, and localStorage persistence
-   - **`TweaksPanel`:** Fixed overlay (bottom-right) for switching apps and modes at runtime
+### Design system ("mesa de luz")
 
-3. **Jekyll config (`_config.yml`):** 4-line file with project title/description; Jekyll is not actively used for templating.
+Tokens live in `src/index.css` under `@theme` (Tailwind v4 — no `tailwind.config.js`):
 
-## Theming System
+- **Colors:** `paper`/`paper-deep`/`surface` (warm backgrounds), `ink`/`ink-soft`/`ink-faint` (text), `line`/`line-soft` (borders), `lumen-*` (amber accent), `sea` (success/public), `rust` (danger). Use these token classes (`bg-paper`, `text-ink`, `border-line`…) — never raw slate/indigo palette classes.
+- **Fonts:** `font-display` (Fraunces, headings/wordmark), `font-sans` (Hanken Grotesk, body), `font-mono` (Spline Sans Mono, data/numbers/technical details). Loaded via Google Fonts in `index.html`.
+- **Utilities:** `.paper-bg` (page background with grain + glow), `.canvas-bg` (dotted builder canvas), `.field`/`.field-sm`/`.field-mono` (inputs), `.skeleton` (loading shimmer), `animate-rise` (entry animation).
+- Chart palette for ECharts is mirrored in `src/components/widgets/ChartWidget.jsx` (`COLORS`).
 
-App colors propagate through CSS inheritance:
+### Conventions
 
-1. `ProtoShell` sets `data-app="<appId>"` on `<html>` when user picks an app
-2. Per-app CSS rules redefine `--accent`, `--accent-deep`, `--accent-muted`, `--accent-text` on `[data-app="<id>"]`
-3. All components reference `var(--accent-*)` — no inline color values
+- UI copy is in Spanish.
+- Data caching: `WidgetRenderer` caches dataset rows in a module-level `CACHE`; call `invalidateDatasetCache(datasetId)` after any operation that changes a dataset's rows (see `Datasets.jsx` sync).
+- `reportStore.isDirty` drives the unsaved-changes badge, the beforeunload guard, and Ctrl/Cmd+S save in `ReportBuilder`.
+- Connector credentials (API headers, DB connection strings) are encrypted at rest; never log or display them.
 
-The 8 apps and their OKLCH hues: AntuNexus (65°), Telita (25°), Telita Shop (350°), Comunidapp (155°), Pimtonexus (250°), Nexus ID (290°), Vantura (210°), Pórticos (45°).
+## AntuNexus prototype (root `index.html`)
 
-## Persistence & Integration
-
-- **localStorage:** saves active view, active app, and dark/light mode preference
-- **postMessage API:** `ProtoShell` listens for `__activate_edit_mode` / `__deactivate_edit_mode` and `__edit_mode_set_keys` messages from a parent window (design tool integration)
-
-## Deployment
-
-The project deploys as a single static file. `site.zip` is an older backup snapshot; the canonical file is `index.html`.
+Static, zero-build mockup showcase for 8 AntuNexus applications (~2,160 lines: CSS design tokens in OKLCH, in-browser React 18 + Babel via CDN). Serve with any static server (`python3 -m http.server 8080`). Theming propagates via `data-app` attribute on `<html>` + per-app CSS custom property overrides. Persists view/app/mode in localStorage; listens for `__activate_edit_mode` postMessage from a parent design tool.

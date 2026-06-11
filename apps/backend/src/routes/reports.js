@@ -10,6 +10,21 @@ const includeWidgets = {
   widgets: { include: { dataset: { select: { id: true, name: true, sourceType: true } } } },
 };
 
+// ── Permisos ──────────────────────────────────────────────────────────────────
+// Rol efectivo de un usuario sobre un reporte: owner > editor > viewer > null.
+// `report` debe incluir `shares` o se consulta el share puntual.
+async function getRole(report, userId) {
+  if (!report) return null;
+  if (report.ownerId === userId) return 'owner';
+  const share = await prisma.reportShare.findUnique({
+    where: { reportId_userId: { reportId: report.id, userId } },
+  });
+  if (share) return share.role; // viewer | editor
+  return report.isPublic ? 'viewer' : null;
+}
+
+const CAN_EDIT = new Set(['owner', 'editor']);
+
 // ── List / create ─────────────────────────────────────────────────────────────
 
 router.get('/', auth, async (req, res) => {
@@ -64,6 +79,24 @@ router.get('/explore', auth, async (req, res) => {
   res.json(reports.map((r) => ({ ...r, isFavorited: favSet.has(r.id) })));
 });
 
+// ── Compartidos conmigo ───────────────────────────────────────────────────────
+
+router.get('/shared', auth, async (req, res) => {
+  const shares = await prisma.reportShare.findMany({
+    where: { userId: req.user.id },
+    include: {
+      report: {
+        include: {
+          owner: { select: { name: true } },
+          _count: { select: { widgets: true } },
+        },
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+  res.json(shares.map((s) => ({ ...s.report, myRole: s.role })));
+});
+
 // ── Favorites ─────────────────────────────────────────────────────────────────
 
 router.get('/favorites', auth, async (req, res) => {
@@ -104,16 +137,18 @@ router.post('/:id/favorite', auth, async (req, res) => {
 router.get('/:id', auth, async (req, res) => {
   const report = await prisma.report.findUnique({ where: { id: req.params.id }, include: includeWidgets });
   if (!report) return res.status(404).json({ error: 'Not found' });
-  if (report.ownerId !== req.user.id && !report.isPublic) return res.status(403).json({ error: 'Forbidden' });
+  const myRole = await getRole(report, req.user.id);
+  if (!myRole) return res.status(403).json({ error: 'Forbidden' });
   const isFavorited = !!(await prisma.userFavorite.findUnique({
     where: { userId_reportId: { userId: req.user.id, reportId: report.id } },
   }));
-  res.json({ ...report, isFavorited });
+  res.json({ ...report, isFavorited, myRole });
 });
 
 router.put('/:id', auth, async (req, res) => {
   const report = await prisma.report.findUnique({ where: { id: req.params.id } });
-  if (!report || report.ownerId !== req.user.id) return res.status(404).json({ error: 'Not found' });
+  const myRole = await getRole(report, req.user.id);
+  if (!report || !CAN_EDIT.has(myRole)) return res.status(404).json({ error: 'Not found' });
 
   const { title, description, layout, filters, widgets } = req.body;
 
@@ -121,7 +156,10 @@ router.put('/:id', auth, async (req, res) => {
     await prisma.reportWidget.deleteMany({ where: { reportId: report.id } });
     if (widgets.length) {
       await prisma.reportWidget.createMany({
+        // Keep the client-provided widget id: the report layout references it,
+        // so regenerating ids here would orphan every layout entry on reload.
         data: widgets.map((w) => ({
+          ...(w.id && { id: w.id }),
           reportId: report.id,
           datasetId: w.datasetId || null,
           widgetType: w.widgetType,
@@ -156,7 +194,7 @@ router.delete('/:id', auth, async (req, res) => {
 
 router.post('/:id/duplicate', auth, async (req, res) => {
   const src = await prisma.report.findUnique({ where: { id: req.params.id }, include: includeWidgets });
-  if (!src || (src.ownerId !== req.user.id && !src.isPublic)) {
+  if (!src || !(await getRole(src, req.user.id))) {
     return res.status(404).json({ error: 'Not found' });
   }
   const copy = await prisma.report.create({
@@ -179,6 +217,49 @@ router.post('/:id/duplicate', auth, async (req, res) => {
     include: includeWidgets,
   });
   res.json(copy);
+});
+
+// ── Compartir con personas (email + rol) ──────────────────────────────────────
+
+router.get('/:id/shares', auth, async (req, res) => {
+  const report = await prisma.report.findUnique({ where: { id: req.params.id } });
+  if (!report || report.ownerId !== req.user.id) return res.status(404).json({ error: 'Not found' });
+  const shares = await prisma.reportShare.findMany({
+    where: { reportId: report.id },
+    include: { user: { select: { id: true, name: true, email: true } } },
+    orderBy: { createdAt: 'asc' },
+  });
+  res.json(shares);
+});
+
+router.post('/:id/shares', auth, async (req, res) => {
+  const report = await prisma.report.findUnique({ where: { id: req.params.id } });
+  if (!report || report.ownerId !== req.user.id) return res.status(404).json({ error: 'Not found' });
+
+  const { email, role = 'viewer' } = req.body;
+  if (!email?.trim()) return res.status(400).json({ error: 'email requerido' });
+  if (!['viewer', 'editor'].includes(role)) return res.status(400).json({ error: 'rol inválido' });
+
+  const target = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
+  if (!target) return res.status(404).json({ error: 'No existe un usuario con ese email' });
+  if (target.id === req.user.id) return res.status(400).json({ error: 'No puedes compartirte un reporte a ti mismo' });
+
+  const share = await prisma.reportShare.upsert({
+    where: { reportId_userId: { reportId: report.id, userId: target.id } },
+    create: { reportId: report.id, userId: target.id, role },
+    update: { role },
+    include: { user: { select: { id: true, name: true, email: true } } },
+  });
+  res.json(share);
+});
+
+router.delete('/:id/shares/:shareId', auth, async (req, res) => {
+  const report = await prisma.report.findUnique({ where: { id: req.params.id } });
+  if (!report || report.ownerId !== req.user.id) return res.status(404).json({ error: 'Not found' });
+  const share = await prisma.reportShare.findUnique({ where: { id: req.params.shareId } });
+  if (!share || share.reportId !== report.id) return res.status(404).json({ error: 'Share not found' });
+  await prisma.reportShare.delete({ where: { id: share.id } });
+  res.json({ ok: true });
 });
 
 // ── Share ─────────────────────────────────────────────────────────────────────

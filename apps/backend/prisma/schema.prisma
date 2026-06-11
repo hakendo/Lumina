@@ -16,6 +16,7 @@ model User {
   datasets     Dataset[]
   reports      Report[]
   favorites    UserFavorite[]
+  sharedWithMe ReportShare[]
 }
 
 model Dataset {
@@ -53,6 +54,19 @@ model Report {
   updatedAt   DateTime       @updatedAt
   widgets     ReportWidget[]
   favoritedBy UserFavorite[]
+  shares      ReportShare[]
+}
+
+model ReportShare {
+  id        String   @id @default(cuid())
+  reportId  String
+  report    Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String   @default("viewer") // viewer | editor
+  createdAt DateTime @default(now())
+
+  @@unique([reportId, userId])
 }
 
 model UserFavorite {

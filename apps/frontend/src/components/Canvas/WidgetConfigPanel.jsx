@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import api from '../../lib/api';
 import { useReportStore } from '../../store/reportStore';
+import { Button, Field, Icon } from '../ui';
 
 const CHART_TYPES = ['bar', 'line', 'area', 'pie', 'scatter'];
 const AGG_TYPES = ['sum', 'avg', 'count', 'max', 'min'];
@@ -8,7 +9,7 @@ const AGG_TYPES = ['sum', 'avg', 'count', 'max', 'min'];
 export default function WidgetConfigPanel({ widget, onClose }) {
   const { updateWidget, removeWidget } = useReportStore();
   const [datasets, setDatasets] = useState([]);
-  const [columns, setColumns] = useState([]);
+  const [columnsByDs, setColumnsByDs] = useState({});
   const [cfg, setCfg] = useState(widget.config || {});
   const [datasetId, setDatasetId] = useState(widget.datasetId || '');
 
@@ -17,9 +18,13 @@ export default function WidgetConfigPanel({ widget, onClose }) {
   }, []);
 
   useEffect(() => {
-    if (!datasetId) { setColumns([]); return; }
-    api.get(`/datasets/${datasetId}/columns`).then(({ data }) => setColumns(data));
+    if (!datasetId) return;
+    api.get(`/datasets/${datasetId}/columns`).then(({ data }) =>
+      setColumnsByDs((prev) => ({ ...prev, [datasetId]: data }))
+    );
   }, [datasetId]);
+
+  const columns = datasetId ? columnsByDs[datasetId] || [] : [];
 
   const set = (key, val) => setCfg((c) => ({ ...c, [key]: val }));
 
@@ -31,20 +36,22 @@ export default function WidgetConfigPanel({ widget, onClose }) {
   const typeLabel = { chart: 'Gráfico', kpi: 'KPI', table: 'Tabla', map: 'Mapa', pivot: 'Tabla Pivot' };
 
   return (
-    <div className="w-72 bg-white border-l border-slate-200 h-full overflow-y-auto flex flex-col">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-        <span className="font-semibold text-sm text-slate-700">{typeLabel[widget.widgetType] || widget.widgetType}</span>
-        <button onClick={onClose} className="text-slate-400 hover:text-slate-700 text-lg leading-none">✕</button>
+    <div className="fixed md:static inset-y-0 right-0 z-50 w-full max-w-xs md:max-w-none md:w-72 bg-surface border-l border-line h-full overflow-y-auto flex flex-col shadow-lift md:shadow-none">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-line-soft">
+        <span className="font-display text-sm text-ink">{typeLabel[widget.widgetType] || widget.widgetType}</span>
+        <button onClick={onClose} className="text-ink-faint hover:text-ink transition cursor-pointer" aria-label="Cerrar">
+          <Icon name="x" size={16} />
+        </button>
       </div>
 
       <div className="p-4 space-y-4 flex-1">
         <Field label="Título">
           <input value={cfg.title || ''} onChange={(e) => set('title', e.target.value)}
-            className="input-sm" placeholder="Título del widget" />
+            className="field field-sm" placeholder="Título del widget" />
         </Field>
 
         <Field label="Dataset">
-          <select value={datasetId} onChange={(e) => setDatasetId(e.target.value)} className="input-sm">
+          <select value={datasetId} onChange={(e) => setDatasetId(e.target.value)} className="field field-sm">
             <option value="">— Sin dataset —</option>
             {datasets.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
@@ -53,7 +60,7 @@ export default function WidgetConfigPanel({ widget, onClose }) {
         {widget.widgetType === 'chart' && (
           <>
             <Field label="Tipo de gráfico">
-              <select value={cfg.chartType || 'bar'} onChange={(e) => set('chartType', e.target.value)} className="input-sm">
+              <select value={cfg.chartType || 'bar'} onChange={(e) => set('chartType', e.target.value)} className="field field-sm">
                 {CHART_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
               </select>
             </Field>
@@ -77,18 +84,19 @@ export default function WidgetConfigPanel({ widget, onClose }) {
           <>
             <Field label="Campo de valor"><ColSelect value={cfg.valueField} onChange={(v) => set('valueField', v)} columns={columns} /></Field>
             <Field label="Agregación">
-              <select value={cfg.aggregation || 'sum'} onChange={(e) => set('aggregation', e.target.value)} className="input-sm">
+              <select value={cfg.aggregation || 'sum'} onChange={(e) => set('aggregation', e.target.value)} className="field field-sm">
                 {AGG_TYPES.map((a) => <option key={a} value={a}>{a}</option>)}
               </select>
             </Field>
             <Field label="Prefijo">
-              <input value={cfg.prefix || ''} onChange={(e) => set('prefix', e.target.value)} className="input-sm" placeholder="ej. $" />
+              <input value={cfg.prefix || ''} onChange={(e) => set('prefix', e.target.value)} className="field field-sm" placeholder="ej. $" />
             </Field>
             <Field label="Sufijo">
-              <input value={cfg.suffix || ''} onChange={(e) => set('suffix', e.target.value)} className="input-sm" placeholder="ej. USD" />
+              <input value={cfg.suffix || ''} onChange={(e) => set('suffix', e.target.value)} className="field field-sm" placeholder="ej. USD" />
             </Field>
             <Field label="Color">
-              <input type="color" value={cfg.color || '#6366f1'} onChange={(e) => set('color', e.target.value)} className="h-8 w-full rounded cursor-pointer" />
+              <input type="color" value={cfg.color || '#b8730f'} onChange={(e) => set('color', e.target.value)}
+                className="h-8 w-full rounded-lg cursor-pointer border border-line bg-surface" />
             </Field>
           </>
         )}
@@ -96,7 +104,7 @@ export default function WidgetConfigPanel({ widget, onClose }) {
         {widget.widgetType === 'table' && (
           <Field label="Columnas (vacío = todas)">
             <input value={(cfg.columns || []).join(', ')} onChange={(e) => set('columns', e.target.value.split(',').map((s) => s.trim()).filter(Boolean))}
-              className="input-sm" placeholder="col1, col2, col3" />
+              className="field field-sm field-mono" placeholder="col1, col2, col3" />
           </Field>
         )}
 
@@ -116,7 +124,7 @@ export default function WidgetConfigPanel({ widget, onClose }) {
             </Field>
             <Field label="Valores"><ColSelect value={cfg.valueField} onChange={(v) => set('valueField', v)} columns={columns} /></Field>
             <Field label="Agregación">
-              <select value={cfg.aggregation || 'sum'} onChange={(e) => set('aggregation', e.target.value)} className="input-sm">
+              <select value={cfg.aggregation || 'sum'} onChange={(e) => set('aggregation', e.target.value)} className="field field-sm">
                 {AGG_TYPES.map((a) => <option key={a} value={a}>{a}</option>)}
               </select>
             </Field>
@@ -124,33 +132,20 @@ export default function WidgetConfigPanel({ widget, onClose }) {
         )}
       </div>
 
-      <div className="p-4 border-t border-slate-100 flex gap-2">
-        <button onClick={save} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg py-2 text-sm font-medium transition">
-          Aplicar
-        </button>
-        <button onClick={() => { removeWidget(widget.id); onClose(); }}
-          className="text-red-500 hover:bg-red-50 rounded-lg px-3 py-2 text-sm transition">
-          Eliminar
-        </button>
+      <div className="p-4 border-t border-line-soft flex gap-2">
+        <Button onClick={save} className="flex-1" size="sm">Aplicar</Button>
+        <Button variant="danger" size="sm" title="Eliminar widget"
+          onClick={() => { removeWidget(widget.id); onClose(); }}>
+          <Icon name="trash" size={13} />
+        </Button>
       </div>
-
-      <style>{`.input-sm{width:100%;border:1px solid #e2e8f0;border-radius:.5rem;padding:.375rem .625rem;font-size:.8rem;outline:none;}.input-sm:focus{outline:2px solid #6366f1;}`}</style>
-    </div>
-  );
-}
-
-function Field({ label, children }) {
-  return (
-    <div>
-      <label className="block text-xs font-medium text-slate-600 mb-1">{label}</label>
-      {children}
     </div>
   );
 }
 
 function ColSelect({ value, onChange, columns, placeholder = '— Columna —' }) {
   return (
-    <select value={value || ''} onChange={(e) => onChange(e.target.value)} className="input-sm">
+    <select value={value || ''} onChange={(e) => onChange(e.target.value)} className="field field-sm">
       <option value="">{placeholder}</option>
       {columns.map((c) => <option key={c} value={c}>{c}</option>)}
     </select>
