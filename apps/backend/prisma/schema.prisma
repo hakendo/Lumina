@@ -12,6 +12,11 @@ model User {
   email        String         @unique
   passwordHash String
   name         String
+  role         String         @default("user") // user | superadmin
+  isActive     Boolean        @default(true)
+  mfaEnabled   Boolean        @default(false)
+  mfaEnforced  Boolean        @default(false) // el admin exige MFA: setup obligatorio en el próximo login
+  mfaSecret    String? // secreto TOTP cifrado (AES-256-GCM, services/encryption)
   createdAt    DateTime       @default(now())
   datasets     Dataset[]
   reports      Report[]

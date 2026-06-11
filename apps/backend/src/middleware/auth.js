@@ -7,7 +7,10 @@ module.exports = function authMiddleware(req, res, next) {
   }
   const token = header.slice(7);
   try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET);
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    // Los tokens intermedios del reto MFA (stage: 'mfa' | 'mfa-setup') no son sesión válida
+    if (payload.stage) return res.status(401).json({ error: 'Invalid token' });
+    req.user = payload;
     next();
   } catch {
     res.status(401).json({ error: 'Invalid token' });

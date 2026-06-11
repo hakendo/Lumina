@@ -8,6 +8,9 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/auth': 'http://localhost:3001',
+      // Específico a propósito: '/admin' a secas capturaría también la
+      // navegación SPA a la página /admin (refresh → 404 del backend)
+      '/admin/users': 'http://localhost:3001',
       '/datasets': 'http://localhost:3001',
       '/reports': 'http://localhost:3001',
     },

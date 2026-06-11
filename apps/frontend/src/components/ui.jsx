@@ -29,6 +29,8 @@ const PATHS = {
   pencil: <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />,
   eye: <><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></>,
   sun: <><circle cx="12" cy="12" r="4" /><path d="M12 2v2" /><path d="M12 20v2" /><path d="m4.93 4.93 1.41 1.41" /><path d="m17.66 17.66 1.41 1.41" /><path d="M2 12h2" /><path d="M20 12h2" /><path d="m6.34 17.66-1.41 1.41" /><path d="m19.07 4.93-1.41 1.41" /></>,
+  shield: <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />,
+  users: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></>,
 };
 
 export function Icon({ name, size = 16, className = '', filled = false, strokeWidth = 2 }) {
@@ -69,12 +71,13 @@ const NAV = [
 
 export function AppHeader() {
   const { user, logout } = useAuthStore();
+  const nav = user?.role === 'superadmin' ? [...NAV, { to: '/admin', label: 'Usuarios' }] : NAV;
   return (
     <header className="sticky top-0 z-40 bg-surface/85 backdrop-blur border-b border-line">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-3 sm:gap-6">
         <Link to="/" className="shrink-0"><Wordmark size="text-lg" /></Link>
         <nav className="flex items-center gap-1 flex-1 overflow-x-auto">
-          {NAV.map(({ to, label }) => (
+          {nav.map(({ to, label }) => (
             <NavLink key={to} to={to} end={to === '/'}
               className={({ isActive }) =>
                 `px-3 py-1.5 rounded-lg text-sm transition ${

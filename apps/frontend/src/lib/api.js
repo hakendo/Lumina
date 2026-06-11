@@ -10,6 +10,8 @@ export function setMemoryToken(token) {
 }
 
 api.interceptors.request.use((config) => {
+  // No pisar un Authorization explícito (el reto MFA usa un token temporal propio)
+  if (config.headers.Authorization) return config;
   const token = memoryToken || localStorage.getItem('token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;

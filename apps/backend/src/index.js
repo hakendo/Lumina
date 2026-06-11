@@ -14,6 +14,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
 app.use('/auth', require('./routes/auth'));
+app.use('/admin', require('./routes/admin'));
 app.use('/datasets', require('./routes/datasets'));
 app.use('/reports', require('./routes/reports'));
 

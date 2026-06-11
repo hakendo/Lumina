@@ -2,15 +2,16 @@ import { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
 import { Wordmark } from './components/ui';
+import Mascot from './components/Mascot';
 
 const Login = lazy(() => import('./pages/Login'));
-const Register = lazy(() => import('./pages/Register'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const ReportBuilder = lazy(() => import('./pages/ReportBuilder'));
 const Datasets = lazy(() => import('./pages/Datasets'));
 const PublicReport = lazy(() => import('./pages/PublicReport'));
 const ReportView = lazy(() => import('./pages/ReportView'));
 const Explore = lazy(() => import('./pages/Explore'));
+const Admin = lazy(() => import('./pages/Admin'));
 
 function RequireAuth({ children }) {
   const token = useAuthStore((s) => s.token);
@@ -38,7 +39,6 @@ export default function App() {
       <Suspense fallback={<PageLoader />}>
         <Routes>
           <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
           <Route path="/public/:slug" element={<PublicReport />} />
           <Route path="/" element={<RequireAuth><Dashboard /></RequireAuth>} />
           <Route path="/report/:id" element={<RequireAuth><ReportBuilder /></RequireAuth>} />
@@ -46,7 +46,10 @@ export default function App() {
           <Route path="/report/:id/view" element={<ReportView />} />
           <Route path="/datasets" element={<RequireAuth><Datasets /></RequireAuth>} />
           <Route path="/explore" element={<RequireAuth><Explore /></RequireAuth>} />
+          {/* El rol se valida dentro de Admin (frontend) y en cada endpoint /admin (backend) */}
+          <Route path="/admin" element={<RequireAuth><Admin /></RequireAuth>} />
         </Routes>
+        <Mascot />
       </Suspense>
     </BrowserRouter>
   );
