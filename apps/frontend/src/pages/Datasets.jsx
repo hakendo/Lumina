@@ -13,6 +13,7 @@ export default function Datasets() {
   const [datasets, setDatasets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [areas, setAreas] = useState([]);
   const [tab, setTab] = useState('csv'); // csv | api | db
   const [preview, setPreview] = useState(null);
   const [editTarget, setEditTarget] = useState(null);
@@ -20,9 +21,13 @@ export default function Datasets() {
   const [status, setStatus] = useState('');
 
   useEffect(() => {
-    api.get('/datasets')
-      .then(({ data }) => setDatasets(data))
-      .catch(() => setLoadError('No se pudieron cargar los datasets.'))
+    Promise.all([
+      api.get('/datasets'),
+      api.get('/areas/mine'),
+    ]).then(([{ data: ds }, { data: ar }]) => {
+      setDatasets(ds);
+      setAreas(ar);
+    }).catch(() => setLoadError('No se pudieron cargar los datasets.'))
       .finally(() => setLoading(false));
   }, []);
 
@@ -94,9 +99,9 @@ export default function Datasets() {
             ))}
           </div>
           <div className="p-5">
-            {tab === 'csv' && <CSVForm onCreated={addDataset} />}
-            {tab === 'api' && <APIForm onCreated={addDataset} />}
-            {tab === 'db' && <DBForm onCreated={addDataset} />}
+            {tab === 'csv' && <CSVForm onCreated={addDataset} areas={areas} />}
+            {tab === 'api' && <APIForm onCreated={addDataset} areas={areas} />}
+            {tab === 'db' && <DBForm onCreated={addDataset} areas={areas} />}
           </div>
         </div>
 
@@ -236,6 +241,7 @@ function DatasetCard({ ds, index, onDelete, onPreview, onSync, onEdit }) {
           <p className="font-display text-sm text-ink truncate">{ds.name}</p>
           <p className="font-mono text-[11px] text-ink-faint">
             {source.label} · {ds._count?.rows ?? 0} filas
+            {ds.area && <> · <span className="text-lumen-deep">{ds.area.name}</span></>}
           </p>
         </div>
       </div>
@@ -280,8 +286,20 @@ function CardBtn({ icon, label, onClick, accent = false }) {
 
 // ── Formularios ──────────────────────────────────────────────────────────────
 
-function CSVForm({ onCreated }) {
+function AreaSelect({ areas, value, onChange }) {
+  return (
+    <Field label="Área">
+      <select value={value} onChange={(e) => onChange(e.target.value)} className="field">
+        <option value="">— Seleccionar área —</option>
+        {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+      </select>
+    </Field>
+  );
+}
+
+function CSVForm({ onCreated, areas }) {
   const [name, setName] = useState('');
+  const [areaId, setAreaId] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const fileRef = useRef();
@@ -291,14 +309,17 @@ function CSVForm({ onCreated }) {
     const file = fileRef.current?.files[0];
     if (!file) return setMsg('Selecciona un archivo');
     if (!name.trim()) return setMsg('Ingresa un nombre');
+    if (!areaId) return setMsg('Selecciona un área');
     setBusy(true); setMsg('');
     try {
       const form = new FormData();
       form.append('file', file);
       form.append('name', name);
+      form.append('areaId', areaId);
       const { data } = await api.post('/datasets/upload', form);
-      onCreated({ id: data.id, name: data.name, sourceType: 'csv', config: {}, _count: { rows: data.count } });
-      setName(''); fileRef.current.value = '';
+      const area = areas.find((a) => a.id === areaId);
+      onCreated({ id: data.id, name: data.name, sourceType: 'csv', config: {}, _count: { rows: data.count }, area: area ? { id: area.id, name: area.name } : null });
+      setName(''); setAreaId(''); fileRef.current.value = '';
       setMsg(`✓ ${data.count} filas importadas`);
     } catch (err) { setMsg(`Error: ${err.response?.data?.error || err.message}`); }
     finally { setBusy(false); }
@@ -309,6 +330,7 @@ function CSVForm({ onCreated }) {
       <Field label="Nombre">
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="ej. Ventas 2024" className="field" />
       </Field>
+      <AreaSelect areas={areas} value={areaId} onChange={setAreaId} />
       <Field label="Archivo">
         <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.ods"
           className="text-sm text-ink-soft file:mr-3 file:text-xs file:bg-lumen-soft file:text-lumen-deep file:border-0 file:rounded-lg file:px-3 file:py-1.5 file:cursor-pointer file:font-medium" />
@@ -386,11 +408,12 @@ const rowsToObject = (rows) => {
   return o;
 };
 
-function APIForm({ onCreated, initial = {}, onSaved }) {
+function APIForm({ onCreated, initial = {}, onSaved, areas = [] }) {
   const isEdit = !!onSaved;
   const storedHeaderKeys = initial.config?.headerKeys || [];
   const storedQueryKeys = initial.config?.queryParamKeys || [];
   const [name, setName] = useState(initial.name || '');
+  const [areaId, setAreaId] = useState(initial.areaId || '');
   const [url, setUrl] = useState(initial.config?.url || '');
   const [method, setMethod] = useState(initial.config?.method || 'GET');
   const [dataPath, setDataPath] = useState(initial.config?.dataPath || '');
@@ -427,7 +450,8 @@ function APIForm({ onCreated, initial = {}, onSaved }) {
     e.preventDefault();
     setBusy(true); setMsg('');
     try {
-      const payload = { name, url, method, dataPath, allowInsecureSsl };
+      if (!isEdit && !areaId) throw new Error('Selecciona un área');
+      const payload = { name, url, method, dataPath, allowInsecureSsl, ...(!isEdit && { areaId }) };
       // Solo enviar sensibles si el usuario escribió algo; en edición,
       // omitirlos conserva los guardados (cifrados) en el backend.
       const h = rowsToObject(headerRows);
@@ -444,8 +468,9 @@ function APIForm({ onCreated, initial = {}, onSaved }) {
         onSaved(data);
       } else {
         ({ data } = await api.post('/datasets/api-connector', payload));
-        onCreated({ id: data.id, name: data.name, sourceType: 'api', config: data.config, _count: { rows: 0 } });
-        setName(''); setUrl(''); setHeaderRows([]); setQueryRows([]); setBody(''); setDataPath(''); setSample('');
+        const area = areas.find((a) => a.id === areaId);
+        onCreated({ id: data.id, name: data.name, sourceType: 'api', config: data.config, _count: { rows: 0 }, area: area ? { id: area.id, name: area.name } : null });
+        setName(''); setAreaId(''); setUrl(''); setHeaderRows([]); setQueryRows([]); setBody(''); setDataPath(''); setSample('');
       }
       setMsg('✓ Conector guardado');
     } catch (err) { setMsg(`Error: ${err.response?.data?.error || err.message}`); }
@@ -455,9 +480,12 @@ function APIForm({ onCreated, initial = {}, onSaved }) {
   return (
     <form onSubmit={submit} className="space-y-3">
       {!isEdit && (
-        <Field label="Nombre">
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="ej. API de clientes" className="field" />
-        </Field>
+        <>
+          <Field label="Nombre">
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="ej. API de clientes" className="field" />
+          </Field>
+          <AreaSelect areas={areas} value={areaId} onChange={setAreaId} />
+        </>
       )}
       <div className="flex gap-2">
         <div className="w-28">
@@ -596,9 +624,10 @@ function APIForm({ onCreated, initial = {}, onSaved }) {
   );
 }
 
-function DBForm({ onCreated, initial = {}, onSaved }) {
+function DBForm({ onCreated, initial = {}, onSaved, areas = [] }) {
   const isEdit = !!onSaved;
   const [name, setName] = useState(initial.name || '');
+  const [areaId, setAreaId] = useState(initial.areaId || '');
   const [dbType, setDbType] = useState(initial.config?.dbType || 'pg');
   const [connStr, setConnStr] = useState('');
   const [query, setQuery] = useState(initial.config?.query || '');
@@ -609,7 +638,8 @@ function DBForm({ onCreated, initial = {}, onSaved }) {
     e.preventDefault();
     setBusy(true); setMsg('');
     try {
-      const payload = { name, dbType, query, ...(connStr.trim() && { connectionString: connStr }) };
+      if (!isEdit && !areaId) { setMsg('Selecciona un área'); setBusy(false); return; }
+      const payload = { name, dbType, query, ...(!isEdit && { areaId }), ...(connStr.trim() && { connectionString: connStr }) };
       if (isEdit && !connStr.trim()) delete payload.connectionString;
 
       let data;
@@ -619,8 +649,9 @@ function DBForm({ onCreated, initial = {}, onSaved }) {
       } else {
         if (!connStr.trim()) { setMsg('El connection string es requerido'); setBusy(false); return; }
         ({ data } = await api.post('/datasets/db-connector', payload));
-        onCreated({ id: data.id, name: data.name, sourceType: 'db', config: data.config, _count: { rows: 0 } });
-        setName(''); setConnStr(''); setQuery('');
+        const area = areas.find((a) => a.id === areaId);
+        onCreated({ id: data.id, name: data.name, sourceType: 'db', config: data.config, _count: { rows: 0 }, area: area ? { id: area.id, name: area.name } : null });
+        setName(''); setAreaId(''); setConnStr(''); setQuery('');
       }
       setMsg('✓ Conector guardado');
     } catch (err) { setMsg(`Error: ${err.response?.data?.error || err.message}`); }
@@ -630,9 +661,12 @@ function DBForm({ onCreated, initial = {}, onSaved }) {
   return (
     <form onSubmit={submit} className="space-y-3">
       {!isEdit && (
-        <Field label="Nombre">
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="ej. DB Producción" className="field" />
-        </Field>
+        <>
+          <Field label="Nombre">
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="ej. DB Producción" className="field" />
+          </Field>
+          <AreaSelect areas={areas} value={areaId} onChange={setAreaId} />
+        </>
       )}
       <Field label="Motor">
         <select value={dbType} onChange={(e) => setDbType(e.target.value)} className="field">
