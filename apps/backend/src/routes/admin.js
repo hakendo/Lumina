@@ -135,7 +135,7 @@ router.post('/reports/:reportId/assign', async (req, res) => {
     where: { id: req.params.reportId, isTemplate: true },
     include: {
       pages: { orderBy: { order: 'asc' }, include: { widgets: true } },
-      widgets: true, // legacy widgets without page
+      widgets: true,
     },
   });
   if (!src) return res.status(404).json({ error: 'Plantilla no encontrada' });
@@ -143,7 +143,51 @@ router.post('/reports/:reportId/assign', async (req, res) => {
   const targetUser = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, orgId: true } });
   if (!targetUser?.orgId) return res.status(400).json({ error: 'Usuario no pertenece a una organización' });
 
-  // Deep clone: report + pages + widgets (datasetId nulled — org admin reconnects)
+  // ── Clonar datasets referenciados por la plantilla ─────────────────
+  // Collect unique datasetIds across all widgets
+  const allWidgets = [
+    ...src.pages.flatMap((p) => p.widgets),
+    ...src.widgets.filter((w) => !w.pageId),
+  ];
+  const uniqueDatasetIds = [...new Set(allWidgets.map((w) => w.datasetId).filter(Boolean))];
+
+  const srcDatasets = uniqueDatasetIds.length
+    ? await prisma.dataset.findMany({ where: { id: { in: uniqueDatasetIds } } })
+    : [];
+
+  // Build stripped clones: keep structural config, strip credentials (_enc)
+  const datasetMap = {}; // old id → new id
+  for (const ds of srcDatasets) {
+    let strippedConfig = {};
+    if (ds.sourceType === 'api') {
+      // Keep endpoint structure; strip auth/headers/body
+      const { _enc, hasHeaders, hasBody, ...pub } = ds.config ?? {};
+      strippedConfig = { ...pub, hasHeaders: false, hasBody: false };
+    } else if (ds.sourceType === 'db') {
+      // Keep db type + query; strip connection string
+      const { _enc, ...pub } = ds.config ?? {};
+      strippedConfig = pub;
+    } else {
+      // csv / excel / derived — no file to transfer; skip
+      datasetMap[ds.id] = null;
+      continue;
+    }
+
+    const cloned = await prisma.dataset.create({
+      data: {
+        name: ds.name,
+        sourceType: ds.sourceType,
+        config: strippedConfig,
+        uploadedById: userId,
+        areaId: null, // org admin assigns to area later
+      },
+    });
+    datasetMap[ds.id] = cloned.id;
+  }
+
+  const resolveDs = (id) => (id ? (datasetMap[id] ?? null) : null);
+
+  // ── Deep-clone report + pages + widgets ────────────────────────────
   const newReport = await prisma.report.create({
     data: {
       title: src.title,
@@ -161,7 +205,7 @@ router.post('/reports/:reportId/assign', async (req, res) => {
               widgetType: w.widgetType,
               config: w.config,
               position: w.position,
-              datasetId: null, // org-scoped; admin must reconnect
+              datasetId: resolveDs(w.datasetId),
             })),
           },
         })),
@@ -170,7 +214,7 @@ router.post('/reports/:reportId/assign', async (req, res) => {
     include: { _count: { select: { widgets: true, pages: true } } },
   });
 
-  // Clone legacy root-level widgets (no page)
+  // Legacy root-level widgets
   const rootWidgets = src.widgets.filter((w) => !w.pageId);
   if (rootWidgets.length > 0) {
     await prisma.reportWidget.createMany({
@@ -179,12 +223,21 @@ router.post('/reports/:reportId/assign', async (req, res) => {
         widgetType: w.widgetType,
         config: w.config,
         position: w.position,
-        datasetId: null,
+        datasetId: resolveDs(w.datasetId),
       })),
     });
   }
 
-  res.status(201).json(newReport);
+  // Send notification to assigned user
+  await prisma.notification.create({
+    data: {
+      userId,
+      type: 'template_assigned',
+      payload: { reportId: newReport.id, reportTitle: newReport.title },
+    },
+  });
+
+  res.status(201).json({ ...newReport, datasetsCloned: Object.values(datasetMap).filter(Boolean).length });
 });
 
 // ── Vista global de reportes (superadmin) ─────────────────────────

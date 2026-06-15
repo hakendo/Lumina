@@ -764,10 +764,11 @@ function TemplatesPanel({ orgs }) {
     setAssignLoading(true);
     setError('');
     try {
-      await api.post(`/admin/reports/${assignTarget.id}/assign`, { userId: assignUserId });
+      const { data } = await api.post(`/admin/reports/${assignTarget.id}/assign`, { userId: assignUserId });
       const user = orgUsers.find((u) => u.id === assignUserId);
       const org = orgs.find((o) => o.id === assignOrgId);
-      setSuccess(`Plantilla "${assignTarget.title}" asignada a ${user?.name} (${org?.name})`);
+      const dsMsg = data.datasetsCloned > 0 ? ` · ${data.datasetsCloned} dataset(s) clonado(s) sin credenciales` : '';
+      setSuccess(`Plantilla "${assignTarget.title}" asignada a ${user?.name} (${org?.name})${dsMsg}`);
       setAssignTarget(null);
     } catch (err) {
       setError(err.response?.data?.error || 'Error al asignar');
@@ -838,10 +839,14 @@ function TemplatesPanel({ orgs }) {
 
       {assignTarget && (
         <Modal title={`Asignar: ${assignTarget.title}`} onClose={() => setAssignTarget(null)} maxWidth="max-w-sm">
-          <p className="text-sm text-ink-soft mb-4">
-            Se creará una copia del reporte en la cuenta del usuario seleccionado.
-            Los widgets conservan su estructura pero <strong>sin datos conectados</strong> — el usuario deberá vincular sus propios datasets.
-          </p>
+          <div className="text-sm text-ink-soft mb-4 space-y-2">
+            <p>Se creará una copia del reporte en la cuenta del usuario seleccionado.</p>
+            <ul className="text-xs text-ink-faint space-y-1 border border-line-soft rounded-lg px-3 py-2.5 bg-paper-deep/40">
+              <li>· Los <strong className="text-ink">datasets API/DB</strong> se clonan con la URL del endpoint, sin credenciales ni headers de autenticación.</li>
+              <li>· Los datasets de <strong className="text-ink">archivo</strong> (CSV/Excel) no se transfieren — el usuario deberá subir su propio archivo.</li>
+              <li>· El administrador de la organización deberá configurar sus propias credenciales desde la página de Datasets.</li>
+            </ul>
+          </div>
           <div className="space-y-4">
             <Field label="Organización cliente">
               <select className="field" value={assignOrgId} onChange={(e) => setAssignOrgId(e.target.value)}>

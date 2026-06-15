@@ -110,7 +110,7 @@ function NotificationBell() {
     if (!open && unread > 0) markRead();
   };
 
-  const LABELS = { share_added: 'Reporte compartido contigo', area_published: 'Nuevo reporte en tu área' };
+  const LABELS = { share_added: 'Reporte compartido contigo', area_published: 'Nuevo reporte en tu área', template_assigned: 'Plantilla asignada a tu cuenta' };
 
   return (
     <div className="relative" ref={ref}>
