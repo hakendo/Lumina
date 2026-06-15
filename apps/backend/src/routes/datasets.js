@@ -122,15 +122,17 @@ router.get('/:id', auth, async (req, res) => {
 router.post('/upload', auth, upload.single('file'), async (req, res) => {
   const { name, areaId } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'name required' });
-  if (!areaId) return res.status(400).json({ error: 'areaId required' });
   if (!req.file) return res.status(400).json({ error: 'No file provided' });
 
-  const canAccess = await prisma.areaMember.findUnique({
-    where: { areaId_userId: { areaId, userId: req.user.id } },
-  });
   const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { role: true } });
-  if (!canAccess && user?.role !== 'superadmin') {
-    return res.status(403).json({ error: 'Sin acceso a esa área' });
+  const isSuperadmin = user?.role === 'superadmin';
+  if (!areaId && !isSuperadmin) return res.status(400).json({ error: 'areaId required' });
+
+  if (areaId) {
+    const canAccess = await prisma.areaMember.findUnique({
+      where: { areaId_userId: { areaId, userId: req.user.id } },
+    });
+    if (!canAccess && !isSuperadmin) return res.status(403).json({ error: 'Sin acceso a esa área' });
   }
 
   const rows = await parseFile(req.file.path, req.file.mimetype);
@@ -150,15 +152,17 @@ router.post('/upload', auth, upload.single('file'), async (req, res) => {
 router.post('/api-connector', auth, async (req, res) => {
   const { name, areaId, url, method = 'GET', headers = {}, queryParams = {}, body, dataPath, allowInsecureSsl = false } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'name required' });
-  if (!areaId) return res.status(400).json({ error: 'areaId required' });
   if (!url?.trim()) return res.status(400).json({ error: 'url required' });
 
-  const canAccess = await prisma.areaMember.findUnique({
-    where: { areaId_userId: { areaId, userId: req.user.id } },
-  });
   const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { role: true } });
-  if (!canAccess && user?.role !== 'superadmin') {
-    return res.status(403).json({ error: 'Sin acceso a esa área' });
+  const isSuperadmin = user?.role === 'superadmin';
+  if (!areaId && !isSuperadmin) return res.status(400).json({ error: 'areaId required' });
+
+  if (areaId) {
+    const canAccess = await prisma.areaMember.findUnique({
+      where: { areaId_userId: { areaId, userId: req.user.id } },
+    });
+    if (!canAccess && !isSuperadmin) return res.status(403).json({ error: 'Sin acceso a esa área' });
   }
   // SEC-013: allowInsecureSsl only for admins
   if (allowInsecureSsl && !['org_admin', 'superadmin'].includes(user?.role)) {
@@ -221,16 +225,18 @@ router.put('/:id/api-connector', auth, async (req, res) => {
 router.post('/db-connector', auth, async (req, res) => {
   const { name, areaId, dbType = 'pg', connectionString, query } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'name required' });
-  if (!areaId) return res.status(400).json({ error: 'areaId required' });
   if (!connectionString?.trim()) return res.status(400).json({ error: 'connectionString required' });
   if (!query?.trim()) return res.status(400).json({ error: 'query required' });
 
-  const canAccess = await prisma.areaMember.findUnique({
-    where: { areaId_userId: { areaId, userId: req.user.id } },
-  });
   const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { role: true } });
-  if (!canAccess && user?.role !== 'superadmin') {
-    return res.status(403).json({ error: 'Sin acceso a esa área' });
+  const isSuperadmin = user?.role === 'superadmin';
+  if (!areaId && !isSuperadmin) return res.status(400).json({ error: 'areaId required' });
+
+  if (areaId) {
+    const canAccess = await prisma.areaMember.findUnique({
+      where: { areaId_userId: { areaId, userId: req.user.id } },
+    });
+    if (!canAccess && !isSuperadmin) return res.status(403).json({ error: 'Sin acceso a esa área' });
   }
 
   const config = { dbType, query, _enc: encrypt({ connectionString }) };
@@ -266,15 +272,17 @@ router.post('/derived', auth, async (req, res) => {
   const { name, areaId, sources } = req.body;
   // sources: [{ datasetId, alias }], joins: [{ left, right, on }], columns: [{ name, expression }]
   if (!name?.trim()) return res.status(400).json({ error: 'name required' });
-  if (!areaId) return res.status(400).json({ error: 'areaId required' });
   if (!sources?.length) return res.status(400).json({ error: 'al menos un dataset fuente requerido' });
 
-  const canAccess = await prisma.areaMember.findUnique({
-    where: { areaId_userId: { areaId, userId: req.user.id } },
-  });
   const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { role: true } });
-  if (!canAccess && user?.role !== 'superadmin') {
-    return res.status(403).json({ error: 'Sin acceso a esa área' });
+  const isSuperadmin = user?.role === 'superadmin';
+  if (!areaId && !isSuperadmin) return res.status(400).json({ error: 'areaId required' });
+
+  if (areaId) {
+    const canAccess = await prisma.areaMember.findUnique({
+      where: { areaId_userId: { areaId, userId: req.user.id } },
+    });
+    if (!canAccess && !isSuperadmin) return res.status(403).json({ error: 'Sin acceso a esa área' });
   }
 
   const { joins = [], columns = [], filters = [] } = req.body;

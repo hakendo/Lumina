@@ -293,6 +293,7 @@ function CardBtn({ icon, label, onClick, accent = false }) {
 // ── Formularios ──────────────────────────────────────────────────────────────
 
 function AreaSelect({ areas, value, onChange }) {
+  if (!areas.length) return null; // superadmin has no org/areas
   return (
     <Field label="Área">
       <select value={value} onChange={(e) => onChange(e.target.value)} className="field">
@@ -315,7 +316,7 @@ function CSVForm({ onCreated, areas }) {
     const file = fileRef.current?.files[0];
     if (!file) return setMsg('Selecciona un archivo');
     if (!name.trim()) return setMsg('Ingresa un nombre');
-    if (!areaId) return setMsg('Selecciona un área');
+    if (areas.length && !areaId) return setMsg('Selecciona un área');
     setBusy(true); setMsg('');
     try {
       const form = new FormData();
@@ -456,7 +457,7 @@ function APIForm({ onCreated, initial = {}, onSaved, areas = [] }) {
     e.preventDefault();
     setBusy(true); setMsg('');
     try {
-      if (!isEdit && !areaId) throw new Error('Selecciona un área');
+      if (!isEdit && areas.length && !areaId) throw new Error('Selecciona un área');
       const payload = { name, url, method, dataPath, allowInsecureSsl, ...(!isEdit && { areaId }) };
       // Solo enviar sensibles si el usuario escribió algo; en edición,
       // omitirlos conserva los guardados (cifrados) en el backend.
@@ -644,7 +645,7 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [] }) {
     e.preventDefault();
     setBusy(true); setMsg('');
     try {
-      if (!isEdit && !areaId) { setMsg('Selecciona un área'); setBusy(false); return; }
+      if (!isEdit && areas.length && !areaId) { setMsg('Selecciona un área'); setBusy(false); return; }
       const payload = { name, dbType, query, ...(!isEdit && { areaId }), ...(connStr.trim() && { connectionString: connStr }) };
       if (isEdit && !connStr.trim()) delete payload.connectionString;
 
@@ -762,7 +763,7 @@ function DerivedDatasetForm({ onCreated, areas, availableDatasets }) {
   const submit = async (e) => {
     e.preventDefault();
     if (!name.trim()) return setMsg('Ingresa un nombre');
-    if (!areaId) return setMsg('Selecciona un área');
+    if (areas.length && !areaId) return setMsg('Selecciona un área');
     if (!sources[0]?.datasetId) return setMsg('Selecciona al menos un dataset fuente');
     setBusy(true); setMsg('');
     try {
