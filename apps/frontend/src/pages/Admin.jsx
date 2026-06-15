@@ -714,12 +714,13 @@ function TemplatesPanel({ orgs }) {
   }, []);
 
   useEffect(() => {
-    if (!assignOrgId) { setOrgUsers([]); setAssignUserId(''); return; }
-    setLoadingUsers(true);
+    if (!assignOrgId) return;
+    let active = true;
     api.get(`/admin/users?orgId=${assignOrgId}`)
-      .then(({ data }) => { setOrgUsers(data); setAssignUserId(data[0]?.id || ''); })
-      .catch(() => {})
-      .finally(() => setLoadingUsers(false));
+      .then(({ data }) => { if (active) { setOrgUsers(data); setAssignUserId(data[0]?.id || ''); } })
+      .catch(() => { if (active) setOrgUsers([]); })
+      .finally(() => { if (active) setLoadingUsers(false); });
+    return () => { active = false; };
   }, [assignOrgId]);
 
   const createTemplate = async (e) => {
@@ -751,6 +752,9 @@ function TemplatesPanel({ orgs }) {
   const startAssign = (t) => {
     setAssignTarget(t);
     setAssignOrgId(orgs[0]?.id || '');
+    setOrgUsers([]);
+    setAssignUserId('');
+    setLoadingUsers(true);
     setError('');
     setSuccess('');
   };
@@ -952,7 +956,7 @@ export default function Admin() {
 
         {view === 'templates' && orgs && <TemplatesPanel orgs={orgs} />}
         {view === 'templates' && !orgs && <div className="skeleton h-48 rounded-2xl" />}
-        {view === 'orgs' && (
+        {view === 'orgs' && (<>
 
         {!orgs ? (
           <div className="grid grid-cols-4 gap-6">
@@ -1050,7 +1054,7 @@ export default function Admin() {
             </div>
           </div>
         )}
-        )} {/* end view === 'orgs' */}
+        </>)}
       </main>
 
       {creatingOrg && (
