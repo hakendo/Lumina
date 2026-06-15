@@ -13,11 +13,15 @@ const prisma = new PrismaClient();
 authenticator.options = { window: 1 };
 
 function publicUser(u) {
-  return { id: u.id, email: u.email, name: u.name, role: u.role, mfaEnabled: u.mfaEnabled };
+  return { id: u.id, email: u.email, name: u.name, role: u.role, orgId: u.orgId ?? null, mfaEnabled: u.mfaEnabled };
 }
 
 function sessionToken(user) {
-  return jwt.sign({ id: user.id, email: user.email, role: user.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
+  return jwt.sign(
+    { id: user.id, email: user.email, role: user.role, orgId: user.orgId ?? null },
+    process.env.JWT_SECRET,
+    { expiresIn: '7d' }
+  );
 }
 
 // Token intermedio del reto MFA: corto y con stage, nunca sirve como sesión
@@ -139,7 +143,7 @@ router.post('/mfa/disable', authMiddleware, async (req, res) => {
 router.get('/me', authMiddleware, async (req, res) => {
   const user = await prisma.user.findUnique({
     where: { id: req.user.id },
-    select: { id: true, email: true, name: true, role: true, mfaEnabled: true, mfaEnforced: true, createdAt: true },
+    select: { id: true, email: true, name: true, role: true, orgId: true, mfaEnabled: true, mfaEnforced: true, createdAt: true },
   });
   res.json(user);
 });

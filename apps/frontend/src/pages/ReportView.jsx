@@ -2,25 +2,29 @@ import { useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import GridLayout, { useContainerWidth } from 'react-grid-layout';
 import api, { setMemoryToken } from '../lib/api';
+import { exportReportCsv } from '../lib/exportCsv';
 import { useAuthStore } from '../store/authStore';
 import WidgetRenderer from '../components/Canvas/WidgetRenderer';
 import { Icon, ReportSkeleton, Wordmark } from '../components/ui';
 
-// Vista de solo lectura. También es la página que captura Puppeteer para el
-// export PDF (?token=...&print=1), por eso acepta token por query y puede
-// ocultar el chrome.
+function resolvePages(report) {
+  if (report.pages?.length) return report.pages;
+  return [{
+    id: 'legacy', title: 'Página 1', order: 0,
+    layout: report.layout || [], widgets: report.widgets || [],
+  }];
+}
+
 export default function ReportView() {
   const { id } = useParams();
   const [params] = useSearchParams();
   const user = useAuthStore((s) => s.user);
   const [report, setReport] = useState(null);
   const [error, setError] = useState('');
+  const [activePageId, setActivePageId] = useState(null);
   const { width, containerRef } = useContainerWidth({ initialWidth: 1200 });
 
   const printMode = params.get('print') === '1';
-  // Token por query: solo para el contexto limpio de Puppeteer (print=1, sin
-  // sesión previa). Se mantiene en memoria — jamás en localStorage — para que
-  // un link manipulado no pueda fijar la sesión de un visitante real.
   const tokenParam = params.get('token');
   if (printMode && tokenParam && !localStorage.getItem('token')) {
     setMemoryToken(tokenParam);
@@ -28,7 +32,10 @@ export default function ReportView() {
 
   useEffect(() => {
     api.get(`/reports/${id}`)
-      .then(({ data }) => setReport(data))
+      .then(({ data }) => {
+        setReport(data);
+        setActivePageId(resolvePages(data)[0]?.id ?? null);
+      })
       .catch(() => setError('Reporte no encontrado'));
   }, [id]);
 
@@ -49,6 +56,11 @@ export default function ReportView() {
       </div>
     );
   }
+
+  const pages = resolvePages(report);
+  const activePage = pages.find((p) => p.id === activePageId) ?? pages[0];
+  const pageWidgets = activePage?.widgets ?? [];
+  const pageLayout = activePage?.layout ?? [];
 
   const isOwner = report.ownerId === user?.id;
   const canEdit = isOwner || report.myRole === 'editor';
@@ -80,6 +92,11 @@ export default function ReportView() {
             className="inline-flex items-center gap-1.5 text-xs bg-paper-deep text-ink-soft hover:bg-line-soft px-3 py-1.5 rounded-lg transition shrink-0 cursor-pointer">
             <Icon name="download" size={13} /> PDF
           </button>
+          <button onClick={() => exportReportCsv(report.title, pageWidgets)}
+            title="Descargar datos (un CSV por dataset)"
+            className="inline-flex items-center gap-1.5 text-xs bg-paper-deep text-ink-soft hover:bg-line-soft px-3 py-1.5 rounded-lg transition shrink-0 cursor-pointer">
+            <Icon name="download" size={13} /> CSV
+          </button>
           {canEdit && (
             <Link to={`/report/${id}`}
               className="inline-flex items-center gap-1.5 text-xs bg-ink text-paper hover:bg-ink/85 px-3.5 py-1.5 rounded-lg transition font-medium shrink-0">
@@ -89,11 +106,29 @@ export default function ReportView() {
         </header>
       )}
 
+      {/* Tabs de páginas — solo si hay más de una */}
+      {pages.length > 1 && !printMode && (
+        <div className="bg-surface border-b border-line flex items-center overflow-x-auto px-1 gap-0.5">
+          {pages.map((page) => (
+            <button key={page.id}
+              onClick={() => setActivePageId(page.id)}
+              className={`text-xs px-3 py-2.5 font-medium border-b-2 transition whitespace-nowrap ${
+                page.id === activePageId
+                  ? 'border-lumen-deep text-lumen-deep'
+                  : 'border-transparent text-ink-soft hover:text-ink'
+              }`}
+            >
+              {page.title}
+            </button>
+          ))}
+        </div>
+      )}
+
       <main ref={containerRef} className="p-4 sm:p-6">
-        <GridLayout layout={report.layout || []} width={Math.max(width - 32, 320)}
+        <GridLayout layout={pageLayout} width={Math.max(width - 32, 320)}
           gridConfig={{ cols: 12, rowHeight: 50 }}
           dragConfig={{ enabled: false }} resizeConfig={{ enabled: false }}>
-          {(report.widgets || []).map((w) => (
+          {pageWidgets.map((w) => (
             <div key={w.id} className="bg-surface border border-line-soft rounded-xl overflow-hidden flex flex-col shadow-card">
               <div className="flex-1 p-2 overflow-hidden">
                 <WidgetRenderer widget={w} />

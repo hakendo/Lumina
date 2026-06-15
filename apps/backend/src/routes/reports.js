@@ -6,32 +6,56 @@ const { exportReportToPDF } = require('../services/pdfExport');
 
 const prisma = new PrismaClient();
 
-const includeWidgets = {
+const includePages = {
+  pages: {
+    orderBy: { order: 'asc' },
+    include: {
+      widgets: {
+        include: { dataset: { select: { id: true, name: true, sourceType: true } } },
+      },
+    },
+  },
+};
+
+// Mantener compatibilidad: widgets directos en Report (sin página asignada)
+const includeLegacyWidgets = {
   widgets: { include: { dataset: { select: { id: true, name: true, sourceType: true } } } },
 };
 
-// ── Permisos ──────────────────────────────────────────────────────────────────
-// Rol efectivo de un usuario sobre un reporte: owner > editor > viewer > null.
-// `report` debe incluir `shares` o se consulta el share puntual.
+// ── Permisos ──────────────────────────────────────────────────────
+
 async function getRole(report, userId) {
   if (!report) return null;
   if (report.ownerId === userId) return 'owner';
   const share = await prisma.reportShare.findUnique({
     where: { reportId_userId: { reportId: report.id, userId } },
   });
-  if (share) return share.role; // viewer | editor
+  if (share) return share.role;
   return report.isPublic ? 'viewer' : null;
 }
 
 const CAN_EDIT = new Set(['owner', 'editor']);
 
-// ── List / create ─────────────────────────────────────────────────────────────
+// Verifica que el usuario tenga acceso al área (miembro o superadmin)
+async function userCanAccessArea(userId, areaId) {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+  if (user?.role === 'superadmin') return true;
+  const membership = await prisma.areaMember.findUnique({
+    where: { areaId_userId: { areaId, userId } },
+  });
+  return !!membership;
+}
+
+// ── Mis reportes ──────────────────────────────────────────────────
 
 router.get('/', auth, async (req, res) => {
   const [reports, favIds] = await Promise.all([
     prisma.report.findMany({
       where: { ownerId: req.user.id },
-      include: { _count: { select: { widgets: true } } },
+      include: {
+        area: { select: { id: true, name: true } },
+        _count: { select: { widgets: true, pages: true } },
+      },
       orderBy: { updatedAt: 'desc' },
     }),
     prisma.userFavorite.findMany({
@@ -46,14 +70,47 @@ router.get('/', auth, async (req, res) => {
 router.post('/', auth, async (req, res) => {
   const { title, description } = req.body;
   if (!title) return res.status(400).json({ error: 'title required' });
+
   const report = await prisma.report.create({
-    data: { ownerId: req.user.id, title, description: description || '', layout: [], filters: [], isPublic: false },
-    include: includeWidgets,
+    data: {
+      ownerId: req.user.id,
+      title,
+      description: description || '',
+      isPublic: false,
+      // Crear página inicial por defecto
+      pages: { create: [{ title: 'Página 1', order: 0, layout: [], filters: [] }] },
+    },
+    include: { ...includePages, area: { select: { id: true, name: true } } },
   });
   res.json(report);
 });
 
-// ── Explore: public reports from all users ────────────────────────────────────
+// ── Reportes del área (publicados) ───────────────────────────────
+
+router.get('/area/:areaId', auth, async (req, res) => {
+  const canAccess = await userCanAccessArea(req.user.id, req.params.areaId);
+  if (!canAccess) return res.status(403).json({ error: 'Sin acceso a esta área' });
+
+  const [reports, favIds] = await Promise.all([
+    prisma.report.findMany({
+      where: { areaId: req.params.areaId },
+      include: {
+        owner: { select: { name: true } },
+        area: { select: { id: true, name: true } },
+        _count: { select: { widgets: true, pages: true } },
+      },
+      orderBy: { updatedAt: 'desc' },
+    }),
+    prisma.userFavorite.findMany({
+      where: { userId: req.user.id },
+      select: { reportId: true },
+    }),
+  ]);
+  const favSet = new Set(favIds.map((f) => f.reportId));
+  res.json(reports.map((r) => ({ ...r, isFavorited: favSet.has(r.id) })));
+});
+
+// ── Explorar reportes públicos ────────────────────────────────────
 
 router.get('/explore', auth, async (req, res) => {
   const { q } = req.query;
@@ -79,7 +136,7 @@ router.get('/explore', auth, async (req, res) => {
   res.json(reports.map((r) => ({ ...r, isFavorited: favSet.has(r.id) })));
 });
 
-// ── Compartidos conmigo ───────────────────────────────────────────────────────
+// ── Compartidos conmigo ───────────────────────────────────────────
 
 router.get('/shared', auth, async (req, res) => {
   const shares = await prisma.reportShare.findMany({
@@ -88,6 +145,7 @@ router.get('/shared', auth, async (req, res) => {
       report: {
         include: {
           owner: { select: { name: true } },
+          area: { select: { id: true, name: true } },
           _count: { select: { widgets: true } },
         },
       },
@@ -97,7 +155,7 @@ router.get('/shared', auth, async (req, res) => {
   res.json(shares.map((s) => ({ ...s.report, myRole: s.role })));
 });
 
-// ── Favorites ─────────────────────────────────────────────────────────────────
+// ── Favoritos ─────────────────────────────────────────────────────
 
 router.get('/favorites', auth, async (req, res) => {
   const favs = await prisma.userFavorite.findMany({
@@ -132,10 +190,13 @@ router.post('/:id/favorite', auth, async (req, res) => {
   }
 });
 
-// ── CRUD ──────────────────────────────────────────────────────────────────────
+// ── CRUD ──────────────────────────────────────────────────────────
 
 router.get('/:id', auth, async (req, res) => {
-  const report = await prisma.report.findUnique({ where: { id: req.params.id }, include: includeWidgets });
+  const report = await prisma.report.findUnique({
+    where: { id: req.params.id },
+    include: { ...includePages, ...includeLegacyWidgets, area: { select: { id: true, name: true } } },
+  });
   if (!report) return res.status(404).json({ error: 'Not found' });
   const myRole = await getRole(report, req.user.id);
   if (!myRole) return res.status(403).json({ error: 'Forbidden' });
@@ -150,14 +211,83 @@ router.put('/:id', auth, async (req, res) => {
   const myRole = await getRole(report, req.user.id);
   if (!report || !CAN_EDIT.has(myRole)) return res.status(404).json({ error: 'Not found' });
 
-  const { title, description, layout, filters, widgets } = req.body;
+  const { title, description, pages, widgets } = req.body;
 
-  if (widgets) {
-    await prisma.reportWidget.deleteMany({ where: { reportId: report.id } });
+  // Guardar páginas (nuevo modelo multi-página)
+  if (pages !== undefined) {
+    const existingPageIds = new Set(
+      (await prisma.reportPage.findMany({ where: { reportId: report.id }, select: { id: true } }))
+        .map((p) => p.id)
+    );
+
+    for (const page of pages) {
+      if (page.id && existingPageIds.has(page.id)) {
+        // Actualizar página existente + sus widgets
+        if (page.widgets !== undefined) {
+          await prisma.reportWidget.deleteMany({ where: { pageId: page.id } });
+          if (page.widgets.length) {
+            await prisma.reportWidget.createMany({
+              data: page.widgets.map((w) => ({
+                ...(w.id && { id: w.id }),
+                reportId: report.id,
+                pageId: page.id,
+                datasetId: w.datasetId || null,
+                widgetType: w.widgetType,
+                config: w.config || {},
+                position: w.position || {},
+              })),
+            });
+          }
+        }
+        await prisma.reportPage.update({
+          where: { id: page.id },
+          data: {
+            ...(page.title !== undefined && { title: page.title }),
+            ...(page.order !== undefined && { order: page.order }),
+            ...(page.layout !== undefined && { layout: page.layout }),
+            ...(page.filters !== undefined && { filters: page.filters }),
+          },
+        });
+      } else {
+        // Crear nueva página
+        const newPage = await prisma.reportPage.create({
+          data: {
+            reportId: report.id,
+            title: page.title || 'Nueva página',
+            order: page.order ?? 0,
+            layout: page.layout || [],
+            filters: page.filters || [],
+          },
+        });
+        if (page.widgets?.length) {
+          await prisma.reportWidget.createMany({
+            data: page.widgets.map((w) => ({
+              ...(w.id && { id: w.id }),
+              reportId: report.id,
+              pageId: newPage.id,
+              datasetId: w.datasetId || null,
+              widgetType: w.widgetType,
+              config: w.config || {},
+              position: w.position || {},
+            })),
+          });
+        }
+      }
+    }
+
+    // Eliminar páginas que ya no existen
+    const incomingIds = new Set(pages.filter((p) => p.id).map((p) => p.id));
+    const toDelete = [...existingPageIds].filter((id) => !incomingIds.has(id));
+    if (toDelete.length) {
+      await prisma.reportPage.deleteMany({ where: { id: { in: toDelete } } });
+    }
+  }
+
+  // Compatibilidad: widgets directos en Report (sin página)
+  if (widgets !== undefined && pages === undefined) {
+    await prisma.reportWidget.deleteMany({ where: { reportId: report.id, pageId: null } });
     if (widgets.length) {
       await prisma.reportWidget.createMany({
-        // Keep the client-provided widget id: the report layout references it,
-        // so regenerating ids here would orphan every layout entry on reload.
         data: widgets.map((w) => ({
           ...(w.id && { id: w.id }),
           reportId: report.id,
@@ -175,10 +305,8 @@ router.put('/:id', auth, async (req, res) => {
     data: {
       ...(title && { title }),
       ...(description !== undefined && { description }),
-      ...(layout !== undefined && { layout }),
-      ...(filters !== undefined && { filters }),
     },
-    include: includeWidgets,
+    include: { ...includePages, ...includeLegacyWidgets, area: { select: { id: true, name: true } } },
   });
   res.json(updated);
 });
@@ -190,36 +318,109 @@ router.delete('/:id', auth, async (req, res) => {
   res.json({ ok: true });
 });
 
-// ── Duplicate ─────────────────────────────────────────────────────────────────
+// ── Publicar / despublicar al área ───────────────────────────────
+
+router.post('/:id/publish', auth, async (req, res) => {
+  const report = await prisma.report.findUnique({ where: { id: req.params.id } });
+  if (!report || report.ownerId !== req.user.id) return res.status(404).json({ error: 'Not found' });
+
+  const { areaId } = req.body; // null = despublicar, string = publicar al área
+
+  if (areaId) {
+    const canAccess = await userCanAccessArea(req.user.id, areaId);
+    if (!canAccess) return res.status(403).json({ error: 'Sin acceso a esa área' });
+  }
+
+  const updated = await prisma.report.update({
+    where: { id: report.id },
+    data: { areaId: areaId || null },
+    include: { area: { select: { id: true, name: true } } },
+  });
+  res.json({ areaId: updated.areaId, area: updated.area });
+});
+
+// ── Páginas ───────────────────────────────────────────────────────
+
+router.post('/:id/pages', auth, async (req, res) => {
+  const report = await prisma.report.findUnique({ where: { id: req.params.id } });
+  const myRole = await getRole(report, req.user.id);
+  if (!report || !CAN_EDIT.has(myRole)) return res.status(404).json({ error: 'Not found' });
+
+  const { title = 'Nueva página' } = req.body;
+  const maxOrder = await prisma.reportPage.aggregate({
+    where: { reportId: report.id },
+    _max: { order: true },
+  });
+  const page = await prisma.reportPage.create({
+    data: {
+      reportId: report.id,
+      title,
+      order: (maxOrder._max.order ?? -1) + 1,
+      layout: [],
+      filters: [],
+    },
+  });
+  res.status(201).json(page);
+});
+
+router.delete('/:id/pages/:pageId', auth, async (req, res) => {
+  const report = await prisma.report.findUnique({ where: { id: req.params.id } });
+  const myRole = await getRole(report, req.user.id);
+  if (!report || !CAN_EDIT.has(myRole)) return res.status(404).json({ error: 'Not found' });
+
+  const pageCount = await prisma.reportPage.count({ where: { reportId: report.id } });
+  if (pageCount <= 1) return res.status(400).json({ error: 'Un reporte debe tener al menos una página' });
+
+  const page = await prisma.reportPage.findFirst({
+    where: { id: req.params.pageId, reportId: report.id },
+  });
+  if (!page) return res.status(404).json({ error: 'Página no encontrada' });
+
+  await prisma.reportPage.delete({ where: { id: page.id } });
+  res.json({ ok: true });
+});
+
+// ── Duplicar ──────────────────────────────────────────────────────
 
 router.post('/:id/duplicate', auth, async (req, res) => {
-  const src = await prisma.report.findUnique({ where: { id: req.params.id }, include: includeWidgets });
+  const src = await prisma.report.findUnique({
+    where: { id: req.params.id },
+    include: includePages,
+  });
   if (!src || !(await getRole(src, req.user.id))) {
     return res.status(404).json({ error: 'Not found' });
   }
+
   const copy = await prisma.report.create({
     data: {
       ownerId: req.user.id,
       title: `${src.title} (copia)`,
       description: src.description,
-      layout: src.layout,
-      filters: src.filters,
       isPublic: false,
-      widgets: {
-        create: src.widgets.map((w) => ({
-          datasetId: w.datasetId,
-          widgetType: w.widgetType,
-          config: w.config,
-          position: w.position,
+      pages: {
+        create: src.pages.map((page) => ({
+          title: page.title,
+          order: page.order,
+          layout: page.layout,
+          filters: page.filters,
+          widgets: {
+            create: page.widgets.map((w) => ({
+              reportId: undefined, // se asignará por la relación
+              datasetId: w.datasetId,
+              widgetType: w.widgetType,
+              config: w.config,
+              position: w.position,
+            })),
+          },
         })),
       },
     },
-    include: includeWidgets,
+    include: includePages,
   });
   res.json(copy);
 });
 
-// ── Compartir con personas (email + rol) ──────────────────────────────────────
+// ── Compartir con personas ────────────────────────────────────────
 
 router.get('/:id/shares', auth, async (req, res) => {
   const report = await prisma.report.findUnique({ where: { id: req.params.id } });
@@ -262,7 +463,7 @@ router.delete('/:id/shares/:shareId', auth, async (req, res) => {
   res.json({ ok: true });
 });
 
-// ── Share ─────────────────────────────────────────────────────────────────────
+// ── Link público ──────────────────────────────────────────────────
 
 router.post('/:id/share', auth, async (req, res) => {
   const report = await prisma.report.findUnique({ where: { id: req.params.id } });
@@ -275,7 +476,7 @@ router.post('/:id/share', auth, async (req, res) => {
   res.json({ isPublic: updated.isPublic, slug: updated.slug });
 });
 
-// ── PDF export ────────────────────────────────────────────────────────────────
+// ── PDF export ────────────────────────────────────────────────────
 
 router.get('/:id/export/pdf', auth, async (req, res) => {
   const report = await prisma.report.findUnique({ where: { id: req.params.id } });
@@ -295,13 +496,35 @@ router.get('/:id/export/pdf', auth, async (req, res) => {
   }
 });
 
-// ── Public (no auth) ──────────────────────────────────────────────────────────
+// ── Público (sin auth) ────────────────────────────────────────────
+
+router.get('/public/:slug/datasets/:datasetId/rows', async (req, res) => {
+  const report = await prisma.report.findUnique({
+    where: { slug: req.params.slug },
+    select: { id: true, isPublic: true },
+  });
+  if (!report || !report.isPublic) return res.status(404).json({ error: 'Not found' });
+
+  const widget = await prisma.reportWidget.findFirst({
+    where: { reportId: report.id, datasetId: req.params.datasetId },
+    select: { id: true },
+  });
+  if (!widget) return res.status(404).json({ error: 'Not found' });
+
+  const rows = await prisma.datasetRow.findMany({
+    where: { datasetId: req.params.datasetId },
+    orderBy: { rowIndex: 'asc' },
+    select: { rowData: true },
+  });
+  res.json(rows.map((r) => r.rowData));
+});
 
 router.get('/public/:slug', async (req, res) => {
   const report = await prisma.report.findUnique({
     where: { slug: req.params.slug },
     include: {
-      ...includeWidgets,
+      ...includePages,
+      ...includeLegacyWidgets,
       owner: { select: { name: true } },
       _count: { select: { favoritedBy: true } },
     },

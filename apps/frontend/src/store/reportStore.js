@@ -1,84 +1,190 @@
 import { create } from 'zustand';
 import api from '../lib/api';
 
+function syncActive(pages, activeId) {
+  const page = pages.find((p) => p.id === activeId) ?? pages[0];
+  return {
+    activePage: page?.id ?? null,
+    widgets: page?.widgets ?? [],
+    layout: page?.layout ?? [],
+    filters: page?.filters ?? [],
+  };
+}
+
 export const useReportStore = create((set, get) => ({
   report: null,
-  widgets: [],
-  layout: [],
-  filters: [],       // filter definitions — persisted with report
-  filterValues: {},  // { [filterId]: value } — runtime only, not saved
+  pages: [],
+  activePage: null,
+  widgets: [],     // shortcut → active page's widgets
+  layout: [],      // shortcut → active page's layout
+  filters: [],     // shortcut → active page's filters
+  filterValues: {},
   isDirty: false,
 
-  setReport: (report) =>
+  setReport: (report) => {
+    const pages = report.pages?.length
+      ? report.pages
+      : [{
+          id: 'p0',
+          title: 'Página 1',
+          order: 0,
+          layout: report.layout ?? [],
+          filters: report.filters ?? [],
+          widgets: report.widgets ?? [],
+        }];
+    const first = pages[0];
     set({
       report,
-      widgets: report.widgets || [],
-      layout: report.layout || [],
-      filters: report.filters || [],
+      pages,
+      activePage: first.id,
+      widgets: first.widgets ?? [],
+      layout: first.layout ?? [],
+      filters: first.filters ?? [],
       filterValues: {},
       isDirty: false,
-    }),
+    });
+  },
 
-  // Actualiza metadatos del reporte (isPublic, slug, título…) sin tocar
-  // widgets/layout en edición — setReport resetearía cambios sin guardar.
   patchReport: (patch) => set((s) => ({ report: { ...s.report, ...patch } })),
 
-  updateLayout: (layout) => set({ layout, isDirty: true }),
+  // ── Páginas ──────────────────────────────────────────────────────────────
+
+  setActivePage: (pageId) => set((s) => syncActive(s.pages, pageId)),
+
+  addPage: async (reportId) => {
+    const title = `Página ${get().pages.length + 1}`;
+    const { data: page } = await api.post(`/reports/${reportId}/pages`, { title });
+    const newPage = { ...page, widgets: [], layout: [], filters: page.filters ?? [] };
+    set((s) => ({
+      pages: [...s.pages, newPage],
+      ...syncActive([...s.pages, newPage], page.id),
+    }));
+  },
+
+  removePage: async (reportId, pageId) => {
+    if (get().pages.length <= 1) return;
+    await api.delete(`/reports/${reportId}/pages/${pageId}`);
+    set((s) => {
+      const newPages = s.pages.filter((p) => p.id !== pageId);
+      const newActiveId = s.activePage === pageId ? newPages[0]?.id : s.activePage;
+      return { pages: newPages, ...syncActive(newPages, newActiveId), filterValues: {} };
+    });
+  },
+
+  renamePage: (pageId, title) => set((s) => ({
+    pages: s.pages.map((p) => (p.id === pageId ? { ...p, title } : p)),
+    isDirty: true,
+  })),
+
+  // ── Layout ───────────────────────────────────────────────────────────────
+
+  updateLayout: (layout) => set((s) => ({
+    layout,
+    pages: s.pages.map((p) => (p.id === s.activePage ? { ...p, layout } : p)),
+    isDirty: true,
+  })),
 
   // ── Widgets ──────────────────────────────────────────────────────────────
-  addWidget: (widget) =>
-    set((s) => ({
-      widgets: [...s.widgets, widget],
-      layout: [
-        ...s.layout,
-        // Al fondo del grid (react-grid-layout v2 no acepta y: Infinity)
-        { i: widget.id, x: 0, y: s.layout.reduce((m, l) => Math.max(m, l.y + l.h), 0), w: 6, h: 4 },
-      ],
-      isDirty: true,
-    })),
 
-  removeWidget: (id) =>
-    set((s) => ({
-      widgets: s.widgets.filter((w) => w.id !== id),
-      layout: s.layout.filter((l) => l.i !== id),
+  addWidget: (widget) => set((s) => {
+    const newLayout = [
+      ...s.layout,
+      { i: widget.id, x: 0, y: s.layout.reduce((m, l) => Math.max(m, l.y + l.h), 0), w: 6, h: 4 },
+    ];
+    const newWidgets = [...s.widgets, widget];
+    return {
+      widgets: newWidgets,
+      layout: newLayout,
+      pages: s.pages.map((p) => (p.id === s.activePage ? { ...p, widgets: newWidgets, layout: newLayout } : p)),
       isDirty: true,
-    })),
+    };
+  }),
 
-  updateWidget: (id, patch) =>
-    set((s) => ({
-      widgets: s.widgets.map((w) => (w.id === id ? { ...w, ...patch } : w)),
+  removeWidget: (id) => set((s) => {
+    const newWidgets = s.widgets.filter((w) => w.id !== id);
+    const newLayout = s.layout.filter((l) => l.i !== id);
+    return {
+      widgets: newWidgets,
+      layout: newLayout,
+      pages: s.pages.map((p) => (p.id === s.activePage ? { ...p, widgets: newWidgets, layout: newLayout } : p)),
       isDirty: true,
-    })),
+    };
+  }),
+
+  updateWidget: (id, patch) => set((s) => {
+    const newWidgets = s.widgets.map((w) => (w.id === id ? { ...w, ...patch } : w));
+    return {
+      widgets: newWidgets,
+      pages: s.pages.map((p) => (p.id === s.activePage ? { ...p, widgets: newWidgets } : p)),
+      isDirty: true,
+    };
+  }),
 
   // ── Filters ───────────────────────────────────────────────────────────────
-  addFilter: (filter) => set((s) => ({ filters: [...s.filters, filter], isDirty: true })),
 
-  removeFilter: (id) =>
-    set((s) => {
-      const rest = { ...s.filterValues };
-      delete rest[id];
-      return { filters: s.filters.filter((f) => f.id !== id), filterValues: rest, isDirty: true };
-    }),
-
-  updateFilter: (id, patch) =>
-    set((s) => ({
-      filters: s.filters.map((f) => (f.id === id ? { ...f, ...patch } : f)),
+  addFilter: (filter) => set((s) => {
+    const newFilters = [...s.filters, filter];
+    return {
+      filters: newFilters,
+      pages: s.pages.map((p) => (p.id === s.activePage ? { ...p, filters: newFilters } : p)),
       isDirty: true,
-    })),
+    };
+  }),
+
+  removeFilter: (id) => set((s) => {
+    const rest = { ...s.filterValues };
+    delete rest[id];
+    const newFilters = s.filters.filter((f) => f.id !== id);
+    return {
+      filters: newFilters,
+      filterValues: rest,
+      pages: s.pages.map((p) => (p.id === s.activePage ? { ...p, filters: newFilters } : p)),
+      isDirty: true,
+    };
+  }),
+
+  updateFilter: (id, patch) => set((s) => {
+    const newFilters = s.filters.map((f) => (f.id === id ? { ...f, ...patch } : f));
+    return {
+      filters: newFilters,
+      pages: s.pages.map((p) => (p.id === s.activePage ? { ...p, filters: newFilters } : p)),
+      isDirty: true,
+    };
+  }),
 
   setFilterValue: (id, value) =>
     set((s) => ({ filterValues: { ...s.filterValues, [id]: value } })),
 
   // ── Save ─────────────────────────────────────────────────────────────────
+
   save: async () => {
-    const { report, widgets, layout, filters } = get();
-    const { data } = await api.put(`/reports/${report.id}`, { layout, filters, widgets });
-    set({ report: data, isDirty: false });
+    const { report, pages } = get();
+    const currentActiveId = get().activePage;
+    const { data } = await api.put(`/reports/${report.id}`, {
+      pages: pages.map((p, i) => ({
+        id: p.id,
+        title: p.title,
+        order: i,
+        layout: p.layout,
+        filters: p.filters ?? [],
+        widgets: p.widgets,
+      })),
+    });
+    const newPages = data.pages?.length ? data.pages : pages;
+    const activePg = newPages.find((p) => p.id === currentActiveId) ?? newPages[0];
+    set({
+      report: data,
+      pages: newPages,
+      activePage: activePg.id,
+      widgets: activePg.widgets ?? [],
+      layout: activePg.layout ?? [],
+      filters: activePg.filters ?? [],
+      isDirty: false,
+    });
     return data;
   },
 }));
 
-// Helper used by WidgetRenderer to apply active filters to a dataset's rows
 export function applyFilters(rows, datasetId, filters, filterValues) {
   if (!filters?.length) return rows;
   let result = rows;

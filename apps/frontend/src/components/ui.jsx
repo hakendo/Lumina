@@ -1,3 +1,5 @@
+import { useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, NavLink } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 
@@ -30,7 +32,13 @@ const PATHS = {
   eye: <><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></>,
   sun: <><circle cx="12" cy="12" r="4" /><path d="M12 2v2" /><path d="M12 20v2" /><path d="m4.93 4.93 1.41 1.41" /><path d="m17.66 17.66 1.41 1.41" /><path d="M2 12h2" /><path d="M20 12h2" /><path d="m6.34 17.66-1.41 1.41" /><path d="m19.07 4.93-1.41 1.41" /></>,
   shield: <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />,
+  'shield-off': <><path d="M19.69 14a6.9 6.9 0 0 0 .31-2V5l-8-3-3.16 1.18" /><path d="M4.73 4.73 4 5v7c0 6 8 10 8 10a20.29 20.29 0 0 0 5.62-4.38" /><line x1="2" y1="2" x2="22" y2="22" /></>,
   users: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></>,
+  building: <><rect x="3" y="9" width="18" height="12" rx="1" /><path d="M3 9V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4" /><path d="M9 21V12" /><path d="M15 21V12" /></>,
+  layers: <><path d="M12 2 2 7l10 5 10-5-10-5Z" /><path d="m2 17 10 5 10-5" /><path d="m2 12 10 5 10-5" /></>,
+  userPlus: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><line x1="19" y1="8" x2="19" y2="14" /><line x1="16" y1="11" x2="22" y2="11" /></>,
+  chevronRight: <path d="m9 18 6-6-6-6" />,
+  chevronDown: <path d="m6 9 6 6 6-6" />,
 };
 
 export function Icon({ name, size = 16, className = '', filled = false, strokeWidth = 2 }) {
@@ -71,7 +79,7 @@ const NAV = [
 
 export function AppHeader() {
   const { user, logout } = useAuthStore();
-  const nav = user?.role === 'superadmin' ? [...NAV, { to: '/admin', label: 'Usuarios' }] : NAV;
+  const nav = user?.role === 'superadmin' ? [...NAV, { to: '/admin', label: 'Admin' }] : NAV;
   return (
     <header className="sticky top-0 z-40 bg-surface/85 backdrop-blur border-b border-line">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-3 sm:gap-6">
@@ -183,8 +191,13 @@ export function ReportSkeleton() {
 }
 
 export function Modal({ title, onClose, children, maxWidth = 'max-w-lg' }) {
-  return (
-    <div className="fixed inset-0 bg-ink/45 backdrop-blur-[2px] flex items-center justify-center z-50 p-4" onClick={onClose}>
+  const mouseDownTarget = useRef(null);
+  return createPortal(
+    <div
+      className="fixed inset-0 bg-ink/45 backdrop-blur-[2px] flex items-center justify-center z-50 p-4"
+      onMouseDown={(e) => { mouseDownTarget.current = e.target; }}
+      onClick={(e) => { if (mouseDownTarget.current === e.currentTarget) onClose(); }}
+    >
       <div
         className={`bg-surface rounded-2xl shadow-lift w-full ${maxWidth} max-h-[90vh] overflow-y-auto animate-rise`}
         onClick={(e) => e.stopPropagation()}
@@ -197,6 +210,7 @@ export function Modal({ title, onClose, children, maxWidth = 'max-w-lg' }) {
         </div>
         <div className="p-5">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

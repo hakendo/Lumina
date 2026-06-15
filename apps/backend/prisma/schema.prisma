@@ -7,34 +7,70 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  users     User[]
+  areas     Area[]
+}
+
+model Area {
+  id        String       @id @default(cuid())
+  orgId     String
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name      String
+  createdAt DateTime     @default(now())
+  members   AreaMember[]
+  datasets  Dataset[]
+  reports   Report[]
+}
+
+model AreaMember {
+  id     String @id @default(cuid())
+  areaId String
+  area   Area   @relation(fields: [areaId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([areaId, userId])
+}
+
 model User {
-  id           String         @id @default(cuid())
-  email        String         @unique
-  passwordHash String
-  name         String
-  role         String         @default("user") // user | superadmin
-  isActive     Boolean        @default(true)
-  mfaEnabled   Boolean        @default(false)
-  mfaEnforced  Boolean        @default(false) // el admin exige MFA: setup obligatorio en el próximo login
-  mfaSecret    String? // secreto TOTP cifrado (AES-256-GCM, services/encryption)
-  createdAt    DateTime       @default(now())
-  datasets     Dataset[]
-  reports      Report[]
-  favorites    UserFavorite[]
-  sharedWithMe ReportShare[]
+  id              String         @id @default(cuid())
+  email           String         @unique
+  passwordHash    String
+  name            String
+  role            String         @default("member") // member | org_admin | superadmin
+  orgId           String?        // null for superadmin
+  org             Organization?  @relation(fields: [orgId], references: [id])
+  isActive        Boolean        @default(true)
+  mfaEnabled      Boolean        @default(false)
+  mfaEnforced     Boolean        @default(false)
+  mfaSecret       String?
+  createdAt       DateTime       @default(now())
+  uploadedDatasets Dataset[]     @relation("DatasetUploader")
+  reports         Report[]
+  favorites       UserFavorite[]
+  sharedWithMe    ReportShare[]
+  areaMemberships AreaMember[]
 }
 
 model Dataset {
-  id         String        @id @default(cuid())
-  ownerId    String
-  owner      User          @relation(fields: [ownerId], references: [id])
-  name       String
-  sourceType String        // csv | excel | api | db
-  config     Json          @default("{}")
-  filePath   String?
-  createdAt  DateTime      @default(now())
-  rows       DatasetRow[]
-  widgets    ReportWidget[]
+  id           String        @id @default(cuid())
+  areaId       String?       // required after migration
+  area         Area?         @relation(fields: [areaId], references: [id])
+  uploadedById String?       // required after migration
+  uploadedBy   User?         @relation("DatasetUploader", fields: [uploadedById], references: [id])
+  name         String
+  sourceType   String        // csv | excel | api | db | derived
+  config       Json          @default("{}")
+  filePath     String?
+  createdAt    DateTime      @default(now())
+  rows         DatasetRow[]
+  widgets      ReportWidget[]
 }
 
 model DatasetRow {
@@ -49,17 +85,29 @@ model Report {
   id          String         @id @default(cuid())
   ownerId     String
   owner       User           @relation(fields: [ownerId], references: [id])
+  areaId      String?        // null = borrador privado, set = publicado al área
+  area        Area?          @relation(fields: [areaId], references: [id])
   title       String
   description String         @default("")
   isPublic    Boolean        @default(false)
   slug        String?        @unique
-  layout      Json           @default("[]")
-  filters     Json           @default("[]")
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
-  widgets     ReportWidget[]
+  pages       ReportPage[]
+  widgets     ReportWidget[] // legacy: migrar a ReportPage.widgets
   favoritedBy UserFavorite[]
   shares      ReportShare[]
+}
+
+model ReportPage {
+  id       String         @id @default(cuid())
+  reportId String
+  report   Report         @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  title    String         @default("Página 1")
+  order    Int            @default(0)
+  layout   Json           @default("[]")
+  filters  Json           @default("[]")
+  widgets  ReportWidget[]
 }
 
 model ReportShare {
@@ -85,12 +133,14 @@ model UserFavorite {
 }
 
 model ReportWidget {
-  id        String  @id @default(cuid())
-  reportId  String
-  report    Report  @relation(fields: [reportId], references: [id], onDelete: Cascade)
-  datasetId String?
-  dataset   Dataset? @relation(fields: [datasetId], references: [id])
-  widgetType String  // chart | kpi | table | map
-  config    Json    @default("{}")
-  position  Json    @default("{}")
+  id         String      @id @default(cuid())
+  reportId   String
+  report     Report      @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  pageId     String?
+  page       ReportPage? @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  datasetId  String?
+  dataset    Dataset?    @relation(fields: [datasetId], references: [id])
+  widgetType String      // chart | kpi | table | pivot | map
+  config     Json        @default("{}")
+  position   Json        @default("{}")
 }

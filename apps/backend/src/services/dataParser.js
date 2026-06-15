@@ -1,5 +1,7 @@
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
+const http = require('http');
 const { parse } = require('csv-parse/sync');
 const XLSX = require('xlsx');
 const { decrypt } = require('./encryption');
@@ -57,19 +59,110 @@ function normalizeRow(row) {
   return out;
 }
 
+const SSL_ERROR_CODES = new Set([
+  'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+  'CERT_HAS_EXPIRED',
+  'SELF_SIGNED_CERT_IN_CHAIN',
+  'DEPTH_ZERO_SELF_SIGNED_CERT',
+  'ERR_TLS_CERT_ALTNAME_INVALID',
+  'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+  'CERT_UNTRUSTED',
+]);
+
+function isSslError(err) {
+  return SSL_ERROR_CODES.has(err.code) || SSL_ERROR_CODES.has(err.cause?.code);
+}
+
+// Uses Node's http/https modules directly so rejectUnauthorized can be set per-request
+// (native fetch doesn't expose this without undici).
+function httpRequest(finalUrl, { method, headers, body, allowInsecureSsl }) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(finalUrl);
+    const isHttps = parsed.protocol === 'https:';
+    const mod = isHttps ? https : http;
+    const options = {
+      hostname: parsed.hostname,
+      port: parsed.port || (isHttps ? 443 : 80),
+      path: parsed.pathname + parsed.search,
+      method,
+      headers,
+      ...(isHttps && { rejectUnauthorized: !allowInsecureSsl }),
+    };
+
+    const req = mod.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        resolve({
+          ok: res.statusCode >= 200 && res.statusCode < 300,
+          status: res.statusCode,
+          statusText: res.statusMessage,
+          text: () => data,
+          json: () => JSON.parse(data),
+        });
+      });
+    });
+    req.on('error', reject);
+    if (body) req.write(body);
+    req.end();
+  });
+}
+
 async function fetchAPI(storedConfig) {
   const config = resolveConfig(storedConfig);
-  const { url, method = 'GET', headers = {}, body, dataPath } = config;
+  const { url, method = 'GET', headers = {}, queryParams = {}, body, dataPath, allowInsecureSsl } = config;
 
   if (!url) throw new Error('API connector is missing a URL');
 
-  const res = await fetch(url, {
-    method,
-    headers: { 'Content-Type': 'application/json', ...headers },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (!res.ok) throw new Error(`API returned ${res.status} ${res.statusText}`);
-  const json = await res.json();
+  // Query params configurados se suman a los que ya traiga la URL
+  // (set, no append: un param configurado pisa al de la URL si se repite).
+  let finalUrl = url;
+  if (queryParams && Object.keys(queryParams).length) {
+    const u = new URL(url);
+    for (const [k, v] of Object.entries(queryParams)) u.searchParams.set(k, String(v));
+    finalUrl = u.toString();
+  }
+
+  let res;
+  try {
+    res = await httpRequest(finalUrl, {
+      method,
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body: body ? JSON.stringify(body) : null,
+      allowInsecureSsl: !!allowInsecureSsl,
+    });
+  } catch (err) {
+    if (isSslError(err)) {
+      const sslErr = new Error(
+        `Error de certificado SSL (${err.code || err.cause?.code}). ` +
+        'Activa "Ignorar SSL" en la configuración del conector si el servidor usa un certificado auto-firmado.'
+      );
+      sslErr.errorType = 'ssl_error';
+      throw sslErr;
+    }
+    const connErr = new Error(`No se pudo conectar a la API: ${err.message}`);
+    connErr.errorType = 'connection_error';
+    throw connErr;
+  }
+
+  if (!res.ok) {
+    let detail = '';
+    const text = res.text();
+    if (text) detail = ` — ${text.slice(0, 500)}`;
+    const httpErr = new Error(`API respondió ${res.status} ${res.statusText}${detail}`);
+    httpErr.errorType = 'http_error';
+    throw httpErr;
+  }
+
+  let json;
+  try {
+    json = res.json();
+  } catch {
+    const parseErr = new Error('La API no devolvió JSON válido');
+    parseErr.errorType = 'parse_error';
+    throw parseErr;
+  }
+
   return extractRows(json, dataPath).map(normalizeRow);
 }
 

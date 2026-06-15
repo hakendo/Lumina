@@ -1,6 +1,5 @@
-const puppeteer = require('puppeteer');
-
 async function exportReportToPDF(reportUrl) {
+  const { default: puppeteer } = await import('puppeteer');
   const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
   try {
     const page = await browser.newPage();

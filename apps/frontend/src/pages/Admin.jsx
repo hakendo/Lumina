@@ -1,18 +1,138 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Navigate } from 'react-router-dom';
 import api from '../lib/api';
 import { useAuthStore } from '../store/authStore';
-import { AppHeader, Button, Field, Icon, Modal, ConfirmModal, EmptyState, SkeletonCards } from '../components/ui';
+import { AppHeader, Button, Field, Icon, Modal, ConfirmModal, EmptyState } from '../components/ui';
 
-const ROLE_LABEL = { user: 'Usuario', superadmin: 'Super admin' };
+// ── Constantes ────────────────────────────────────────────────────
 
-function UserFormModal({ user, onSaved, onClose }) {
+const ROLE_LABEL = { member: 'Miembro', org_admin: 'Admin org.', superadmin: 'Super admin' };
+
+// ── Badges ────────────────────────────────────────────────────────
+
+function StatusBadge({ active }) {
+  return (
+    <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full ${
+      active ? 'bg-sea-soft text-sea' : 'bg-rust-soft text-rust'
+    }`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${active ? 'bg-sea' : 'bg-rust'}`} />
+      {active ? 'Activa' : 'Inactiva'}
+    </span>
+  );
+}
+
+function RoleBadge({ role }) {
+  const colors = {
+    superadmin: 'bg-lumen-soft text-lumen-deep font-semibold',
+    org_admin: 'bg-paper-deep text-ink font-medium',
+    member: 'text-ink-soft',
+  };
+  return <span className={`text-xs ${colors[role] || 'text-ink-soft'} px-2 py-0.5 rounded-full`}>{ROLE_LABEL[role] || role}</span>;
+}
+
+// ── Modal: Org ────────────────────────────────────────────────────
+
+function OrgModal({ org, onSaved, onClose }) {
+  const isNew = !org;
+  const [form, setForm] = useState({ name: org?.name || '', slug: org?.slug || '' });
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const autoSlug = (name) => name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').slice(0, 48);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSaving(true);
+    try {
+      const { data } = isNew
+        ? await api.post('/admin/orgs', form)
+        : await api.patch(`/admin/orgs/${org.id}`, { name: form.name });
+      onSaved(data);
+    } catch (err) {
+      setError(err.response?.data?.error || 'No se pudo guardar');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal title={isNew ? 'Nueva organización' : `Editar: ${org.name}`} onClose={onClose} maxWidth="max-w-sm">
+      {error && <p className="text-rust text-sm mb-4 bg-rust-soft px-3 py-2.5 rounded-lg">{error}</p>}
+      <form onSubmit={submit} className="space-y-4">
+        <Field label="Nombre">
+          <input className="field" value={form.name} onChange={(e) => {
+            const name = e.target.value;
+            setForm((f) => ({ ...f, name, ...(isNew && { slug: autoSlug(name) }) }));
+          }} required placeholder="Acme Corp" />
+        </Field>
+        {isNew && (
+          <Field label="Slug" hint="Solo letras minúsculas, números y guiones. No se puede cambiar después.">
+            <input className="field field-mono" value={form.slug} onChange={set('slug')}
+              required pattern="^[a-z0-9-]+$" placeholder="acme-corp" />
+          </Field>
+        )}
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="soft" onClick={onClose}>Cancelar</Button>
+          <Button type="submit" disabled={saving}>{saving ? 'Guardando…' : isNew ? 'Crear' : 'Guardar'}</Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// ── Modal: Área ───────────────────────────────────────────────────
+
+function AreaModal({ area, orgId, onSaved, onClose }) {
+  const isNew = !area;
+  const [name, setName] = useState(area?.name || '');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSaving(true);
+    try {
+      const { data } = isNew
+        ? await api.post(`/admin/orgs/${orgId}/areas`, { name })
+        : await api.patch(`/admin/orgs/${orgId}/areas/${area.id}`, { name });
+      onSaved(data);
+    } catch (err) {
+      setError(err.response?.data?.error || 'No se pudo guardar');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal title={isNew ? 'Nueva área' : `Editar: ${area.name}`} onClose={onClose} maxWidth="max-w-sm">
+      {error && <p className="text-rust text-sm mb-4 bg-rust-soft px-3 py-2.5 rounded-lg">{error}</p>}
+      <form onSubmit={submit} className="space-y-4">
+        <Field label="Nombre del área">
+          <input className="field" value={name} onChange={(e) => setName(e.target.value)} required placeholder="Ventas, Finanzas, Marketing…" />
+        </Field>
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="soft" onClick={onClose}>Cancelar</Button>
+          <Button type="submit" disabled={saving}>{saving ? 'Guardando…' : isNew ? 'Crear área' : 'Guardar'}</Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// ── Modal: Usuario ────────────────────────────────────────────────
+
+function UserModal({ user, orgId, onSaved, onClose }) {
   const isNew = !user;
   const [form, setForm] = useState({
     name: user?.name || '',
     email: user?.email || '',
     password: '',
-    role: user?.role || 'user',
+    role: user?.role || 'member',
+    orgId: user?.orgId || orgId || '',
     mfaEnforced: user?.mfaEnforced || false,
   });
   const [error, setError] = useState('');
@@ -27,7 +147,8 @@ function UserFormModal({ user, onSaved, onClose }) {
     setSaving(true);
     try {
       const payload = { ...form };
-      if (!payload.password) delete payload.password; // en edición: vacía = no cambiar
+      if (!payload.password) delete payload.password;
+      if (payload.role === 'superadmin') payload.orgId = null;
       const { data } = isNew
         ? await api.post('/admin/users', payload)
         : await api.patch(`/admin/users/${user.id}`, payload);
@@ -40,23 +161,23 @@ function UserFormModal({ user, onSaved, onClose }) {
   };
 
   return (
-    <Modal title={isNew ? 'Nueva cuenta' : `Editar a ${user.name}`} onClose={onClose} maxWidth="max-w-md">
+    <Modal title={isNew ? 'Nueva cuenta' : `Editar: ${user.name}`} onClose={onClose} maxWidth="max-w-md">
       {error && <p className="text-rust text-sm mb-4 bg-rust-soft px-3 py-2.5 rounded-lg">{error}</p>}
       <form onSubmit={submit} className="space-y-4">
         <Field label="Nombre">
           <input className="field" value={form.name} onChange={set('name')} required placeholder="Nombre y apellido" />
         </Field>
         <Field label="Email">
-          <input className="field" type="email" value={form.email} onChange={set('email')} required placeholder="correo@empresa.com" />
+          <input className="field" type="email" value={form.email} onChange={set('email')} required />
         </Field>
-        <Field label={isNew ? 'Contraseña' : 'Nueva contraseña'}
-          hint={isNew ? 'Mínimo 8 caracteres' : 'Déjala vacía para no cambiarla'}>
+        <Field label={isNew ? 'Contraseña' : 'Nueva contraseña'} hint={!isNew ? 'Vacía = no cambiar' : 'Mínimo 8 caracteres'}>
           <input className="field" type="password" value={form.password} onChange={set('password')}
             required={isNew} minLength={8} autoComplete="new-password" placeholder="••••••••" />
         </Field>
         <Field label="Rol">
           <select className="field" value={form.role} onChange={set('role')}>
-            <option value="user">Usuario</option>
+            <option value="member">Miembro</option>
+            <option value="org_admin">Admin de organización</option>
             <option value="superadmin">Super admin</option>
           </select>
         </Field>
@@ -64,207 +185,619 @@ function UserFormModal({ user, onSaved, onClose }) {
           <input type="checkbox" checked={form.mfaEnforced} onChange={set('mfaEnforced')} className="mt-0.5 accent-current" />
           <span className="text-sm text-ink-soft">
             <span className="font-semibold text-ink">Exigir MFA</span>
-            <br />
-            Deberá configurar verificación en dos pasos en su próximo inicio de sesión.
+            <br />Deberá configurar verificación en dos pasos en su próximo inicio de sesión.
           </span>
         </label>
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="soft" onClick={onClose}>Cancelar</Button>
-          <Button type="submit" disabled={saving}>
-            {saving ? 'Guardando…' : isNew ? 'Crear cuenta' : 'Guardar cambios'}
-          </Button>
+          <Button type="submit" disabled={saving}>{saving ? 'Guardando…' : isNew ? 'Crear cuenta' : 'Guardar'}</Button>
         </div>
       </form>
     </Modal>
   );
 }
 
-function StatusBadge({ active }) {
-  return (
-    <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full ${
-      active ? 'bg-sea-soft text-sea' : 'bg-rust-soft text-rust'
-    }`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${active ? 'bg-sea' : 'bg-rust'}`} />
-      {active ? 'Activa' : 'Desactivada'}
-    </span>
-  );
-}
+// ── Panel: Usuarios de la org ─────────────────────────────────────
 
-export default function Admin() {
-  const { user: me } = useAuthStore();
+function OrgUsersPanel({ org, me }) {
   const [users, setUsers] = useState(null);
-  const [editing, setEditing] = useState(null); // null | 'new' | user
+  const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [resetting, setResetting] = useState(null);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    api.get('/admin/users')
+  const load = useCallback(() => {
+    api.get(`/admin/users?orgId=${org.id}`)
       .then(({ data }) => setUsers(data))
-      .catch(() => setError('No se pudo cargar la lista de usuarios'));
-  }, []);
+      .catch(() => setError('No se pudo cargar usuarios'));
+  }, [org.id]);
 
-  // El guard de ruta solo valida sesión; el rol llega async vía /auth/me
-  if (me && me.role !== 'superadmin') return <Navigate to="/" replace />;
+  useEffect(() => { load(); }, [load]);
 
   const replaceUser = (u) => setUsers((list) => list.map((x) => (x.id === u.id ? u : x)));
 
   const patch = async (u, data) => {
-    setError('');
     try {
       const { data: updated } = await api.patch(`/admin/users/${u.id}`, data);
       replaceUser(updated);
     } catch (err) {
-      setError(err.response?.data?.error || 'No se pudo actualizar');
+      setError(err.response?.data?.error || 'Error al actualizar');
     }
   };
 
   const resetMfa = async (u) => {
-    setError('');
     try {
       const { data } = await api.post(`/admin/users/${u.id}/mfa/reset`);
       replaceUser(data);
     } catch (err) {
-      setError(err.response?.data?.error || 'No se pudo resetear el MFA');
+      setError(err.response?.data?.error || 'Error al resetear MFA');
     } finally {
       setResetting(null);
     }
   };
 
   const remove = async (u) => {
-    setError('');
     try {
       await api.delete(`/admin/users/${u.id}`);
       setUsers((list) => list.filter((x) => x.id !== u.id));
     } catch (err) {
-      setError(err.response?.data?.error || 'No se pudo eliminar');
+      setError(err.response?.data?.error || 'Error al eliminar');
     } finally {
       setDeleting(null);
     }
   };
 
   return (
-    <div className="min-h-screen paper-bg">
-      <AppHeader />
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="font-display text-2xl text-ink flex items-center gap-2">
-              <Icon name="shield" size={22} className="text-lumen-deep" /> Usuarios
-            </h1>
-            <p className="text-sm text-ink-faint mt-1">
-              Crea cuentas, otorga accesos, gestiona roles y verificación en dos pasos.
-            </p>
-          </div>
-          <Button onClick={() => setEditing('new')}>
-            <Icon name="plus" size={15} /> Nueva cuenta
-          </Button>
-        </div>
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-semibold text-ink-soft uppercase tracking-wide">Usuarios</h3>
+        <Button size="sm" onClick={() => setEditing('new')}>
+          <Icon name="userPlus" size={13} /> Agregar
+        </Button>
+      </div>
 
-        {error && <p className="text-rust text-sm mb-4 bg-rust-soft px-3 py-2.5 rounded-lg">{error}</p>}
+      {error && <p className="text-rust text-xs mb-3 bg-rust-soft px-3 py-2 rounded-lg">{error}</p>}
 
-        {!users ? (
-          <SkeletonCards count={3} height="h-16" />
-        ) : users.length === 0 ? (
-          <EmptyState icon="users" title="Sin usuarios" hint="Crea la primera cuenta del equipo." />
-        ) : (
-          <div className="bg-surface rounded-2xl border border-line-soft shadow-card overflow-x-auto animate-rise">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs text-ink-faint border-b border-line-soft">
-                  <th className="px-4 py-3 font-semibold">Usuario</th>
-                  <th className="px-4 py-3 font-semibold">Rol</th>
-                  <th className="px-4 py-3 font-semibold">Estado</th>
-                  <th className="px-4 py-3 font-semibold">MFA</th>
-                  <th className="px-4 py-3 font-semibold">Contenido</th>
-                  <th className="px-4 py-3 font-semibold text-right">Acciones</th>
+      {!users ? (
+        <div className="space-y-2">{[1,2,3].map(i => <div key={i} className="skeleton h-12" />)}</div>
+      ) : users.length === 0 ? (
+        <EmptyState icon="users" title="Sin usuarios" hint="Agrega el primer miembro de esta organización." />
+      ) : (
+        <div className="bg-surface rounded-xl border border-line-soft overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-ink-faint border-b border-line-soft bg-paper-deep/40">
+                <th className="px-3 py-2.5 font-semibold">Nombre</th>
+                <th className="px-3 py-2.5 font-semibold">Rol</th>
+                <th className="px-3 py-2.5 font-semibold">Estado</th>
+                <th className="px-3 py-2.5 font-semibold">MFA</th>
+                <th className="px-3 py-2.5 font-semibold text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((u) => (
+                <tr key={u.id} className="border-b border-line-soft last:border-0 hover:bg-paper-deep/30 transition">
+                  <td className="px-3 py-2.5">
+                    <p className="font-medium text-ink text-xs">
+                      {u.name} {u.id === me?.id && <span className="text-ink-faint font-normal">(tú)</span>}
+                    </p>
+                    <p className="text-xs text-ink-faint font-mono">{u.email}</p>
+                  </td>
+                  <td className="px-3 py-2.5"><RoleBadge role={u.role} /></td>
+                  <td className="px-3 py-2.5"><StatusBadge active={u.isActive} /></td>
+                  <td className="px-3 py-2.5">
+                    <span className="text-xs text-ink-soft">
+                      {u.mfaEnabled ? '✓ Activo' : u.mfaEnforced ? 'Pendiente' : '—'}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <div className="flex items-center justify-end gap-1">
+                      <Button variant="ghost" size="sm" title="Editar" onClick={() => setEditing(u)}>
+                        <Icon name="pencil" size={13} />
+                      </Button>
+                      {u.id !== me?.id && (
+                        <>
+                          <Button variant="ghost" size="sm"
+                            title={u.isActive ? 'Desactivar' : 'Activar'}
+                            onClick={() => patch(u, { isActive: !u.isActive })}>
+                            <Icon name={u.isActive ? 'lock' : 'check'} size={13} />
+                          </Button>
+                          {u.mfaEnabled && (
+                            <Button variant="ghost" size="sm" title="Resetear MFA" onClick={() => setResetting(u)}>
+                              <Icon name="refresh" size={13} />
+                            </Button>
+                          )}
+                          <Button variant="danger" size="sm" title="Eliminar" onClick={() => setDeleting(u)}>
+                            <Icon name="trash" size={13} />
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {users.map((u) => (
-                  <tr key={u.id} className="border-b border-line-soft last:border-0 hover:bg-paper-deep/40 transition">
-                    <td className="px-4 py-3">
-                      <p className="font-medium text-ink">
-                        {u.name}
-                        {u.id === me?.id && <span className="text-xs text-ink-faint font-normal"> (tú)</span>}
-                      </p>
-                      <p className="text-xs text-ink-faint font-mono">{u.email}</p>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={u.role === 'superadmin' ? 'text-lumen-deep font-semibold' : 'text-ink-soft'}>
-                        {ROLE_LABEL[u.role] || u.role}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3"><StatusBadge active={u.isActive} /></td>
-                    <td className="px-4 py-3">
-                      <span className="text-xs text-ink-soft">
-                        {u.mfaEnabled ? '✓ Activo' : u.mfaEnforced ? 'Pendiente' : '—'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-ink-faint font-mono">
-                      {u._count.reports} rep · {u._count.datasets} ds
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button variant="ghost" size="sm" title="Editar" onClick={() => setEditing(u)}>
-                          <Icon name="pencil" size={14} />
-                        </Button>
-                        {u.id !== me?.id && (
-                          <>
-                            <Button variant="ghost" size="sm"
-                              title={u.isActive ? 'Desactivar acceso' : 'Activar acceso'}
-                              onClick={() => patch(u, { isActive: !u.isActive })}>
-                              <Icon name={u.isActive ? 'lock' : 'check'} size={14} />
-                            </Button>
-                            {u.mfaEnabled && (
-                              <Button variant="ghost" size="sm" title="Resetear MFA"
-                                onClick={() => setResetting(u)}>
-                                <Icon name="refresh" size={14} />
-                              </Button>
-                            )}
-                            <Button variant="danger" size="sm" title="Eliminar cuenta"
-                              onClick={() => setDeleting(u)}>
-                              <Icon name="trash" size={14} />
-                            </Button>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </main>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {editing && (
-        <UserFormModal
+        <UserModal
           user={editing === 'new' ? null : editing}
+          orgId={org.id}
           onClose={() => setEditing(null)}
           onSaved={(u) => {
-            if (editing === 'new') setUsers((list) => [...list, u]);
+            if (editing === 'new') setUsers((list) => [...(list || []), u]);
             else replaceUser(u);
             setEditing(null);
           }}
         />
       )}
       {deleting && (
-        <ConfirmModal
-          title="Eliminar cuenta"
-          message={`Se eliminará la cuenta de ${deleting.name} junto con sus ${deleting._count.reports} reportes y ${deleting._count.datasets} datasets. Esta acción no se puede deshacer.`}
+        <ConfirmModal title="Eliminar cuenta"
+          message={`Se eliminará la cuenta de ${deleting.name} junto con sus reportes. Esta acción no se puede deshacer.`}
           onConfirm={() => remove(deleting)}
-          onClose={() => setDeleting(null)}
-        />
+          onClose={() => setDeleting(null)} />
       )}
       {resetting && (
-        <ConfirmModal
-          title="Resetear MFA"
-          message={`${resetting.name} volverá a entrar solo con contraseña${resetting.mfaEnforced ? ' y deberá configurar MFA de nuevo en su próximo login' : ''}.`}
+        <ConfirmModal title="Resetear MFA"
+          message={`${resetting.name} volverá a entrar solo con contraseña${resetting.mfaEnforced ? ' y deberá configurar MFA de nuevo' : ''}.`}
           confirmLabel="Resetear"
           onConfirm={() => resetMfa(resetting)}
-          onClose={() => setResetting(null)}
+          onClose={() => setResetting(null)} />
+      )}
+    </div>
+  );
+}
+
+// ── Panel: Áreas de la org ────────────────────────────────────────
+
+function OrgAreasPanel({ org }) {
+  const [areas, setAreas] = useState(null);
+  const [editing, setEditing] = useState(null);
+  const [deleting, setDeleting] = useState(null);
+  const [expandedArea, setExpandedArea] = useState(null);
+  const [areaMembers, setAreaMembers] = useState({});
+  const [orgUsers, setOrgUsers] = useState([]);
+  const [addingTo, setAddingTo] = useState(null);
+  const [selectedUserId, setSelectedUserId] = useState('');
+  const [addingLoading, setAddingLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const load = useCallback(() => {
+    api.get(`/admin/orgs/${org.id}/areas`)
+      .then(({ data }) => setAreas(data))
+      .catch(() => setError('No se pudo cargar áreas'));
+  }, [org.id]);
+
+  useEffect(() => {
+    load();
+    api.get(`/admin/users?orgId=${org.id}`)
+      .then(({ data }) => setOrgUsers(data))
+      .catch(() => {});
+  }, [load, org.id]);
+
+  const loadMembers = async (areaId) => {
+    if (areaMembers[areaId]) return;
+    try {
+      const { data } = await api.get(`/areas/${areaId}/members`);
+      setAreaMembers((m) => ({ ...m, [areaId]: data }));
+    } catch {
+      setAreaMembers((m) => ({ ...m, [areaId]: [] }));
+    }
+  };
+
+  const toggleArea = (areaId) => {
+    if (expandedArea === areaId) { setExpandedArea(null); return; }
+    setExpandedArea(areaId);
+    loadMembers(areaId);
+  };
+
+  const removeArea = async (area) => {
+    try {
+      await api.delete(`/admin/orgs/${org.id}/areas/${area.id}`);
+      setAreas((list) => list.filter((a) => a.id !== area.id));
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error al eliminar área');
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  const removeMember = async (areaId, userId) => {
+    try {
+      await api.delete(`/areas/${areaId}/members/${userId}`);
+      setAreaMembers((m) => ({ ...m, [areaId]: m[areaId].filter((x) => x.userId !== userId) }));
+      setAreas((list) => list.map((a) => a.id === areaId
+        ? { ...a, _count: { ...a._count, members: a._count.members - 1 } } : a));
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error al remover miembro');
+    }
+  };
+
+  const addMember = async (areaId) => {
+    if (!selectedUserId) return;
+    setAddingLoading(true);
+    try {
+      const { data: member } = await api.post(`/areas/${areaId}/members`, { userId: selectedUserId });
+      setAreaMembers((m) => ({ ...m, [areaId]: [...(m[areaId] || []), member] }));
+      setAreas((list) => list.map((a) => a.id === areaId
+        ? { ...a, _count: { ...a._count, members: a._count.members + 1 } } : a));
+      setAddingTo(null);
+      setSelectedUserId('');
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error al agregar miembro');
+    } finally {
+      setAddingLoading(false);
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-semibold text-ink-soft uppercase tracking-wide">Áreas</h3>
+        <Button size="sm" onClick={() => setEditing('new')}>
+          <Icon name="plus" size={13} /> Nueva área
+        </Button>
+      </div>
+
+      {error && <p className="text-rust text-xs mb-3 bg-rust-soft px-3 py-2 rounded-lg">{error}</p>}
+
+      {!areas ? (
+        <div className="space-y-2">{[1,2].map(i => <div key={i} className="skeleton h-14" />)}</div>
+      ) : areas.length === 0 ? (
+        <EmptyState icon="layers" title="Sin áreas" hint="Crea áreas para organizar equipos y datasets." />
+      ) : (
+        <div className="space-y-2">
+          {areas.map((area) => (
+            <div key={area.id} className="bg-surface rounded-xl border border-line-soft overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3">
+                <button
+                  onClick={() => toggleArea(area.id)}
+                  className="flex items-center gap-2 text-sm font-medium text-ink hover:text-lumen-deep transition text-left flex-1"
+                >
+                  <Icon name={expandedArea === area.id ? 'chevronDown' : 'chevronRight'} size={14} className="text-ink-faint" />
+                  <Icon name="layers" size={15} className="text-lumen-deep" />
+                  {area.name}
+                  <span className="text-xs text-ink-faint font-normal font-mono ml-1">
+                    {area._count.members} miembro{area._count.members !== 1 ? 's' : ''} · {area._count.datasets} datasets · {area._count.reports} reportes
+                  </span>
+                </button>
+                <div className="flex items-center gap-1">
+                  <Button variant="ghost" size="sm" onClick={() => setEditing(area)}>
+                    <Icon name="pencil" size={13} />
+                  </Button>
+                  <Button variant="danger" size="sm" onClick={() => setDeleting(area)}>
+                    <Icon name="trash" size={13} />
+                  </Button>
+                </div>
+              </div>
+
+              {expandedArea === area.id && (
+                <div className="border-t border-line-soft px-4 py-3 bg-paper-deep/30">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-semibold text-ink-soft uppercase tracking-wide">Miembros</p>
+                    {addingTo !== area.id && (
+                      <button
+                        onClick={() => { setAddingTo(area.id); setSelectedUserId(''); setError(''); }}
+                        className="flex items-center gap-1 text-xs text-lumen-deep hover:text-lumen transition cursor-pointer"
+                      >
+                        <Icon name="userPlus" size={12} /> Agregar
+                      </button>
+                    )}
+                  </div>
+
+                  {addingTo === area.id && (
+                    <div className="flex items-center gap-2 mb-3">
+                      <select
+                        className="field field-sm flex-1 text-xs"
+                        value={selectedUserId}
+                        onChange={(e) => setSelectedUserId(e.target.value)}
+                      >
+                        <option value="">— Seleccionar usuario —</option>
+                        {orgUsers
+                          .filter((u) => !(areaMembers[area.id] || []).some((m) => m.userId === u.id))
+                          .map((u) => (
+                            <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
+                          ))}
+                      </select>
+                      <Button size="sm" disabled={!selectedUserId || addingLoading} onClick={() => addMember(area.id)}>
+                        {addingLoading ? '…' : 'Agregar'}
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => { setAddingTo(null); setSelectedUserId(''); }}>
+                        Cancelar
+                      </Button>
+                    </div>
+                  )}
+
+                  {!areaMembers[area.id] ? (
+                    <div className="skeleton h-8" />
+                  ) : areaMembers[area.id].length === 0 ? (
+                    <p className="text-xs text-ink-faint">Sin miembros asignados.</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {areaMembers[area.id].map((m) => (
+                        <div key={m.id} className="flex items-center gap-1.5 bg-surface border border-line-soft rounded-lg px-2.5 py-1 text-xs">
+                          <span className="text-ink font-medium">{m.user.name}</span>
+                          <span className="text-ink-faint">{m.user.email}</span>
+                          <button
+                            onClick={() => removeMember(area.id, m.userId)}
+                            className="text-ink-faint hover:text-rust transition ml-1 cursor-pointer"
+                            title="Remover del área"
+                          >
+                            <Icon name="x" size={11} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {editing && (
+        <AreaModal
+          area={editing === 'new' ? null : editing}
+          orgId={org.id}
+          onClose={() => setEditing(null)}
+          onSaved={(a) => {
+            if (editing === 'new') setAreas((list) => [...(list || []), a]);
+            else setAreas((list) => list.map((x) => (x.id === a.id ? a : x)));
+            setEditing(null);
+          }}
         />
+      )}
+      {deleting && (
+        <ConfirmModal title="Eliminar área"
+          message={`¿Eliminar el área "${deleting.name}"? Los datasets y reportes del área serán desvinculados.`}
+          onConfirm={() => removeArea(deleting)}
+          onClose={() => setDeleting(null)} />
+      )}
+    </div>
+  );
+}
+
+// ── Panel: Reportes de la org (vista superadmin) ──────────────────
+
+function OrgReportsPanel({ org }) {
+  const [reports, setReports] = useState(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    api.get(`/admin/orgs/${org.id}/reports`)
+      .then(({ data }) => setReports(data))
+      .catch(() => setError('No se pudo cargar reportes'));
+  }, [org.id]);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-semibold text-ink-soft uppercase tracking-wide">Reportes</h3>
+      </div>
+
+      {error && <p className="text-rust text-xs mb-3 bg-rust-soft px-3 py-2 rounded-lg">{error}</p>}
+
+      {!reports ? (
+        <div className="space-y-2">{[1,2,3].map(i => <div key={i} className="skeleton h-10" />)}</div>
+      ) : reports.length === 0 ? (
+        <EmptyState icon="chart" title="Sin reportes" hint="Esta organización aún no tiene reportes." />
+      ) : (
+        <div className="bg-surface rounded-xl border border-line-soft overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-ink-faint border-b border-line-soft bg-paper-deep/40">
+                <th className="px-3 py-2.5 font-semibold">Reporte</th>
+                <th className="px-3 py-2.5 font-semibold">Autor</th>
+                <th className="px-3 py-2.5 font-semibold">Área</th>
+                <th className="px-3 py-2.5 font-semibold">Widgets</th>
+              </tr>
+            </thead>
+            <tbody>
+              {reports.map((r) => (
+                <tr key={r.id} className="border-b border-line-soft last:border-0 hover:bg-paper-deep/30">
+                  <td className="px-3 py-2.5">
+                    <p className="font-medium text-ink text-xs">{r.title}</p>
+                    {r.description && <p className="text-xs text-ink-faint truncate max-w-48">{r.description}</p>}
+                  </td>
+                  <td className="px-3 py-2.5 text-xs text-ink-soft">{r.owner?.name}</td>
+                  <td className="px-3 py-2.5">
+                    {r.area
+                      ? <span className="text-xs bg-lumen-soft text-lumen-deep px-2 py-0.5 rounded-full">{r.area.name}</span>
+                      : <span className="text-xs text-ink-faint">Privado</span>
+                    }
+                  </td>
+                  <td className="px-3 py-2.5 text-xs font-mono text-ink-faint">{r._count.widgets}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Página principal Admin ─────────────────────────────────────────
+
+const ORG_TABS = [
+  { id: 'users', label: 'Usuarios', icon: 'users' },
+  { id: 'areas', label: 'Áreas', icon: 'layers' },
+  { id: 'reports', label: 'Reportes', icon: 'chart' },
+];
+
+export default function Admin() {
+  const { user: me } = useAuthStore();
+  const [orgs, setOrgs] = useState(null);
+  const [selectedOrg, setSelectedOrg] = useState(null);
+  const [activeTab, setActiveTab] = useState('users');
+  const [creatingOrg, setCreatingOrg] = useState(false);
+  const [deletingOrg, setDeletingOrg] = useState(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    api.get('/admin/orgs')
+      .then(({ data }) => {
+        setOrgs(data);
+        if (data.length > 0 && !selectedOrg) setSelectedOrg(data[0]);
+      })
+      .catch(() => setError('No se pudo cargar organizaciones'));
+  }, []);
+
+  if (me && me.role !== 'superadmin') return <Navigate to="/" replace />;
+
+  const removeOrg = async (org) => {
+    try {
+      await api.delete(`/admin/orgs/${org.id}`);
+      setOrgs((list) => list.filter((o) => o.id !== org.id));
+      if (selectedOrg?.id === org.id) setSelectedOrg(null);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error al eliminar');
+    } finally {
+      setDeletingOrg(null);
+    }
+  };
+
+  return (
+    <div className="min-h-screen paper-bg">
+      <AppHeader />
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="font-display text-2xl text-ink flex items-center gap-2">
+              <Icon name="shield" size={22} className="text-lumen-deep" /> Administración
+            </h1>
+            <p className="text-sm text-ink-faint mt-1">Gestiona organizaciones, equipos y usuarios.</p>
+          </div>
+          <Button onClick={() => setCreatingOrg(true)}>
+            <Icon name="plus" size={15} /> Nueva organización
+          </Button>
+        </div>
+
+        {error && <p className="text-rust text-sm mb-4 bg-rust-soft px-3 py-2.5 rounded-lg">{error}</p>}
+
+        {!orgs ? (
+          <div className="grid grid-cols-4 gap-6">
+            <div className="col-span-1 space-y-2">{[1,2,3].map(i => <div key={i} className="skeleton h-16" />)}</div>
+            <div className="col-span-3 skeleton h-64" />
+          </div>
+        ) : orgs.length === 0 ? (
+          <EmptyState icon="building" title="Sin organizaciones"
+            hint="Crea la primera organización para empezar a gestionar clientes.">
+            <Button onClick={() => setCreatingOrg(true)}>
+              <Icon name="plus" size={15} /> Crear organización
+            </Button>
+          </EmptyState>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+
+            {/* Sidebar: lista de orgs */}
+            <div className="lg:col-span-1 space-y-1.5">
+              <p className="text-xs font-semibold text-ink-faint uppercase tracking-wide px-1 mb-2">Organizaciones</p>
+              {orgs.map((org) => (
+                <button
+                  key={org.id}
+                  onClick={() => { setSelectedOrg(org); setActiveTab('users'); }}
+                  className={`w-full text-left px-3 py-2.5 rounded-xl transition group ${
+                    selectedOrg?.id === org.id
+                      ? 'bg-lumen-soft border border-lumen/30 text-lumen-deep'
+                      : 'hover:bg-paper-deep text-ink-soft hover:text-ink'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Icon name="building" size={14} className={selectedOrg?.id === org.id ? 'text-lumen-deep' : 'text-ink-faint'} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{org.name}</p>
+                      <p className="text-xs text-ink-faint font-mono truncate">{org._count?.users ?? 0}u · {org._count?.areas ?? 0}á</p>
+                    </div>
+                    {!org.isActive && <span className="w-1.5 h-1.5 rounded-full bg-rust shrink-0" title="Inactiva" />}
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            {/* Panel derecho */}
+            <div className="lg:col-span-3">
+              {!selectedOrg ? (
+                <div className="bg-surface rounded-2xl border border-line-soft p-12 text-center">
+                  <p className="text-ink-faint text-sm">Selecciona una organización</p>
+                </div>
+              ) : (
+                <div className="bg-surface rounded-2xl border border-line-soft overflow-hidden animate-rise">
+                  {/* Header del org */}
+                  <div className="px-5 py-4 border-b border-line-soft flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h2 className="font-display text-lg text-ink">{selectedOrg.name}</h2>
+                        <StatusBadge active={selectedOrg.isActive} />
+                      </div>
+                      <p className="text-xs text-ink-faint font-mono mt-0.5">slug: {selectedOrg.slug}</p>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => setCreatingOrg(selectedOrg)}>
+                        <Icon name="pencil" size={13} />
+                      </Button>
+                      <Button variant="danger" size="sm" onClick={() => setDeletingOrg(selectedOrg)}>
+                        <Icon name="trash" size={13} />
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Sub-tabs */}
+                  <div className="flex border-b border-line-soft px-2">
+                    {ORG_TABS.map((tab) => (
+                      <button
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id)}
+                        className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition ${
+                          activeTab === tab.id
+                            ? 'border-lumen-deep text-lumen-deep'
+                            : 'border-transparent text-ink-soft hover:text-ink'
+                        }`}
+                      >
+                        <Icon name={tab.icon} size={14} />
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Contenido del tab */}
+                  <div className="p-5">
+                    {activeTab === 'users' && <OrgUsersPanel key={selectedOrg.id} org={selectedOrg} me={me} />}
+                    {activeTab === 'areas' && <OrgAreasPanel key={selectedOrg.id} org={selectedOrg} />}
+                    {activeTab === 'reports' && <OrgReportsPanel key={selectedOrg.id} org={selectedOrg} />}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </main>
+
+      {creatingOrg && (
+        <OrgModal
+          org={creatingOrg === true ? null : creatingOrg}
+          onClose={() => setCreatingOrg(false)}
+          onSaved={(org) => {
+            if (creatingOrg === true) {
+              setOrgs((list) => [...(list || []), org]);
+              setSelectedOrg(org);
+            } else {
+              setOrgs((list) => list.map((o) => (o.id === org.id ? { ...o, ...org } : o)));
+              setSelectedOrg((prev) => (prev?.id === org.id ? { ...prev, ...org } : prev));
+            }
+            setCreatingOrg(false);
+          }}
+        />
+      )}
+      {deletingOrg && (
+        <ConfirmModal title="Eliminar organización"
+          message={`¿Eliminar "${deletingOrg.name}"? Se eliminarán todos sus usuarios, áreas, datasets y reportes. Acción irreversible.`}
+          onConfirm={() => removeOrg(deletingOrg)}
+          onClose={() => setDeletingOrg(null)} />
       )}
     </div>
   );

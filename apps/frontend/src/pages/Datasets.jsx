@@ -48,11 +48,18 @@ export default function Datasets() {
       const { data } = await api.post(`/datasets/${ds.id}/fetch`);
       invalidateDatasetCache(ds.id);
       setStatus(`✓ ${data.count} filas cargadas`);
-      setDatasets((prev) => prev.map((d) => d.id === ds.id ? { ...d, _count: { rows: data.count } } : d));
+      setDatasets((prev) => prev.map((d) => d.id === ds.id
+        ? { ...d, _count: { rows: data.count }, config: { ...d.config, lastSyncStatus: 'ok', lastSyncError: null } }
+        : d));
     } catch (err) {
-      setStatus(`Error: ${err.response?.data?.error || err.message}`);
+      const errorType = err.response?.data?.errorType ?? 'connection_error';
+      const errorMsg = err.response?.data?.error || err.message;
+      setStatus(`Error: ${errorMsg}`);
+      setDatasets((prev) => prev.map((d) => d.id === ds.id
+        ? { ...d, config: { ...d.config, lastSyncStatus: errorType, lastSyncError: errorMsg } }
+        : d));
     }
-    setTimeout(() => setStatus(''), 4000);
+    setTimeout(() => setStatus(''), 6000);
   };
 
   return (
@@ -174,7 +181,45 @@ export default function Datasets() {
   );
 }
 
-// ── Cards ────────────────────────────────────────────────────────────────────
+// ── Sync status badge ─────────────────────────────────────────────────────────
+
+const SYNC_STATUS = {
+  ok:               { dot: 'bg-sea',                  label: 'Sincronizado',         title: null },
+  ssl_error:        { dot: 'bg-lumen animate-pulse',  label: 'Error de certificado', title: null },
+  connection_error: { dot: 'bg-rust animate-pulse',   label: 'Sin conexión',         title: null },
+  http_error:       { dot: 'bg-rust animate-pulse',   label: 'Error HTTP',           title: null },
+  parse_error:      { dot: 'bg-rust animate-pulse',   label: 'Respuesta inválida',   title: null },
+};
+
+function SyncStatusBadge({ config }) {
+  if (!config) return null;
+  const { lastSyncStatus, lastSyncError, allowInsecureSsl } = config;
+  const info = lastSyncStatus ? SYNC_STATUS[lastSyncStatus] : null;
+
+  if (!info && !allowInsecureSsl) return null;
+
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-1.5 mb-1">
+      {info && (
+        <span title={lastSyncError || undefined}
+          className="inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-0.5 rounded-full bg-paper-deep border border-line-soft text-ink-soft cursor-default">
+          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${info.dot}`} />
+          {info.label}
+          {lastSyncError && <span className="text-ink-faint"> · </span>}
+          {lastSyncError && <span className="truncate max-w-[160px] text-ink-faint">{lastSyncError}</span>}
+        </span>
+      )}
+      {allowInsecureSsl && (
+        <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-lumen-soft border border-lumen-line text-lumen-deep">
+          <Icon name="shield-off" size={10} />
+          SSL bypass
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ── Cards ─────────────────────────────────────────────────────────────────────
 
 function DatasetCard({ ds, index, onDelete, onPreview, onSync, onEdit }) {
   const source = SOURCES[ds.sourceType] || { label: ds.sourceType, icon: 'database' };
@@ -207,6 +252,7 @@ function DatasetCard({ ds, index, onDelete, onPreview, onSync, onEdit }) {
           · query configurado
         </p>
       )}
+      <SyncStatusBadge config={ds.config} />
 
       <div className="flex gap-1 mt-2 flex-wrap">
         <CardBtn icon="eye" label="Vista previa" onClick={() => onPreview(ds)} />
@@ -273,36 +319,125 @@ function CSVForm({ onCreated }) {
   );
 }
 
+// Réplica de extractRows del backend (services/dataParser.js) para que el
+// preview del ejemplo coincida exactamente con lo que traerá "Sincronizar".
+const ENVELOPE_KEYS = ['data', 'results', 'items', 'rows', 'records'];
+
+function extractSampleRows(json, dataPath) {
+  if (dataPath) {
+    const value = dataPath.split('.').reduce((obj, key) => obj?.[key], json);
+    return Array.isArray(value) ? value : (value !== undefined ? [value] : []);
+  }
+  if (Array.isArray(json)) return json;
+  if (json && typeof json === 'object') {
+    for (const key of [...ENVELOPE_KEYS, ...Object.keys(json)]) {
+      const v = json[key];
+      if (Array.isArray(v) && v.length && typeof v[0] === 'object') return v;
+    }
+  }
+  return [json];
+}
+
+// Busca en el JSON de ejemplo todos los arrays de objetos (candidatos a dataPath)
+function findArrayPaths(json) {
+  const found = [];
+  const walk = (node, path, depth) => {
+    if (depth > 4 || node === null || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+      if (node.length && node[0] !== null && typeof node[0] === 'object' && !Array.isArray(node[0])) {
+        found.push({ path, count: node.length, columns: Object.keys(node[0]) });
+      }
+      return;
+    }
+    for (const [k, v] of Object.entries(node)) walk(v, path ? `${path}.${k}` : k, depth + 1);
+  };
+  walk(json, '', 0);
+  return found;
+}
+
+// Editor clave-valor para headers y query params
+function KVEditor({ rows, onChange, keyPlaceholder, valuePlaceholder, addLabel }) {
+  const update = (i, field, val) => onChange(rows.map((r, j) => (j === i ? { ...r, [field]: val } : r)));
+  return (
+    <div className="space-y-1.5">
+      {rows.map((r, i) => (
+        <div key={i} className="flex gap-1.5 items-center">
+          <input className="field field-sm field-mono flex-1" placeholder={keyPlaceholder}
+            value={r.k} onChange={(e) => update(i, 'k', e.target.value)} />
+          <input className="field field-sm field-mono flex-[1.4]" placeholder={valuePlaceholder}
+            value={r.v} onChange={(e) => update(i, 'v', e.target.value)} />
+          <button type="button" onClick={() => onChange(rows.filter((_, j) => j !== i))}
+            aria-label="Quitar" className="text-ink-faint hover:text-rust transition cursor-pointer p-1">
+            <Icon name="x" size={14} />
+          </button>
+        </div>
+      ))}
+      <button type="button" onClick={() => onChange([...rows, { k: '', v: '' }])}
+        className="inline-flex items-center gap-1 text-xs text-lumen-deep font-medium hover:underline cursor-pointer">
+        <Icon name="plus" size={12} /> {addLabel}
+      </button>
+    </div>
+  );
+}
+
+const rowsToObject = (rows) => {
+  const o = {};
+  for (const { k, v } of rows) if (k.trim()) o[k.trim()] = v;
+  return o;
+};
+
 function APIForm({ onCreated, initial = {}, onSaved }) {
   const isEdit = !!onSaved;
+  const storedHeaderKeys = initial.config?.headerKeys || [];
+  const storedQueryKeys = initial.config?.queryParamKeys || [];
   const [name, setName] = useState(initial.name || '');
   const [url, setUrl] = useState(initial.config?.url || '');
   const [method, setMethod] = useState(initial.config?.method || 'GET');
   const [dataPath, setDataPath] = useState(initial.config?.dataPath || '');
-  const [headers, setHeaders] = useState(
-    initial.config?.headers ? JSON.stringify(initial.config.headers, null, 2) : ''
-  );
-  const [body, setBody] = useState(
-    initial.config?.body ? JSON.stringify(initial.config.body, null, 2) : ''
-  );
+  // headers/queryParams/body guardados viajan cifrados y nunca llegan al
+  // cliente: en edición arrancan vacíos y "vacío" significa "no cambiar".
+  const [headerRows, setHeaderRows] = useState([]);
+  const [queryRows, setQueryRows] = useState([]);
+  const [clearHeaders, setClearHeaders] = useState(false);
+  const [clearQuery, setClearQuery] = useState(false);
+  const [body, setBody] = useState('');
+  const [sample, setSample] = useState('');
+  const [allowInsecureSsl, setAllowInsecureSsl] = useState(initial.config?.allowInsecureSsl ?? false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
 
   const parseJSON = (str, label) => {
-    if (!str.trim()) return {};
     try { return JSON.parse(str); }
     catch { throw new Error(`${label}: JSON inválido`); }
   };
+
+  // Análisis del ejemplo pegado (solo en el cliente, no viaja al servidor)
+  let sampleJson = null, sampleError = '', candidates = [];
+  if (sample.trim()) {
+    try {
+      sampleJson = JSON.parse(sample);
+      candidates = findArrayPaths(sampleJson);
+    } catch { sampleError = 'JSON inválido — pega la respuesta completa de la API.'; }
+  }
+  const sampleRows = sampleJson !== null ? extractSampleRows(sampleJson, dataPath).slice(0, 5) : [];
+  const sampleCols = sampleRows.length && typeof sampleRows[0] === 'object' && sampleRows[0] !== null
+    ? Object.keys(sampleRows[0]) : [];
 
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true); setMsg('');
     try {
-      const payload = {
-        name, url, method, dataPath,
-        headers: parseJSON(headers, 'Headers'),
-        body: body.trim() ? parseJSON(body, 'Body') : null,
-      };
+      const payload = { name, url, method, dataPath, allowInsecureSsl };
+      // Solo enviar sensibles si el usuario escribió algo; en edición,
+      // omitirlos conserva los guardados (cifrados) en el backend.
+      const h = rowsToObject(headerRows);
+      if (Object.keys(h).length) payload.headers = h;
+      else if (clearHeaders || !isEdit) payload.headers = {};
+      const q = rowsToObject(queryRows);
+      if (Object.keys(q).length) payload.queryParams = q;
+      else if (clearQuery || !isEdit) payload.queryParams = {};
+      if (body.trim()) payload.body = parseJSON(body, 'Body');
+      else if (!isEdit) payload.body = null;
       let data;
       if (isEdit) {
         ({ data } = await api.put(`/datasets/${initial.id}/api-connector`, payload));
@@ -310,7 +445,7 @@ function APIForm({ onCreated, initial = {}, onSaved }) {
       } else {
         ({ data } = await api.post('/datasets/api-connector', payload));
         onCreated({ id: data.id, name: data.name, sourceType: 'api', config: data.config, _count: { rows: 0 } });
-        setName(''); setUrl(''); setHeaders(''); setBody(''); setDataPath('');
+        setName(''); setUrl(''); setHeaderRows([]); setQueryRows([]); setBody(''); setDataPath(''); setSample('');
       }
       setMsg('✓ Conector guardado');
     } catch (err) { setMsg(`Error: ${err.response?.data?.error || err.message}`); }
@@ -338,19 +473,121 @@ function APIForm({ onCreated, initial = {}, onSaved }) {
           </Field>
         </div>
       </div>
-      <Field label="Data path (opcional)">
+      <Field label="Data path (opcional)"
+        hint="Ruta al array de filas dentro de la respuesta. Pega un ejemplo abajo para detectarla.">
         <input value={dataPath} onChange={(e) => setDataPath(e.target.value)} placeholder="ej. data.results" className="field field-mono" />
       </Field>
-      <Field label="Headers JSON (opcional — incluye API keys aquí)"
-        hint="Los headers se almacenan cifrados con AES-256-GCM.">
-        <textarea value={headers} onChange={(e) => setHeaders(e.target.value)} rows={3}
-          placeholder={'{\n  "Authorization": "Bearer TOKEN"\n}'}
-          className="field field-mono resize-y" />
+      <Field label="Headers (opcional — incluye API keys aquí)"
+        hint={isEdit && storedHeaderKeys.length
+          ? `Guardados (cifrados): ${storedHeaderKeys.join(', ')}. Sin filas = mantenerlos; agregar filas los reemplaza.`
+          : 'Se almacenan cifrados con AES-256-GCM.'}>
+        <KVEditor rows={headerRows} onChange={setHeaderRows}
+          keyPlaceholder="Authorization" valuePlaceholder="Bearer TOKEN" addLabel="Agregar header" />
       </Field>
-      <Field label="Body JSON (opcional)">
+      {isEdit && storedHeaderKeys.length > 0 && Object.keys(rowsToObject(headerRows)).length === 0 && (
+        <label className="flex items-center gap-2 text-xs text-ink-soft cursor-pointer -mt-1">
+          <input type="checkbox" checked={clearHeaders} onChange={(e) => setClearHeaders(e.target.checked)} />
+          Borrar los headers guardados
+        </label>
+      )}
+      <Field label="Query params (opcional)"
+        hint={isEdit && storedQueryKeys.length
+          ? `Guardados (cifrados): ${storedQueryKeys.join(', ')}. Sin filas = mantenerlos; agregar filas los reemplaza.`
+          : 'Se agregan a la URL al sincronizar (?clave=valor). Cifrados: suelen llevar API keys.'}>
+        <KVEditor rows={queryRows} onChange={setQueryRows}
+          keyPlaceholder="api_key" valuePlaceholder="valor" addLabel="Agregar query param" />
+      </Field>
+      {isEdit && storedQueryKeys.length > 0 && Object.keys(rowsToObject(queryRows)).length === 0 && (
+        <label className="flex items-center gap-2 text-xs text-ink-soft cursor-pointer -mt-1">
+          <input type="checkbox" checked={clearQuery} onChange={(e) => setClearQuery(e.target.checked)} />
+          Borrar los query params guardados
+        </label>
+      )}
+      <Field label="Body JSON (opcional)"
+        hint={isEdit
+          ? initial.config?.hasBody
+            ? 'Body guardado (cifrado). Vacío = mantenerlo; escribe null para quitarlo.'
+            : 'Sin body guardado. Deja vacío o escribe uno nuevo.'
+          : undefined}>
         <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={2}
           placeholder="{}" className="field field-mono resize-y" />
       </Field>
+
+      <label className="flex items-start gap-2.5 cursor-pointer select-none rounded-lg border border-line p-3 hover:bg-paper-deep transition">
+        <input type="checkbox" checked={allowInsecureSsl} onChange={(e) => setAllowInsecureSsl(e.target.checked)}
+          className="mt-0.5 accent-lumen" />
+        <div>
+          <p className="text-sm font-medium text-ink">Ignorar errores de certificado SSL</p>
+          <p className="text-xs text-ink-soft mt-0.5">
+            Para APIs con certificados auto-firmados o de CA privada. No recomendado en producción.
+          </p>
+        </div>
+      </label>
+
+      {/* Analizador de respuesta de ejemplo: detecta dónde están las filas */}
+      <Field label="Respuesta de ejemplo (opcional)"
+        hint="Pega aquí una respuesta real de la API. Se analiza en tu navegador, no se envía ni se guarda.">
+        <textarea value={sample} onChange={(e) => setSample(e.target.value)} rows={4}
+          placeholder={'{\n  "status": "ok",\n  "data": { "results": [ { "id": 1, "nombre": "…" } ] }\n}'}
+          className="field field-mono resize-y" />
+      </Field>
+      {sampleError && <p className="text-xs text-rust font-mono">{sampleError}</p>}
+      {candidates.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-ink-soft mb-1.5">
+            Arrays detectados — elige cuál contiene tus filas:
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {candidates.map((c) => (
+              <button key={c.path || '(raíz)'} type="button" onClick={() => setDataPath(c.path)}
+                className={`text-xs font-mono rounded-lg px-2.5 py-1.5 border transition cursor-pointer ${
+                  dataPath === c.path
+                    ? 'border-lumen bg-lumen-soft text-lumen-deep font-semibold'
+                    : 'border-line text-ink-soft hover:border-lumen-line hover:bg-paper-deep'
+                }`}>
+                {c.path || '(raíz)'} · {c.count} filas
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {sampleJson !== null && !sampleError && (
+        candidates.length === 0 && !dataPath ? (
+          <p className="text-xs text-lumen-deep font-mono">
+            No se detectó ningún array de objetos en el ejemplo — revisa la respuesta o escribe el data path a mano.
+          </p>
+        ) : sampleCols.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-ink-soft mb-1.5">
+              Vista previa con data path <span className="font-mono text-lumen-deep">{dataPath || '(auto)'}</span>:
+            </p>
+            <div className="overflow-auto max-h-44 rounded-lg border border-line-soft">
+              <table className="text-xs border-collapse w-full">
+                <thead>
+                  <tr>{sampleCols.map((c) => (
+                    <th key={c} className="text-left px-2.5 py-1.5 bg-paper-deep border-b border-line font-mono font-medium text-ink-soft whitespace-nowrap sticky top-0">{c}</th>
+                  ))}</tr>
+                </thead>
+                <tbody>
+                  {sampleRows.map((row, i) => (
+                    <tr key={i} className={i % 2 ? 'bg-paper/60' : ''}>
+                      {sampleCols.map((c) => {
+                        const v = row?.[c];
+                        return (
+                          <td key={c} className="px-2.5 py-1 border-b border-line-soft text-ink-soft max-w-[180px] truncate font-mono">
+                            {v !== null && typeof v === 'object' ? JSON.stringify(v) : String(v ?? '')}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      )}
+
       <Button type="submit" disabled={busy}>
         {busy ? 'Guardando…' : isEdit ? 'Guardar cambios' : 'Crear conector'}
       </Button>

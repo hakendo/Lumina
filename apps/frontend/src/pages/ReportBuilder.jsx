@@ -1,14 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import GridLayout, { useContainerWidth } from 'react-grid-layout';
 import { nanoid } from 'nanoid';
 import api from '../lib/api';
-import { useReportStore } from '../store/reportStore';
+import { exportReportCsv } from '../lib/exportCsv';
+import { useReportStore, applyFilters } from '../store/reportStore';
 import WidgetRenderer from '../components/Canvas/WidgetRenderer';
 import WidgetConfigPanel from '../components/Canvas/WidgetConfigPanel';
 import FilterBar from '../components/Canvas/FilterBar';
 import ShareModal from '../components/ShareModal';
-import { Icon, ReportSkeleton, Wordmark } from '../components/ui';
+import { Icon, Modal, ReportSkeleton, Wordmark } from '../components/ui';
 
 const WIDGET_TYPES = [
   { type: 'chart', label: 'Gráfico', icon: 'chart' },
@@ -18,18 +19,102 @@ const WIDGET_TYPES = [
   { type: 'map', label: 'Mapa', icon: 'pin' },
 ];
 
+// ── Tabs de páginas ───────────────────────────────────────────────
+
+function PageTabs({ reportId }) {
+  const { pages, activePage, setActivePage, addPage, removePage, renamePage } = useReportStore();
+  const [renamingId, setRenamingId] = useState(null);
+  const [renameVal, setRenameVal] = useState('');
+  const inputRef = useRef(null);
+
+  const startRename = (page) => {
+    setRenamingId(page.id);
+    setRenameVal(page.title);
+    setTimeout(() => inputRef.current?.select(), 0);
+  };
+
+  const commitRename = () => {
+    if (renamingId && renameVal.trim()) renamePage(renamingId, renameVal.trim());
+    setRenamingId(null);
+  };
+
+  const handleAdd = () => addPage(reportId);
+
+  const handleRemove = async (e, pageId) => {
+    e.stopPropagation();
+    await removePage(reportId, pageId);
+  };
+
+  return (
+    <div className="bg-surface border-b border-line flex items-center overflow-x-auto shrink-0 px-1 gap-0.5">
+      {pages.map((page) => {
+        const isActive = page.id === activePage;
+        return (
+          <div key={page.id} className={`flex items-center gap-0.5 border-b-2 transition shrink-0 ${
+            isActive ? 'border-lumen-deep' : 'border-transparent'
+          }`}>
+            {renamingId === page.id ? (
+              <input
+                ref={inputRef}
+                value={renameVal}
+                onChange={(e) => setRenameVal(e.target.value)}
+                onBlur={commitRename}
+                onKeyDown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenamingId(null); }}
+                className="text-xs px-2 py-2 bg-transparent outline-none border-none w-28 font-medium text-lumen-deep"
+                autoFocus
+              />
+            ) : (
+              <button
+                onClick={() => setActivePage(page.id)}
+                onDoubleClick={() => startRename(page)}
+                title="Doble clic para renombrar"
+                className={`text-xs px-3 py-2.5 font-medium transition whitespace-nowrap ${
+                  isActive ? 'text-lumen-deep' : 'text-ink-soft hover:text-ink'
+                }`}
+              >
+                {page.title}
+              </button>
+            )}
+            {pages.length > 1 && (
+              <button
+                onClick={(e) => handleRemove(e, page.id)}
+                className="text-ink-faint hover:text-rust transition cursor-pointer pr-1.5"
+                title="Eliminar página"
+              >
+                <Icon name="x" size={10} />
+              </button>
+            )}
+          </div>
+        );
+      })}
+      <button
+        onClick={handleAdd}
+        className="text-ink-faint hover:text-ink transition px-2 py-2 cursor-pointer shrink-0"
+        title="Nueva página"
+      >
+        <Icon name="plus" size={14} />
+      </button>
+    </div>
+  );
+}
+
+// ── Builder principal ─────────────────────────────────────────────
+
 export default function ReportBuilder() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { report, widgets, layout, isDirty, setReport, patchReport, updateLayout, addWidget, save } = useReportStore();
+  const {
+    report, widgets, layout, isDirty,
+    setReport, patchReport, updateLayout, addWidget, save,
+  } = useReportStore();
   const [selectedWidget, setSelectedWidget] = useState(null);
+  const [fullscreenWidget, setFullscreenWidget] = useState(null);
   const [saving, setSaving] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const { width, containerRef } = useContainerWidth({ initialWidth: 1200 });
 
   useEffect(() => {
     api.get(`/reports/${id}`).then(({ data }) => {
-      // Sin permiso de edición → vista de solo lectura
       if (!['owner', 'editor'].includes(data.myRole)) {
         navigate(`/report/${id}/view`, { replace: true });
         return;
@@ -39,7 +124,6 @@ export default function ReportBuilder() {
     return () => setSelectedWidget(null);
   }, [id]);
 
-  // Aviso al cerrar la pestaña con cambios sin guardar
   useEffect(() => {
     if (!isDirty) return;
     const warn = (e) => { e.preventDefault(); e.returnValue = ''; };
@@ -52,7 +136,6 @@ export default function ReportBuilder() {
     try { await save(); } finally { setSaving(false); }
   };
 
-  // Ctrl/Cmd+S guarda
   useEffect(() => {
     const onKey = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
@@ -68,11 +151,24 @@ export default function ReportBuilder() {
     addWidget({ id: nanoid(), widgetType: type, config: {}, datasetId: null });
   };
 
+  // Notifica a los gráficos ECharts que el contenedor cambió de tamaño
+  const handleLayoutChange = (newLayout) => {
+    updateLayout(newLayout);
+    setTimeout(() => window.dispatchEvent(new Event('resize')), 150);
+  };
+
   const exportPDF = async () => {
     const res = await api.get(`/reports/${id}/export/pdf`, { responseType: 'blob' });
     const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
     const a = document.createElement('a'); a.href = url; a.download = `${report?.title}.pdf`; a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const exportCSV = () => {
+    const { filters, filterValues } = useReportStore.getState();
+    exportReportCsv(report.title, widgets, (rows, dsId) =>
+      applyFilters(rows, dsId, filters, filterValues)
+    );
   };
 
   if (!report) {
@@ -121,6 +217,11 @@ export default function ReportBuilder() {
           <Icon name="download" size={13} /> PDF
         </button>
 
+        <button onClick={exportCSV} title="Descargar datos (un CSV por dataset, con filtros aplicados)"
+          className="inline-flex items-center gap-1.5 text-xs bg-paper-deep text-ink-soft hover:bg-line-soft px-3 py-1.5 rounded-lg transition shrink-0 cursor-pointer">
+          <Icon name="download" size={13} /> CSV
+        </button>
+
         <button onClick={handleSave} disabled={saving || !isDirty} title="Ctrl+S"
           className="text-xs bg-ink text-paper hover:bg-ink/85 px-3.5 py-1.5 rounded-lg transition disabled:opacity-40 font-medium shrink-0 cursor-pointer">
           {saving ? 'Guardando…' : 'Guardar'}
@@ -130,8 +231,11 @@ export default function ReportBuilder() {
       {/* Barra de filtros */}
       <FilterBar />
 
+      {/* Tabs de páginas */}
+      <PageTabs reportId={id} />
+
       <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
-        {/* Paleta de widgets: columna en desktop, fila scrolleable en mobile */}
+        {/* Paleta de widgets */}
         <aside className="bg-surface border-b md:border-b-0 md:border-r border-line p-2 md:p-3 flex md:flex-col md:w-44 gap-1 shrink-0 overflow-x-auto md:overflow-visible">
           <p className="hidden md:block text-[11px] font-semibold text-ink-faint uppercase tracking-widest mb-1.5 px-1">
             Widgets
@@ -160,7 +264,7 @@ export default function ReportBuilder() {
               gridConfig={{ cols: 12, rowHeight: 50 }}
               dragConfig={{ handle: '.drag-handle' }}
               width={Math.max(width - 32, 320)}
-              onLayoutChange={updateLayout}
+              onLayoutChange={handleLayoutChange}
               style={{ minHeight: 400 }}
             >
               {widgets.map((w) => (
@@ -178,6 +282,12 @@ export default function ReportBuilder() {
                       {w.config?.title || w.widgetType}
                     </span>
                     <button
+                      onClick={(e) => { e.stopPropagation(); setFullscreenWidget(w); }}
+                      title="Vista completa"
+                      className="text-ink-faint hover:text-lumen-deep px-1 cursor-pointer">
+                      <Icon name="eye" size={12} />
+                    </button>
+                    <button
                       onClick={(e) => { e.stopPropagation(); setSelectedWidget(w.id); }}
                       title="Configurar"
                       className="text-ink-faint hover:text-lumen-deep px-1 cursor-pointer">
@@ -193,7 +303,7 @@ export default function ReportBuilder() {
           )}
         </main>
 
-        {/* Panel de configuración: overlay en mobile, columna en desktop */}
+        {/* Panel de configuración */}
         {activeWidget && (
           <WidgetConfigPanel
             key={activeWidget.id}
@@ -202,6 +312,19 @@ export default function ReportBuilder() {
           />
         )}
       </div>
+
+      {/* Fullscreen widget preview */}
+      {fullscreenWidget && (
+        <Modal
+          title={fullscreenWidget.config?.title || fullscreenWidget.widgetType}
+          onClose={() => setFullscreenWidget(null)}
+          maxWidth="max-w-5xl"
+        >
+          <div style={{ height: '65vh' }}>
+            <WidgetRenderer widget={fullscreenWidget} />
+          </div>
+        </Modal>
+      )}
 
       {shareOpen && (
         <ShareModal report={report} onChange={patchReport} onClose={() => setShareOpen(false)} />

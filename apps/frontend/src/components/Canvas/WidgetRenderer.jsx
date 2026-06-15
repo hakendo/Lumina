@@ -8,7 +8,9 @@ import TableWidget from '../widgets/TableWidget';
 import MapWidget from '../widgets/MapWidget';
 import PivotWidget from '../widgets/PivotWidget';
 
-export default function WidgetRenderer({ widget }) {
+// publicSlug: en la vista pública anónima no hay sesión, así que las filas
+// se piden por el endpoint público del reporte en vez de /datasets/:id/rows.
+export default function WidgetRenderer({ widget, publicSlug }) {
   const [fetched, setFetched] = useState(null);
   const filters = useReportStore((s) => s.filters);
   const filterValues = useReportStore((s) => s.filterValues);
@@ -19,12 +21,15 @@ export default function WidgetRenderer({ widget }) {
   useEffect(() => {
     if (!widget.datasetId || CACHE[widget.datasetId]) return;
     let alive = true;
-    api.get(`/datasets/${widget.datasetId}/rows`).then(({ data: rows }) => {
+    const path = publicSlug
+      ? `/reports/public/${publicSlug}/datasets/${widget.datasetId}/rows`
+      : `/datasets/${widget.datasetId}/rows`;
+    api.get(path).then(({ data: rows }) => {
       CACHE[widget.datasetId] = rows;
       if (alive) setFetched(rows);
     });
     return () => { alive = false; };
-  }, [widget.datasetId]);
+  }, [widget.datasetId, publicSlug]);
 
   const data = rawData
     ? applyFilters(rawData, widget.datasetId, filters, filterValues)
