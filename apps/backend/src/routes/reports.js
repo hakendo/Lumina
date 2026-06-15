@@ -114,26 +114,43 @@ router.get('/area/:areaId', auth, async (req, res) => {
 
 router.get('/explore', auth, async (req, res) => {
   const { q } = req.query;
+
+  // Collect area IDs where user is a member
+  const memberships = await prisma.areaMember.findMany({
+    where: { userId: req.user.id },
+    select: { areaId: true },
+  });
+  const myAreaIds = memberships.map((m) => m.areaId);
+
+  const titleFilter = q ? { title: { contains: q, mode: 'insensitive' } } : {};
+
   const [reports, favIds] = await Promise.all([
     prisma.report.findMany({
       where: {
-        isPublic: true,
-        ...(q && { title: { contains: q, mode: 'insensitive' } }),
+        OR: [
+          { isPublic: true, ...titleFilter },
+          ...(myAreaIds.length ? [{ areaId: { in: myAreaIds }, ...titleFilter }] : []),
+        ],
       },
       include: {
         owner: { select: { name: true } },
-        _count: { select: { widgets: true, favoritedBy: true } },
+        area: { select: { id: true, name: true } },
+        _count: { select: { widgets: true, favoritedBy: true, pages: true } },
       },
       orderBy: { updatedAt: 'desc' },
-      take: 50,
+      take: 80,
     }),
     prisma.userFavorite.findMany({
       where: { userId: req.user.id },
       select: { reportId: true },
     }),
   ]);
+
+  // Deduplicate (report can be both public and in user's area)
   const favSet = new Set(favIds.map((f) => f.reportId));
-  res.json(reports.map((r) => ({ ...r, isFavorited: favSet.has(r.id) })));
+  const seen = new Set();
+  const unique = reports.filter((r) => { if (seen.has(r.id)) return false; seen.add(r.id); return true; });
+  res.json(unique.map((r) => ({ ...r, isFavorited: favSet.has(r.id) })));
 });
 
 // ── Compartidos conmigo ───────────────────────────────────────────
@@ -204,6 +221,22 @@ router.get('/:id', auth, async (req, res) => {
     where: { userId_reportId: { userId: req.user.id, reportId: report.id } },
   }));
   res.json({ ...report, isFavorited, myRole });
+});
+
+// Lightweight metadata update (title, description only — no pages/widgets roundtrip)
+router.patch('/:id', auth, async (req, res) => {
+  const report = await prisma.report.findUnique({ where: { id: req.params.id } });
+  const myRole = await getRole(report, req.user.id);
+  if (!report || !CAN_EDIT.has(myRole)) return res.status(404).json({ error: 'Not found' });
+  const { title, description } = req.body;
+  const updated = await prisma.report.update({
+    where: { id: report.id },
+    data: {
+      ...(title !== undefined && { title: title.trim() || report.title }),
+      ...(description !== undefined && { description }),
+    },
+  });
+  res.json({ title: updated.title, description: updated.description });
 });
 
 router.put('/:id', auth, async (req, res) => {

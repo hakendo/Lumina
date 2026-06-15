@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import GridLayout, { useContainerWidth } from 'react-grid-layout';
 import { nanoid } from 'nanoid';
@@ -112,6 +112,9 @@ export default function ReportBuilder() {
   const [fullscreenWidget, setFullscreenWidget] = useState(null);
   const [saving, setSaving] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
+  const titleInputRef = useRef(null);
   const { width, containerRef } = useContainerWidth({ initialWidth: 1200 });
 
   useEffect(() => {
@@ -172,6 +175,20 @@ export default function ReportBuilder() {
     );
   };
 
+  const startEditTitle = () => {
+    setTitleDraft(report.title);
+    setEditingTitle(true);
+    setTimeout(() => titleInputRef.current?.select(), 0);
+  };
+
+  const commitTitle = useCallback(async () => {
+    setEditingTitle(false);
+    const next = titleDraft.trim();
+    if (!next || next === report.title) return;
+    patchReport({ title: next });
+    await api.patch(`/reports/${id}`, { title: next });
+  }, [titleDraft, report?.title, id]);
+
   if (!report) {
     return (
       <div className="min-h-screen paper-bg flex flex-col">
@@ -192,7 +209,24 @@ export default function ReportBuilder() {
           <Icon name="arrowLeft" size={15} />
         </Link>
         <span className="text-line hidden sm:inline">|</span>
-        <h1 className="font-display text-sm text-ink flex-1 truncate min-w-[120px]">{report.title}</h1>
+        {editingTitle ? (
+          <input
+            ref={titleInputRef}
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onBlur={commitTitle}
+            onKeyDown={(e) => { if (e.key === 'Enter') commitTitle(); if (e.key === 'Escape') setEditingTitle(false); }}
+            className="font-display text-sm text-ink flex-1 min-w-[120px] bg-paper border border-lumen rounded-lg px-2 py-0.5 outline-none"
+          />
+        ) : (
+          <h1
+            className="font-display text-sm text-ink flex-1 truncate min-w-[120px] cursor-text hover:text-lumen-deep transition"
+            onDoubleClick={startEditTitle}
+            title="Doble clic para renombrar"
+          >
+            {report.title}
+          </h1>
+        )}
 
         {isDirty && (
           <span className="text-xs text-lumen-deep bg-lumen-soft px-2 py-0.5 rounded-full shrink-0 font-mono">
