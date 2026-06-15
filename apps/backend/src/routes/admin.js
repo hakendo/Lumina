@@ -103,6 +103,90 @@ router.delete('/orgs/:orgId/areas/:areaId', async (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Plantillas base (superadmin) ─────────────────────────────────
+
+router.get('/reports/templates', async (req, res) => {
+  const templates = await prisma.report.findMany({
+    where: { isTemplate: true },
+    include: {
+      owner: { select: { id: true, name: true } },
+      _count: { select: { widgets: true, pages: true } },
+    },
+    orderBy: { updatedAt: 'desc' },
+  });
+  res.json(templates);
+});
+
+router.post('/reports/templates', async (req, res) => {
+  const { title, description = '' } = req.body;
+  if (!title?.trim()) return res.status(400).json({ error: 'El título es obligatorio' });
+  const report = await prisma.report.create({
+    data: { title: title.trim(), description, isTemplate: true, ownerId: req.user.id },
+  });
+  res.status(201).json(report);
+});
+
+// Clonar plantilla a un usuario de la org cliente
+router.post('/reports/:reportId/assign', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: 'userId es obligatorio' });
+
+  const src = await prisma.report.findUnique({
+    where: { id: req.params.reportId, isTemplate: true },
+    include: {
+      pages: { orderBy: { order: 'asc' }, include: { widgets: true } },
+      widgets: true, // legacy widgets without page
+    },
+  });
+  if (!src) return res.status(404).json({ error: 'Plantilla no encontrada' });
+
+  const targetUser = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, orgId: true } });
+  if (!targetUser?.orgId) return res.status(400).json({ error: 'Usuario no pertenece a una organización' });
+
+  // Deep clone: report + pages + widgets (datasetId nulled — org admin reconnects)
+  const newReport = await prisma.report.create({
+    data: {
+      title: src.title,
+      description: src.description,
+      isTemplate: false,
+      ownerId: userId,
+      pages: {
+        create: src.pages.map((p) => ({
+          title: p.title,
+          order: p.order,
+          layout: p.layout,
+          filters: p.filters,
+          widgets: {
+            create: p.widgets.map((w) => ({
+              widgetType: w.widgetType,
+              config: w.config,
+              position: w.position,
+              datasetId: null, // org-scoped; admin must reconnect
+            })),
+          },
+        })),
+      },
+    },
+    include: { _count: { select: { widgets: true, pages: true } } },
+  });
+
+  // Clone legacy root-level widgets (no page)
+  const rootWidgets = src.widgets.filter((w) => !w.pageId);
+  if (rootWidgets.length > 0) {
+    await prisma.reportWidget.createMany({
+      data: rootWidgets.map((w) => ({
+        reportId: newReport.id,
+        widgetType: w.widgetType,
+        config: w.config,
+        position: w.position,
+        datasetId: null,
+      })),
+    });
+  }
+
+  res.status(201).json(newReport);
+});
+
 // ── Vista global de reportes (superadmin) ─────────────────────────
 
 router.get('/orgs/:orgId/reports', async (req, res) => {

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Navigate, Link } from 'react-router-dom';
+import { Navigate, Link, useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import { useAuthStore } from '../store/authStore';
 import { AppHeader, Button, Field, Icon, Modal, ConfirmModal, EmptyState } from '../components/ui';
@@ -691,6 +691,186 @@ function OrgReportsPanel({ org }) {
   );
 }
 
+// ── Panel: Plantillas base (superadmin) ──────────────────────────
+
+function TemplatesPanel({ orgs }) {
+  const [templates, setTemplates] = useState(null);
+  const [newTitle, setNewTitle] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [assignTarget, setAssignTarget] = useState(null); // template being assigned
+  const [assignOrgId, setAssignOrgId] = useState('');
+  const [orgUsers, setOrgUsers] = useState([]);
+  const [assignUserId, setAssignUserId] = useState('');
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [assignLoading, setAssignLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    api.get('/admin/reports/templates')
+      .then(({ data }) => setTemplates(data))
+      .catch(() => setError('No se pudieron cargar plantillas'));
+  }, []);
+
+  useEffect(() => {
+    if (!assignOrgId) { setOrgUsers([]); setAssignUserId(''); return; }
+    setLoadingUsers(true);
+    api.get(`/admin/users?orgId=${assignOrgId}`)
+      .then(({ data }) => { setOrgUsers(data); setAssignUserId(data[0]?.id || ''); })
+      .catch(() => {})
+      .finally(() => setLoadingUsers(false));
+  }, [assignOrgId]);
+
+  const createTemplate = async (e) => {
+    e.preventDefault();
+    if (!newTitle.trim()) return;
+    setCreating(true);
+    try {
+      const { data } = await api.post('/admin/reports/templates', { title: newTitle.trim() });
+      setTemplates((prev) => [data, ...(prev || [])]);
+      setNewTitle('');
+      navigate(`/report/${data.id}`);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error al crear');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const deleteTemplate = async (t) => {
+    if (!window.confirm(`¿Eliminar plantilla "${t.title}"?`)) return;
+    try {
+      await api.delete(`/reports/${t.id}`);
+      setTemplates((prev) => prev.filter((x) => x.id !== t.id));
+    } catch {
+      setError('Error al eliminar');
+    }
+  };
+
+  const startAssign = (t) => {
+    setAssignTarget(t);
+    setAssignOrgId(orgs[0]?.id || '');
+    setError('');
+    setSuccess('');
+  };
+
+  const confirmAssign = async () => {
+    if (!assignUserId) return;
+    setAssignLoading(true);
+    setError('');
+    try {
+      await api.post(`/admin/reports/${assignTarget.id}/assign`, { userId: assignUserId });
+      const user = orgUsers.find((u) => u.id === assignUserId);
+      const org = orgs.find((o) => o.id === assignOrgId);
+      setSuccess(`Plantilla "${assignTarget.title}" asignada a ${user?.name} (${org?.name})`);
+      setAssignTarget(null);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error al asignar');
+    } finally {
+      setAssignLoading(false);
+    }
+  };
+
+  return (
+    <div className="bg-surface rounded-2xl border border-line-soft overflow-hidden animate-rise">
+      <div className="px-5 py-4 border-b border-line-soft flex items-center justify-between">
+        <div>
+          <h2 className="font-display text-lg text-ink flex items-center gap-2">
+            <Icon name="copy" size={17} className="text-lumen-deep" /> Plantillas base
+          </h2>
+          <p className="text-xs text-ink-faint mt-0.5">Reportes modelo que puedes clonar a cualquier cliente.</p>
+        </div>
+      </div>
+
+      <div className="p-5">
+        {error && <p className="text-rust text-xs mb-3 bg-rust-soft px-3 py-2 rounded-lg">{error}</p>}
+        {success && <p className="text-sea text-xs mb-3 bg-sea-soft px-3 py-2 rounded-lg">{success}</p>}
+
+        <form onSubmit={createTemplate} className="flex gap-2 mb-6">
+          <input type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)}
+            placeholder="Nombre de la nueva plantilla…" className="field flex-1" />
+          <Button type="submit" disabled={creating || !newTitle.trim()}>
+            <Icon name="plus" size={14} /> Crear y editar
+          </Button>
+        </form>
+
+        {!templates ? (
+          <div className="space-y-2">{[1,2,3].map(i => <div key={i} className="skeleton h-12" />)}</div>
+        ) : templates.length === 0 ? (
+          <EmptyState icon="copy" title="Sin plantillas"
+            hint="Crea una plantilla, diseña el dashboard en el editor y luego asígnala a tus clientes." />
+        ) : (
+          <div className="space-y-2">
+            {templates.map((t) => (
+              <div key={t.id}
+                className="flex items-center gap-3 px-4 py-3 bg-paper-deep/40 border border-line-soft rounded-xl">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-ink truncate">{t.title}</p>
+                  {t.description && <p className="text-xs text-ink-faint truncate">{t.description}</p>}
+                  <p className="text-xs text-ink-faint font-mono mt-0.5">
+                    {t._count?.pages ?? 0} páginas · {t._count?.widgets ?? 0} widgets
+                  </p>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <Link to={`/report/${t.id}`}
+                    className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg text-ink-soft hover:text-ink hover:bg-paper-deep transition">
+                    <Icon name="pencil" size={13} /> Editar
+                  </Link>
+                  <Button size="sm" variant="accent" onClick={() => startAssign(t)}>
+                    <Icon name="users" size={13} /> Asignar a cliente
+                  </Button>
+                  <button onClick={() => deleteTemplate(t)}
+                    className="p-1.5 rounded-lg text-ink-faint hover:text-rust hover:bg-rust-soft transition cursor-pointer"
+                    title="Eliminar plantilla">
+                    <Icon name="trash" size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {assignTarget && (
+        <Modal title={`Asignar: ${assignTarget.title}`} onClose={() => setAssignTarget(null)} maxWidth="max-w-sm">
+          <p className="text-sm text-ink-soft mb-4">
+            Se creará una copia del reporte en la cuenta del usuario seleccionado.
+            Los widgets conservan su estructura pero <strong>sin datos conectados</strong> — el usuario deberá vincular sus propios datasets.
+          </p>
+          <div className="space-y-4">
+            <Field label="Organización cliente">
+              <select className="field" value={assignOrgId} onChange={(e) => setAssignOrgId(e.target.value)}>
+                {orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+              </select>
+            </Field>
+            <Field label="Asignar a usuario">
+              {loadingUsers ? (
+                <div className="skeleton h-10" />
+              ) : (
+                <select className="field" value={assignUserId}
+                  onChange={(e) => setAssignUserId(e.target.value)}>
+                  <option value="">— Seleccionar —</option>
+                  {orgUsers.map((u) => (
+                    <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
+                  ))}
+                </select>
+              )}
+            </Field>
+          </div>
+          {error && <p className="text-rust text-xs mt-3 bg-rust-soft px-3 py-2 rounded-lg">{error}</p>}
+          <div className="flex justify-end gap-2 mt-5">
+            <Button variant="soft" onClick={() => setAssignTarget(null)}>Cancelar</Button>
+            <Button onClick={confirmAssign} disabled={!assignUserId || assignLoading}>
+              {assignLoading ? 'Asignando…' : 'Confirmar asignación'}
+            </Button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
 // ── Página principal Admin ─────────────────────────────────────────
 
 const ORG_TABS = [
@@ -701,6 +881,7 @@ const ORG_TABS = [
 
 export default function Admin() {
   const { user: me } = useAuthStore();
+  const [view, setView] = useState('orgs'); // 'orgs' | 'templates'
   const [orgs, setOrgs] = useState(null);
   const [selectedOrg, setSelectedOrg] = useState(null);
   const [activeTab, setActiveTab] = useState('users');
@@ -743,12 +924,35 @@ export default function Admin() {
             </h1>
             <p className="text-sm text-ink-faint mt-1">Gestiona organizaciones, equipos y usuarios.</p>
           </div>
-          <Button onClick={() => setCreatingOrg(true)}>
-            <Icon name="plus" size={15} /> Nueva organización
-          </Button>
+          {view === 'orgs' && (
+            <Button onClick={() => setCreatingOrg(true)}>
+              <Icon name="plus" size={15} /> Nueva organización
+            </Button>
+          )}
+        </div>
+
+        {/* Vista principal: Organizaciones vs Plantillas */}
+        <div className="flex gap-1 p-1 bg-paper-deep rounded-xl border border-line-soft mb-6 w-fit">
+          {[
+            { id: 'orgs', label: 'Organizaciones', icon: 'building' },
+            { id: 'templates', label: 'Plantillas base', icon: 'copy' },
+          ].map((v) => (
+            <button key={v.id} onClick={() => setView(v.id)}
+              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition cursor-pointer ${
+                view === v.id
+                  ? 'bg-surface text-ink shadow-sm border border-line-soft'
+                  : 'text-ink-soft hover:text-ink'
+              }`}>
+              <Icon name={v.icon} size={14} /> {v.label}
+            </button>
+          ))}
         </div>
 
         {error && <p className="text-rust text-sm mb-4 bg-rust-soft px-3 py-2.5 rounded-lg">{error}</p>}
+
+        {view === 'templates' && orgs && <TemplatesPanel orgs={orgs} />}
+        {view === 'templates' && !orgs && <div className="skeleton h-48 rounded-2xl" />}
+        {view === 'orgs' && (
 
         {!orgs ? (
           <div className="grid grid-cols-4 gap-6">
@@ -846,6 +1050,7 @@ export default function Admin() {
             </div>
           </div>
         )}
+        )} {/* end view === 'orgs' */}
       </main>
 
       {creatingOrg && (

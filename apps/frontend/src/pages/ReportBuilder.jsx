@@ -10,6 +10,7 @@ import WidgetConfigPanel from '../components/Canvas/WidgetConfigPanel';
 import FilterBar from '../components/Canvas/FilterBar';
 import ShareModal from '../components/ShareModal';
 import { Icon, Modal, ReportSkeleton, Wordmark } from '../components/ui';
+import { useAuthStore } from '../store/authStore';
 
 const WIDGET_TYPES = [
   { type: 'chart', label: 'Gráfico', icon: 'chart' },
@@ -103,6 +104,7 @@ function PageTabs({ reportId }) {
 export default function ReportBuilder() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuthStore();
   const {
     report, widgets, layout, isDirty,
     setReport, patchReport, updateLayout, addWidget, save,
@@ -252,6 +254,33 @@ export default function ReportBuilder() {
         )}
         {report.isPublic && (
           <span className="text-xs bg-sea-soft text-sea px-2 py-0.5 rounded-full shrink-0">Público</span>
+        )}
+        {report.isTemplate && (
+          <span className="text-xs bg-lumen-soft text-lumen-deep px-2 py-0.5 rounded-full shrink-0 flex items-center gap-1">
+            <Icon name="copy" size={11} /> Plantilla
+          </span>
+        )}
+        {user?.role === 'superadmin' && !report.isTemplate && (
+          <button
+            onClick={async () => {
+              patchReport({ isTemplate: true });
+              await api.patch(`/reports/${id}`, { isTemplate: true });
+            }}
+            className="text-xs text-ink-faint hover:text-lumen-deep transition cursor-pointer shrink-0"
+            title="Marcar como plantilla base">
+            + Plantilla
+          </button>
+        )}
+        {user?.role === 'superadmin' && report.isTemplate && (
+          <button
+            onClick={async () => {
+              patchReport({ isTemplate: false });
+              await api.patch(`/reports/${id}`, { isTemplate: false });
+            }}
+            className="text-xs text-ink-faint hover:text-rust transition cursor-pointer shrink-0"
+            title="Quitar plantilla base">
+            Quitar plantilla
+          </button>
         )}
 
         <button onClick={() => setShareOpen(true)}

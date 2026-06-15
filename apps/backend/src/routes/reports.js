@@ -60,7 +60,7 @@ async function userCanAccessArea(userId, areaId) {
 router.get('/', auth, async (req, res) => {
   const [reports, favIds] = await Promise.all([
     prisma.report.findMany({
-      where: { ownerId: req.user.id },
+      where: { ownerId: req.user.id, isTemplate: false },
       include: {
         area: { select: { id: true, name: true } },
         _count: { select: { widgets: true, pages: true } },
@@ -232,20 +232,21 @@ router.get('/:id', auth, async (req, res) => {
   res.json({ ...report, isFavorited, myRole });
 });
 
-// Lightweight metadata update (title, description only — no pages/widgets roundtrip)
+// Lightweight metadata update (title, description, isTemplate for superadmin)
 router.patch('/:id', auth, async (req, res) => {
   const report = await prisma.report.findUnique({ where: { id: req.params.id } });
   const myRole = await getRole(report, req.user.id);
   if (!report || !CAN_EDIT.has(myRole)) return res.status(404).json({ error: 'Not found' });
-  const { title, description } = req.body;
-  const updated = await prisma.report.update({
-    where: { id: report.id },
-    data: {
-      ...(title !== undefined && { title: title.trim() || report.title }),
-      ...(description !== undefined && { description }),
-    },
-  });
-  res.json({ title: updated.title, description: updated.description });
+  const { title, description, isTemplate } = req.body;
+  const data = {
+    ...(title !== undefined && { title: title.trim() || report.title }),
+    ...(description !== undefined && { description }),
+  };
+  if (isTemplate !== undefined && req.user.role === 'superadmin') {
+    data.isTemplate = Boolean(isTemplate);
+  }
+  const updated = await prisma.report.update({ where: { id: report.id }, data });
+  res.json({ title: updated.title, description: updated.description, isTemplate: updated.isTemplate });
 });
 
 router.put('/:id', auth, async (req, res) => {
