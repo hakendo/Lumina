@@ -20,6 +20,8 @@ export default function Datasets() {
   const [editTarget, setEditTarget] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [status, setStatus] = useState('');
+  const [syncingId, setSyncingId] = useState(null);
+  const syncControllerRef = useRef(null);
 
   useEffect(() => {
     Promise.all([
@@ -49,24 +51,41 @@ export default function Datasets() {
   };
 
   const syncDataset = async (ds) => {
-    setStatus(`Sincronizando "${ds.name}"…`);
+    const controller = new AbortController();
+    syncControllerRef.current = controller;
+    setSyncingId(ds.id);
+    setDatasets((prev) => prev.map((d) => d.id === ds.id
+      ? { ...d, config: { ...d.config, lastSyncStatus: 'syncing', lastSyncError: null } }
+      : d));
     try {
-      const { data } = await api.post(`/datasets/${ds.id}/fetch`);
+      const { data } = await api.post(`/datasets/${ds.id}/fetch`, {}, { signal: controller.signal });
       invalidateDatasetCache(ds.id);
-      setStatus(`✓ ${data.count} filas cargadas`);
+      setStatus(`✓ "${ds.name}" — ${data.count} filas cargadas`);
       setDatasets((prev) => prev.map((d) => d.id === ds.id
         ? { ...d, _count: { rows: data.count }, config: { ...d.config, lastSyncStatus: 'ok', lastSyncError: null } }
         : d));
+      setTimeout(() => setStatus(''), 5000);
     } catch (err) {
-      const errorType = err.response?.data?.errorType ?? 'connection_error';
-      const errorMsg = err.response?.data?.error || err.message;
-      setStatus(`Error: ${errorMsg}`);
-      setDatasets((prev) => prev.map((d) => d.id === ds.id
-        ? { ...d, config: { ...d.config, lastSyncStatus: errorType, lastSyncError: errorMsg } }
-        : d));
+      if (err.code === 'ERR_CANCELED') {
+        setDatasets((prev) => prev.map((d) => d.id === ds.id
+          ? { ...d, config: { ...d.config, lastSyncStatus: null, lastSyncError: null } }
+          : d));
+      } else {
+        const errorType = err.response?.data?.errorType ?? 'connection_error';
+        const errorMsg = err.response?.data?.error || err.message;
+        setStatus(`Error: ${errorMsg}`);
+        setDatasets((prev) => prev.map((d) => d.id === ds.id
+          ? { ...d, config: { ...d.config, lastSyncStatus: errorType, lastSyncError: errorMsg } }
+          : d));
+        setTimeout(() => setStatus(''), 8000);
+      }
+    } finally {
+      setSyncingId(null);
+      syncControllerRef.current = null;
     }
-    setTimeout(() => setStatus(''), 6000);
   };
+
+  const stopSync = () => syncControllerRef.current?.abort();
 
   return (
     <div className="min-h-screen paper-bg">
@@ -122,6 +141,8 @@ export default function Datasets() {
                 onPreview={loadPreview}
                 onSync={syncDataset}
                 onEdit={() => setEditTarget(ds)}
+                isSyncing={syncingId === ds.id}
+                onStopSync={stopSync}
               />
             ))}
           </div>
@@ -195,11 +216,12 @@ export default function Datasets() {
 // ── Sync status badge ─────────────────────────────────────────────────────────
 
 const SYNC_STATUS = {
-  ok:               { dot: 'bg-sea',                  label: 'Sincronizado',         title: null },
-  ssl_error:        { dot: 'bg-lumen animate-pulse',  label: 'Error de certificado', title: null },
-  connection_error: { dot: 'bg-rust animate-pulse',   label: 'Sin conexión',         title: null },
-  http_error:       { dot: 'bg-rust animate-pulse',   label: 'Error HTTP',           title: null },
-  parse_error:      { dot: 'bg-rust animate-pulse',   label: 'Respuesta inválida',   title: null },
+  syncing:          { dot: 'bg-lumen-deep animate-pulse', label: 'Sincronizando…',       title: null },
+  ok:               { dot: 'bg-sea',                      label: 'Sincronizado',          title: null },
+  ssl_error:        { dot: 'bg-rust animate-pulse',       label: 'Error de certificado',  title: null },
+  connection_error: { dot: 'bg-rust animate-pulse',       label: 'Sin conexión',          title: null },
+  http_error:       { dot: 'bg-rust animate-pulse',       label: 'Error HTTP',            title: null },
+  parse_error:      { dot: 'bg-rust animate-pulse',       label: 'Respuesta inválida',    title: null },
 };
 
 function SyncStatusBadge({ config }) {
@@ -232,24 +254,33 @@ function SyncStatusBadge({ config }) {
 
 // ── Cards ─────────────────────────────────────────────────────────────────────
 
-function DatasetCard({ ds, index, onDelete, onPreview, onSync, onEdit }) {
+function DatasetCard({ ds, index, onDelete, onPreview, onSync, onEdit, isSyncing, onStopSync }) {
   const source = SOURCES[ds.sourceType] || { label: ds.sourceType, icon: 'database' };
   const editable = ['api', 'db', 'derived'].includes(ds.sourceType);
 
   return (
-    <div className="bg-surface border border-line-soft rounded-xl p-4 shadow-card hover:shadow-lift hover:border-lumen-line transition animate-rise"
+    <div className={`bg-surface border rounded-xl p-4 shadow-card transition animate-rise ${
+      isSyncing ? 'border-lumen-deep/40 shadow-lumen-soft' : 'border-line-soft hover:shadow-lift hover:border-lumen-line'
+    }`}
       style={{ animationDelay: `${Math.min(index, 8) * 60}ms` }}>
       <div className="flex items-center gap-3 mb-2">
-        <span className="grid place-items-center w-9 h-9 rounded-lg bg-lumen-soft text-lumen-deep shrink-0">
-          <Icon name={source.icon} size={17} />
+        <span className={`grid place-items-center w-9 h-9 rounded-lg shrink-0 transition ${
+          isSyncing ? 'bg-lumen-soft text-lumen-deep' : 'bg-lumen-soft text-lumen-deep'
+        }`}>
+          <Icon name={source.icon} size={17} className={isSyncing ? 'animate-pulse' : ''} />
         </span>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="font-display text-sm text-ink truncate">{ds.name}</p>
           <p className="font-mono text-[11px] text-ink-faint">
             {source.label} · {ds._count?.rows ?? 0} filas
             {ds.area && <> · <span className="text-lumen-deep">{ds.area.name}</span></>}
           </p>
         </div>
+        {isSyncing && (
+          <span className="text-[10px] font-mono text-lumen-deep bg-lumen-soft px-2 py-0.5 rounded-full shrink-0 animate-pulse">
+            en curso
+          </span>
+        )}
       </div>
 
       {ds.sourceType === 'api' && ds.config?.url && (
@@ -267,11 +298,19 @@ function DatasetCard({ ds, index, onDelete, onPreview, onSync, onEdit }) {
       <SyncStatusBadge config={ds.config} />
 
       <div className="flex gap-1 mt-2 flex-wrap">
-        <CardBtn icon="eye" label="Vista previa" onClick={() => onPreview(ds)} />
-        {editable && <CardBtn icon="refresh" label="Sincronizar" accent onClick={() => onSync(ds)} />}
-        {editable && <CardBtn icon="pencil" label="Editar" onClick={onEdit} />}
-        <button onClick={() => onDelete(ds)} title="Eliminar"
-          className="ml-auto inline-flex items-center gap-1 text-xs text-ink-faint hover:text-rust hover:bg-rust-soft rounded-lg px-2 py-1 transition cursor-pointer">
+        <CardBtn icon="eye" label="Vista previa" onClick={() => onPreview(ds)} disabled={isSyncing} />
+        {editable && !isSyncing && (
+          <CardBtn icon="refresh" label="Sincronizar" accent onClick={() => onSync(ds)} />
+        )}
+        {editable && isSyncing && (
+          <>
+            <CardBtn icon="refresh" label="Sincronizando…" accent disabled iconSpin />
+            <CardBtn icon="x" label="Detener" danger onClick={onStopSync} />
+          </>
+        )}
+        {editable && <CardBtn icon="pencil" label="Editar" onClick={onEdit} disabled={isSyncing} />}
+        <button onClick={() => onDelete(ds)} title="Eliminar" disabled={isSyncing}
+          className="ml-auto inline-flex items-center gap-1 text-xs text-ink-faint hover:text-rust hover:bg-rust-soft rounded-lg px-2 py-1 transition cursor-pointer disabled:opacity-30 disabled:pointer-events-none">
           <Icon name="trash" size={13} />
         </button>
       </div>
@@ -279,13 +318,19 @@ function DatasetCard({ ds, index, onDelete, onPreview, onSync, onEdit }) {
   );
 }
 
-function CardBtn({ icon, label, onClick, accent = false }) {
+function CardBtn({ icon, label, onClick, accent = false, danger = false, disabled = false, iconSpin = false }) {
   return (
-    <button onClick={onClick}
-      className={`inline-flex items-center gap-1.5 text-xs rounded-lg px-2 py-1 transition cursor-pointer ${
-        accent ? 'text-sea hover:bg-sea-soft' : 'text-ink-soft hover:bg-paper-deep hover:text-ink'
+    <button onClick={onClick} disabled={disabled}
+      className={`inline-flex items-center gap-1.5 text-xs rounded-lg px-2 py-1 transition ${
+        disabled
+          ? 'opacity-60 cursor-not-allowed'
+          : 'cursor-pointer'
+      } ${
+        danger   ? 'text-rust hover:bg-rust-soft' :
+        accent   ? 'text-sea hover:bg-sea-soft' :
+                   'text-ink-soft hover:bg-paper-deep hover:text-ink'
       }`}>
-      <Icon name={icon} size={13} /> {label}
+      <Icon name={icon} size={13} className={iconSpin ? 'animate-spin' : ''} /> {label}
     </button>
   );
 }
