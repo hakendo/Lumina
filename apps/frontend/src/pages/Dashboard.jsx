@@ -9,11 +9,12 @@ export default function Dashboard() {
   const [reports, setReports] = useState([]);
   const [favorites, setFavorites] = useState([]);
   const [shared, setShared] = useState([]);
+  const [areas, setAreas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [newTitle, setNewTitle] = useState('');
   const [creating, setCreating] = useState(false);
-  const [tab, setTab] = useState('mine'); // mine | shared | favorites
+  const [tab, setTab] = useState('mine');
   const [deleteTarget, setDeleteTarget] = useState(null);
   const navigate = useNavigate();
 
@@ -22,11 +23,13 @@ export default function Dashboard() {
       api.get('/reports'),
       api.get('/reports/favorites'),
       api.get('/reports/shared'),
+      api.get('/areas/mine'),
     ])
-      .then(([r, f, s]) => {
+      .then(([r, f, s, a]) => {
         setReports(r.data);
         setFavorites(f.data);
         setShared(s.data);
+        setAreas(a.data);
       })
       .catch(() => setLoadError('No se pudieron cargar tus reportes. Recarga la página.'))
       .finally(() => setLoading(false));
@@ -74,6 +77,13 @@ export default function Dashboard() {
     URL.revokeObjectURL(url);
   };
 
+  const tabs = [
+    { key: 'mine', label: 'Mis reportes', count: reports.length },
+    { key: 'areas', label: 'Áreas', count: areas.length },
+    { key: 'shared', label: 'Compartidos', count: shared.length },
+    { key: 'favorites', label: 'Favoritos', count: favorites.length },
+  ];
+
   const displayed = tab === 'mine' ? reports : tab === 'shared' ? shared : favorites;
 
   return (
@@ -86,17 +96,14 @@ export default function Dashboard() {
             {user?.name ? `Hola, ${user.name.split(' ')[0]}` : 'Tus reportes'}
           </h2>
           <p className="text-ink-faint text-sm mt-1">
-            {reports.length === 1 ? '1 reporte' : `${reports.length} reportes`} · {shared.length} compartidos contigo · {favorites.length} en favoritos
+            {reports.length === 1 ? '1 reporte' : `${reports.length} reportes`}
+            {areas.length > 0 && <> · <span className="text-lumen-deep">{areas.length} área{areas.length !== 1 ? 's' : ''}</span></>}
+            {shared.length > 0 && <> · {shared.length} compartidos</>}
           </p>
         </div>
 
-        {/* Tabs editoriales */}
         <div className="flex gap-4 sm:gap-6 border-b border-line mb-6 overflow-x-auto">
-          {[
-            { key: 'mine', label: 'Mis reportes', count: reports.length },
-            { key: 'shared', label: 'Compartidos', count: shared.length },
-            { key: 'favorites', label: 'Favoritos', count: favorites.length },
-          ].map((t) => (
+          {tabs.map((t) => (
             <button key={t.key} onClick={() => setTab(t.key)}
               className={`pb-2.5 -mb-px text-sm font-medium border-b-2 transition cursor-pointer whitespace-nowrap ${
                 tab === t.key
@@ -123,6 +130,8 @@ export default function Dashboard() {
           <p className="text-rust text-sm bg-rust-soft px-4 py-3 rounded-lg">{loadError}</p>
         ) : loading ? (
           <SkeletonCards />
+        ) : tab === 'areas' ? (
+          <AreasView areas={areas} user={user} onToggleFavorite={toggleFavorite} onExportPDF={exportPDF} />
         ) : displayed.length === 0 ? (
           tab === 'favorites' ? (
             <EmptyState icon="star" title="Aún no tienes favoritos"
@@ -166,7 +175,88 @@ export default function Dashboard() {
   );
 }
 
+// ── Vista de áreas ────────────────────────────────────────────────
+
+function AreasView({ areas, user, onToggleFavorite, onExportPDF }) {
+  if (areas.length === 0) {
+    return (
+      <EmptyState icon="layers" title="Sin áreas asignadas"
+        hint="Un administrador debe agregarte a un área para que veas los reportes publicados de tu equipo." />
+    );
+  }
+
+  return (
+    <div className="space-y-8">
+      {areas.map((area, i) => (
+        <AreaSection key={area.id} area={area} index={i} user={user}
+          onToggleFavorite={onToggleFavorite} onExportPDF={onExportPDF} />
+      ))}
+    </div>
+  );
+}
+
+function AreaSection({ area, index, user, onToggleFavorite, onExportPDF }) {
+  const [reports, setReports] = useState(null);
+  const [expanded, setExpanded] = useState(index === 0);
+
+  useEffect(() => {
+    if (expanded && reports === null) {
+      api.get(`/reports/area/${area.id}`)
+        .then(({ data }) => setReports(data))
+        .catch(() => setReports([]));
+    }
+  }, [expanded, area.id]);
+
+  return (
+    <div className="animate-rise" style={{ animationDelay: `${index * 80}ms` }}>
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="flex items-center gap-2.5 w-full text-left mb-4 group cursor-pointer"
+      >
+        <span className="grid place-items-center w-8 h-8 rounded-lg bg-lumen-soft text-lumen-deep shrink-0">
+          <Icon name="layers" size={15} />
+        </span>
+        <div className="flex-1 min-w-0">
+          <span className="font-display text-base text-ink group-hover:text-lumen-deep transition truncate block">
+            {area.name}
+          </span>
+        </div>
+        <Icon
+          name={expanded ? 'chevronDown' : 'chevronRight'}
+          size={15}
+          className="text-ink-faint shrink-0"
+        />
+      </button>
+
+      {expanded && (
+        reports === null ? (
+          <SkeletonCards count={3} height="h-36" />
+        ) : reports.length === 0 ? (
+          <div className="bg-surface border border-line-soft rounded-xl px-5 py-8 text-center">
+            <p className="text-sm text-ink-faint">No hay reportes publicados en esta área todavía.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {reports.map((r, i) => (
+              <ReportCard key={r.id} report={r} index={i}
+                isOwner={r.ownerId === user?.id}
+                canEdit={r.ownerId === user?.id || r.myRole === 'editor'}
+                onToggleFavorite={onToggleFavorite}
+                onExportPDF={onExportPDF}
+              />
+            ))}
+          </div>
+        )
+      )}
+    </div>
+  );
+}
+
+// ── Tarjeta de reporte ────────────────────────────────────────────
+
 function ReportCard({ report: r, index, isOwner, canEdit, onDelete, onDuplicate, onToggleFavorite, onExportPDF }) {
+  const pages = r._count?.pages ?? 0;
+
   return (
     <div
       className="group bg-surface border border-line-soft rounded-xl p-5 shadow-card hover:shadow-lift hover:border-lumen-line hover:-translate-y-0.5 transition flex flex-col animate-rise"
@@ -185,13 +275,19 @@ function ReportCard({ report: r, index, isOwner, canEdit, onDelete, onDuplicate,
         </button>
       </div>
 
-      <div className="flex items-center gap-2 mb-4 font-mono text-[11px] text-ink-faint">
+      <div className="flex items-center flex-wrap gap-x-2 gap-y-1 mb-4 font-mono text-[11px] text-ink-faint">
         <span>{r._count?.widgets ?? 0} widgets</span>
+        {pages > 1 && <><span className="text-line">·</span><span>{pages} páginas</span></>}
         <span className="text-line">·</span>
         <span>{new Date(r.updatedAt).toLocaleDateString()}</span>
         {r.isPublic && (
-          <span className="ml-auto font-sans text-[11px] bg-sea-soft text-sea px-2 py-0.5 rounded-full">
+          <span className="font-sans text-[11px] bg-sea-soft text-sea px-2 py-0.5 rounded-full">
             Público
+          </span>
+        )}
+        {r.area && (
+          <span className="font-sans text-[11px] bg-lumen-soft text-lumen-deep px-2 py-0.5 rounded-full flex items-center gap-1">
+            <Icon name="layers" size={9} /> {r.area.name}
           </span>
         )}
       </div>
@@ -207,7 +303,7 @@ function ReportCard({ report: r, index, isOwner, canEdit, onDelete, onDuplicate,
             <Icon name="pencil" size={14} />
           </Link>
         )}
-        {isOwner && (
+        {isOwner && onDuplicate && (
           <>
             <CardAction title="Duplicar" icon="copy" onClick={() => onDuplicate(r)} />
             <CardAction title="Exportar PDF" icon="download" onClick={() => onExportPDF(r.id, r.title)} />
