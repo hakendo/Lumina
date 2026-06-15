@@ -106,6 +106,7 @@ export default function ReportBuilder() {
   const {
     report, widgets, layout, isDirty,
     setReport, patchReport, updateLayout, addWidget, save,
+    crossFilters, clearCrossFilters,
   } = useReportStore();
   const [selectedWidget, setSelectedWidget] = useState(null);
   const [fullscreenWidget, setFullscreenWidget] = useState(null);
@@ -230,6 +231,19 @@ export default function ReportBuilder() {
 
       {/* Barra de filtros */}
       <FilterBar />
+
+      {/* Indicador de cross-filter activo */}
+      {Object.keys(crossFilters).length > 0 && (
+        <div className="bg-lumen-soft border-b border-lumen-line px-4 py-1.5 flex items-center gap-2 shrink-0">
+          <Icon name="filter" size={12} className="text-lumen-deep" />
+          <span className="text-xs text-lumen-deep font-medium">
+            Cross-filter activo: {Object.entries(crossFilters).map(([, cf]) => `${cf.field} = "${cf.value}"`).join(' · ')}
+          </span>
+          <button onClick={clearCrossFilters} className="text-xs text-lumen-deep hover:text-rust transition cursor-pointer ml-auto underline">
+            Limpiar
+          </button>
+        </div>
+      )}
 
       {/* Tabs de páginas */}
       <PageTabs reportId={id} />

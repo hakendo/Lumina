@@ -19,6 +19,8 @@ export const useReportStore = create((set, get) => ({
   layout: [],      // shortcut → active page's layout
   filters: [],     // shortcut → active page's filters
   filterValues: {},
+  // Cross-filter: { [datasetId]: { field, value } } — runtime only, not saved
+  crossFilters: {},
   isDirty: false,
 
   setReport: (report) => {
@@ -49,7 +51,7 @@ export const useReportStore = create((set, get) => ({
 
   // ── Páginas ──────────────────────────────────────────────────────────────
 
-  setActivePage: (pageId) => set((s) => syncActive(s.pages, pageId)),
+  setActivePage: (pageId) => set((s) => ({ ...syncActive(s.pages, pageId), crossFilters: {} })),
 
   addPage: async (reportId) => {
     const title = `Página ${get().pages.length + 1}`;
@@ -155,6 +157,20 @@ export const useReportStore = create((set, get) => ({
   setFilterValue: (id, value) =>
     set((s) => ({ filterValues: { ...s.filterValues, [id]: value } })),
 
+  // Cross-filtering: click en widget emite { datasetId, field, value }
+  // Un segundo click en el mismo valor lo limpia (toggle).
+  setCrossFilter: (datasetId, field, value) =>
+    set((s) => {
+      const cur = s.crossFilters[datasetId];
+      const same = cur?.field === field && String(cur?.value) === String(value);
+      const next = same
+        ? (() => { const c = { ...s.crossFilters }; delete c[datasetId]; return c; })()
+        : { ...s.crossFilters, [datasetId]: { field, value } };
+      return { crossFilters: next };
+    }),
+
+  clearCrossFilters: () => set({ crossFilters: {} }),
+
   // ── Save ─────────────────────────────────────────────────────────────────
 
   save: async () => {
@@ -185,7 +201,12 @@ export const useReportStore = create((set, get) => ({
   },
 }));
 
-export function applyFilters(rows, datasetId, filters, filterValues) {
+export function applyFilters(rows, datasetId, filters, filterValues, crossFilters) {
+  // Cross-filter (runtime click selection)
+  const cf = crossFilters?.[datasetId];
+  if (cf) {
+    rows = rows.filter((row) => String(row[cf.field] ?? '') === String(cf.value));
+  }
   if (!filters?.length) return rows;
   let result = rows;
   for (const f of filters) {

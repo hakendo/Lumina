@@ -9,7 +9,7 @@ const LINE = '#e9e3d5';
 const MONO = '"Spline Sans Mono", monospace';
 const SANS = '"Hanken Grotesk", sans-serif';
 
-export default function ChartWidget({ config, data }) {
+export default function ChartWidget({ config, data, onCrossFilter }) {
   const { chartType = 'bar', xField, yField, sizeField, labelField, title } = config;
 
   const option = useMemo(() => {
@@ -111,10 +111,24 @@ export default function ChartWidget({ config, data }) {
     };
   }, [data, config]);
 
+  const onEvents = onCrossFilter && xField
+    ? {
+        click: (params) => {
+          const value = params.name ?? params.data?.name ?? params.value;
+          if (value !== undefined) onCrossFilter(xField, value);
+        },
+      }
+    : undefined;
+
   return (
     <div className="h-full flex flex-col">
       <div className="flex-1 min-h-0">
-        <ReactECharts option={option} style={{ height: '100%', width: '100%' }} notMerge />
+        <ReactECharts
+          option={option}
+          style={{ height: '100%', width: '100%' }}
+          notMerge
+          onEvents={onEvents}
+        />
       </div>
     </div>
   );

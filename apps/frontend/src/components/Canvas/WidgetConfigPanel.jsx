@@ -102,10 +102,15 @@ export default function WidgetConfigPanel({ widget, onClose }) {
         )}
 
         {widget.widgetType === 'table' && (
-          <Field label="Columnas (vacío = todas)">
-            <input value={(cfg.columns || []).join(', ')} onChange={(e) => set('columns', e.target.value.split(',').map((s) => s.trim()).filter(Boolean))}
-              className="field field-sm field-mono" placeholder="col1, col2, col3" />
-          </Field>
+          <>
+            <Field label="Columnas (vacío = todas)">
+              <input value={(cfg.columns || []).join(', ')} onChange={(e) => set('columns', e.target.value.split(',').map((s) => s.trim()).filter(Boolean))}
+                className="field field-sm field-mono" placeholder="col1, col2, col3" />
+            </Field>
+            <Field label="Cross-filter al hacer clic (campo)">
+              <ColSelect value={cfg.crossFilterField} onChange={(v) => set('crossFilterField', v)} columns={columns} placeholder="— Sin cross-filter —" />
+            </Field>
+          </>
         )}
 
         {widget.widgetType === 'map' && (

@@ -6,6 +6,7 @@ import { exportReportCsv } from '../lib/exportCsv';
 import { useAuthStore } from '../store/authStore';
 import WidgetRenderer from '../components/Canvas/WidgetRenderer';
 import { Icon, ReportSkeleton, Wordmark } from '../components/ui';
+import { useReportStore } from '../store/reportStore';
 
 function resolvePages(report) {
   if (report.pages?.length) return report.pages;
@@ -22,6 +23,7 @@ export default function ReportView() {
   const [report, setReport] = useState(null);
   const [error, setError] = useState('');
   const [activePageId, setActivePageId] = useState(null);
+  const { crossFilters, clearCrossFilters } = useReportStore();
   const { width, containerRef } = useContainerWidth({ initialWidth: 1200 });
 
   const printMode = params.get('print') === '1';
@@ -121,6 +123,18 @@ export default function ReportView() {
               {page.title}
             </button>
           ))}
+        </div>
+      )}
+
+      {Object.keys(crossFilters).length > 0 && (
+        <div className="bg-lumen-soft border-b border-lumen-line px-4 py-1.5 flex items-center gap-2">
+          <Icon name="filter" size={12} className="text-lumen-deep" />
+          <span className="text-xs text-lumen-deep font-medium">
+            {Object.entries(crossFilters).map(([, cf]) => `${cf.field} = "${cf.value}"`).join(' · ')}
+          </span>
+          <button onClick={clearCrossFilters} className="text-xs text-lumen-deep hover:text-rust transition cursor-pointer ml-auto underline">
+            Limpiar
+          </button>
         </div>
       )}
 

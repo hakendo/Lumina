@@ -8,14 +8,13 @@ import TableWidget from '../widgets/TableWidget';
 import MapWidget from '../widgets/MapWidget';
 import PivotWidget from '../widgets/PivotWidget';
 
-// publicSlug: en la vista pública anónima no hay sesión, así que las filas
-// se piden por el endpoint público del reporte en vez de /datasets/:id/rows.
 export default function WidgetRenderer({ widget, publicSlug }) {
   const [fetched, setFetched] = useState(null);
   const filters = useReportStore((s) => s.filters);
   const filterValues = useReportStore((s) => s.filterValues);
+  const crossFilters = useReportStore((s) => s.crossFilters);
+  const setCrossFilter = useReportStore((s) => s.setCrossFilter);
 
-  // El caché se lee en render; el efecto solo trae lo que falta.
   const rawData = widget.datasetId ? CACHE[widget.datasetId] ?? fetched : null;
 
   useEffect(() => {
@@ -32,10 +31,15 @@ export default function WidgetRenderer({ widget, publicSlug }) {
   }, [widget.datasetId, publicSlug]);
 
   const data = rawData
-    ? applyFilters(rawData, widget.datasetId, filters, filterValues)
+    ? applyFilters(rawData, widget.datasetId, filters, filterValues, crossFilters)
     : [];
 
-  const props = { config: widget.config || {}, data };
+  // Emite cross-filter al hacer click en un elemento del widget
+  const onCrossFilter = widget.datasetId && !publicSlug
+    ? (field, value) => setCrossFilter(widget.datasetId, field, value)
+    : null;
+
+  const props = { config: widget.config || {}, data, onCrossFilter };
 
   if (widget.widgetType === 'chart') return <ChartWidget {...props} />;
   if (widget.widgetType === 'kpi') return <KPIWidget {...props} />;

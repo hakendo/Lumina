@@ -1,5 +1,8 @@
-export default function TableWidget({ config, data }) {
-  const { title, columns } = config;
+import { useState } from 'react';
+
+export default function TableWidget({ config, data, onCrossFilter }) {
+  const { title, columns, crossFilterField } = config;
+  const [selectedRow, setSelectedRow] = useState(null);
 
   const cols = columns?.length
     ? columns
@@ -8,6 +11,15 @@ export default function TableWidget({ config, data }) {
   if (!data?.length) {
     return <div className="h-full flex items-center justify-center text-ink-faint text-sm">Sin datos</div>;
   }
+
+  const handleRowClick = (row, i) => {
+    if (!onCrossFilter || !crossFilterField) return;
+    const value = row[crossFilterField];
+    if (value === undefined) return;
+    const isSame = selectedRow === i;
+    setSelectedRow(isSame ? null : i);
+    onCrossFilter(crossFilterField, value);
+  };
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -25,7 +37,12 @@ export default function TableWidget({ config, data }) {
           </thead>
           <tbody>
             {data.map((row, i) => (
-              <tr key={i} className={i % 2 === 0 ? '' : 'bg-paper/60'}>
+              <tr key={i}
+                onClick={() => handleRowClick(row, i)}
+                className={`transition ${i % 2 === 0 ? '' : 'bg-paper/60'} ${
+                  onCrossFilter && crossFilterField ? 'cursor-pointer hover:bg-lumen-soft/40' : ''
+                } ${selectedRow === i ? 'bg-lumen-soft ring-1 ring-inset ring-lumen-line' : ''}`}
+              >
                 {cols.map((c) => (
                   <td key={c} className="px-3 py-1.5 text-ink-soft border-b border-line-soft whitespace-nowrap max-w-[200px] truncate font-mono">
                     {row[c] !== null && row[c] !== undefined ? String(row[c]) : ''}
