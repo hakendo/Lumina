@@ -138,7 +138,7 @@ router.post('/upload', auth, upload.single('file'), async (req, res) => {
   const rows = await parseFile(req.file.path, req.file.mimetype);
 
   const dataset = await prisma.dataset.create({
-    data: { areaId, uploadedById: req.user.id, name, sourceType: 'csv', filePath: req.file.path, config: {} },
+    data: { areaId: areaId || null, uploadedById: req.user.id, name, sourceType: 'csv', filePath: req.file.path, config: {} },
   });
   await prisma.datasetRow.createMany({
     data: rows.map((row, i) => ({ datasetId: dataset.id, rowData: row, rowIndex: i })),
@@ -178,7 +178,7 @@ router.post('/api-connector', auth, async (req, res) => {
   };
   const config = { ...publicConfig, _enc: encrypt({ headers, queryParams, body: body || null }) };
   const dataset = await prisma.dataset.create({
-    data: { areaId, uploadedById: req.user.id, name, sourceType: 'api', config },
+    data: { areaId: areaId || null, uploadedById: req.user.id, name, sourceType: 'api', config },
   });
 
   res.json({ id: dataset.id, name: dataset.name, config: safeConfig(config) });
@@ -241,7 +241,7 @@ router.post('/db-connector', auth, async (req, res) => {
 
   const config = { dbType, query, _enc: encrypt({ connectionString }) };
   const dataset = await prisma.dataset.create({
-    data: { areaId, uploadedById: req.user.id, name, sourceType: 'db', config },
+    data: { areaId: areaId || null, uploadedById: req.user.id, name, sourceType: 'db', config },
   });
 
   res.json({ id: dataset.id, name: dataset.name, config: safeConfig(config) });
@@ -289,7 +289,7 @@ router.post('/derived', auth, async (req, res) => {
   const config = { sources, joins, columns, filters };
 
   const dataset = await prisma.dataset.create({
-    data: { areaId, uploadedById: req.user.id, name, sourceType: 'derived', config },
+    data: { areaId: areaId || null, uploadedById: req.user.id, name, sourceType: 'derived', config },
   });
   res.status(201).json({ id: dataset.id, name: dataset.name, config });
 });
