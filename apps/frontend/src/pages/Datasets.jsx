@@ -7,6 +7,7 @@ const SOURCES = {
   csv: { label: 'CSV / Excel', icon: 'file' },
   api: { label: 'API', icon: 'globe' },
   db: { label: 'Base de datos', icon: 'database' },
+  derived: { label: 'Dataset Derivado', icon: 'layers' },
 };
 
 export default function Datasets() {
@@ -102,6 +103,7 @@ export default function Datasets() {
             {tab === 'csv' && <CSVForm onCreated={addDataset} areas={areas} />}
             {tab === 'api' && <APIForm onCreated={addDataset} areas={areas} />}
             {tab === 'db' && <DBForm onCreated={addDataset} areas={areas} />}
+            {tab === 'derived' && <DerivedDatasetForm onCreated={addDataset} areas={areas} availableDatasets={datasets} />}
           </div>
         </div>
 
@@ -170,13 +172,17 @@ export default function Datasets() {
         )}
 
         {editTarget && (
-          <Modal title={`Editar conector · ${editTarget.name}`} onClose={() => setEditTarget(null)}>
+          <Modal title={`Editar · ${editTarget.name}`} onClose={() => setEditTarget(null)} maxWidth="max-w-3xl">
             {editTarget.sourceType === 'api' && (
               <APIForm initial={editTarget} onCreated={() => {}}
                 onSaved={(updated) => { replaceDataset(updated); setEditTarget(null); }} />
             )}
             {editTarget.sourceType === 'db' && (
               <DBForm initial={editTarget} onCreated={() => {}}
+                onSaved={(updated) => { replaceDataset(updated); setEditTarget(null); }} />
+            )}
+            {editTarget.sourceType === 'derived' && (
+              <DerivedDatasetEditor dataset={editTarget} areas={areas} availableDatasets={datasets}
                 onSaved={(updated) => { replaceDataset(updated); setEditTarget(null); }} />
             )}
           </Modal>
@@ -228,7 +234,7 @@ function SyncStatusBadge({ config }) {
 
 function DatasetCard({ ds, index, onDelete, onPreview, onSync, onEdit }) {
   const source = SOURCES[ds.sourceType] || { label: ds.sourceType, icon: 'database' };
-  const editable = ['api', 'db'].includes(ds.sourceType);
+  const editable = ['api', 'db', 'derived'].includes(ds.sourceType);
 
   return (
     <div className="bg-surface border border-line-soft rounded-xl p-4 shadow-card hover:shadow-lift hover:border-lumen-line transition animate-rise"
@@ -688,6 +694,458 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [] }) {
         {busy ? 'Guardando…' : isEdit ? 'Guardar cambios' : 'Crear conector'}
       </Button>
       {msg && <p className="text-xs text-ink-faint font-mono">{msg}</p>}
+    </form>
+  );
+}
+
+// ── Dataset Derivado ──────────────────────────────────────────────────────────
+
+const JOIN_OPS = [
+  { value: 'inner', label: 'Inner Join' },
+  { value: 'left', label: 'Left Join' },
+];
+
+const FILTER_OPS = [
+  { value: 'eq', label: '=' },
+  { value: 'neq', label: '≠' },
+  { value: 'gt', label: '>' },
+  { value: 'lt', label: '<' },
+  { value: 'contains', label: 'contiene' },
+];
+
+function DerivedDatasetForm({ onCreated, areas, availableDatasets }) {
+  const [name, setName] = useState('');
+  const [areaId, setAreaId] = useState('');
+  const [sources, setSources] = useState([{ datasetId: '', alias: '' }]);
+  const [joins, setJoins] = useState([]);
+  const [calcCols, setCalcCols] = useState([{ name: '', expression: '' }]);
+  const [rowFilters, setRowFilters] = useState([]);
+  const [colsByDs, setColsByDs] = useState({});
+  const [preview, setPreview] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  const csvDbs = availableDatasets.filter((d) => ['csv', 'api', 'db', 'derived'].includes(d.sourceType));
+
+  // Carga columnas de un dataset cuando se selecciona como fuente
+  const loadCols = async (datasetId) => {
+    if (!datasetId || colsByDs[datasetId]) return;
+    try {
+      const { data } = await api.get(`/datasets/${datasetId}/columns`);
+      setColsByDs((c) => ({ ...c, [datasetId]: data }));
+    } catch { setColsByDs((c) => ({ ...c, [datasetId]: [] })); }
+  };
+
+  const updateSource = (i, field, val) => {
+    const next = sources.map((s, j) => (j === i ? { ...s, [field]: val } : s));
+    setSources(next);
+    if (field === 'datasetId' && val) loadCols(val);
+  };
+
+  // Columnas de la primera fuente (para filtros y columnas calculadas)
+  const allCols = sources.flatMap((s) => (colsByDs[s.datasetId] || []).map((c) => `${s.alias || s.datasetId}.${c}`));
+  const firstCols = sources[0]?.datasetId ? (colsByDs[sources[0].datasetId] || []) : [];
+
+  const runPreview = async (savedId) => {
+    const id = savedId;
+    if (!id) return;
+    setPreviewLoading(true);
+    try {
+      const { data } = await api.get(`/datasets/${id}/derived/preview`);
+      setPreview(data);
+    } catch (err) {
+      setMsg(`Error en preview: ${err.response?.data?.error || err.message}`);
+    } finally { setPreviewLoading(false); }
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!name.trim()) return setMsg('Ingresa un nombre');
+    if (!areaId) return setMsg('Selecciona un área');
+    if (!sources[0]?.datasetId) return setMsg('Selecciona al menos un dataset fuente');
+    setBusy(true); setMsg('');
+    try {
+      const payload = {
+        name, areaId,
+        sources: sources.filter((s) => s.datasetId).map((s) => ({
+          datasetId: s.datasetId,
+          alias: s.alias || s.datasetId,
+        })),
+        joins: joins.filter((j) => j.rightAlias && j.leftOn && j.rightOn),
+        columns: calcCols.filter((c) => c.name.trim() && c.expression.trim()),
+        filters: rowFilters.filter((f) => f.field && f.op && f.value !== ''),
+      };
+      const { data } = await api.post('/datasets/derived', payload);
+      const area = areas.find((a) => a.id === areaId);
+      onCreated({
+        id: data.id, name: data.name, sourceType: 'derived',
+        config: data.config, _count: { rows: 0 },
+        area: area ? { id: area.id, name: area.name } : null,
+      });
+      await runPreview(data.id);
+      setMsg('✓ Dataset derivado creado');
+      setName(''); setAreaId(''); setSources([{ datasetId: '', alias: '' }]);
+      setJoins([]); setCalcCols([{ name: '', expression: '' }]); setRowFilters([]);
+      setPreview(null);
+    } catch (err) { setMsg(`Error: ${err.response?.data?.error || err.message}`); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <form onSubmit={submit} className="space-y-5">
+      {/* Nombre + área */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Field label="Nombre del dataset derivado">
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="ej. Ventas + Clientes" className="field" />
+        </Field>
+        <AreaSelect areas={areas} value={areaId} onChange={setAreaId} />
+      </div>
+
+      {/* Fuentes */}
+      <div>
+        <p className="text-xs font-semibold text-ink-soft uppercase tracking-wide mb-2">Datasets fuente</p>
+        <div className="space-y-2">
+          {sources.map((src, i) => (
+            <div key={i} className="flex gap-2 items-center">
+              <select className="field field-sm flex-1"
+                value={src.datasetId}
+                onChange={(e) => updateSource(i, 'datasetId', e.target.value)}>
+                <option value="">— Seleccionar dataset —</option>
+                {csvDbs.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+              <input className="field field-sm field-mono w-32" placeholder="alias"
+                value={src.alias}
+                onChange={(e) => updateSource(i, 'alias', e.target.value)} />
+              {sources.length > 1 && (
+                <button type="button" onClick={() => setSources(sources.filter((_, j) => j !== i))}
+                  className="text-ink-faint hover:text-rust cursor-pointer">
+                  <Icon name="x" size={14} />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+        <button type="button" onClick={() => setSources([...sources, { datasetId: '', alias: '' }])}
+          className="mt-1.5 inline-flex items-center gap-1 text-xs text-lumen-deep font-medium hover:underline cursor-pointer">
+          <Icon name="plus" size={12} /> Agregar fuente
+        </button>
+      </div>
+
+      {/* Joins (solo si hay ≥2 fuentes con dataset) */}
+      {sources.filter((s) => s.datasetId).length >= 2 && (
+        <div>
+          <p className="text-xs font-semibold text-ink-soft uppercase tracking-wide mb-2">Joins</p>
+          <div className="space-y-2">
+            {joins.map((j, i) => (
+              <div key={i} className="flex flex-wrap gap-2 items-center bg-paper-deep rounded-lg p-2">
+                <select className="field field-sm flex-1 min-w-[120px]" value={j.leftAlias || ''}
+                  onChange={(e) => setJoins(joins.map((x, k) => k === i ? { ...x, leftAlias: e.target.value } : x))}>
+                  <option value="">— Tabla izq —</option>
+                  {sources.filter((s) => s.datasetId).map((s) => (
+                    <option key={s.datasetId} value={s.alias || s.datasetId}>{s.alias || s.name || s.datasetId}</option>
+                  ))}
+                </select>
+                <select className="field field-sm flex-1 min-w-[120px]" value={j.leftOn || ''}
+                  onChange={(e) => setJoins(joins.map((x, k) => k === i ? { ...x, leftOn: e.target.value } : x))}>
+                  <option value="">— Col. izq —</option>
+                  {(colsByDs[sources.find((s) => (s.alias || s.datasetId) === j.leftAlias)?.datasetId] || []).map((c) => (
+                    <option key={c}>{c}</option>
+                  ))}
+                </select>
+                <span className="text-xs text-ink-faint">=</span>
+                <select className="field field-sm flex-1 min-w-[120px]" value={j.rightAlias || ''}
+                  onChange={(e) => setJoins(joins.map((x, k) => k === i ? { ...x, rightAlias: e.target.value } : x))}>
+                  <option value="">— Tabla der —</option>
+                  {sources.filter((s) => s.datasetId).map((s) => (
+                    <option key={s.datasetId} value={s.alias || s.datasetId}>{s.alias || s.name || s.datasetId}</option>
+                  ))}
+                </select>
+                <select className="field field-sm flex-1 min-w-[120px]" value={j.rightOn || ''}
+                  onChange={(e) => setJoins(joins.map((x, k) => k === i ? { ...x, rightOn: e.target.value } : x))}>
+                  <option value="">— Col. der —</option>
+                  {(colsByDs[sources.find((s) => (s.alias || s.datasetId) === j.rightAlias)?.datasetId] || []).map((c) => (
+                    <option key={c}>{c}</option>
+                  ))}
+                </select>
+                <button type="button" onClick={() => setJoins(joins.filter((_, k) => k !== i))}
+                  className="text-ink-faint hover:text-rust cursor-pointer">
+                  <Icon name="x" size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+          <button type="button"
+            onClick={() => setJoins([...joins, { leftAlias: '', leftOn: '', rightAlias: '', rightOn: '' }])}
+            className="mt-1.5 inline-flex items-center gap-1 text-xs text-lumen-deep font-medium hover:underline cursor-pointer">
+            <Icon name="plus" size={12} /> Agregar join
+          </button>
+        </div>
+      )}
+
+      {/* Columnas calculadas */}
+      <div>
+        <p className="text-xs font-semibold text-ink-soft uppercase tracking-wide mb-2">Columnas calculadas</p>
+        <div className="space-y-2">
+          {calcCols.map((col, i) => (
+            <div key={i} className="flex gap-2 items-center">
+              <input className="field field-sm field-mono w-36" placeholder="nombre_col"
+                value={col.name}
+                onChange={(e) => setCalcCols(calcCols.map((c, j) => j === i ? { ...c, name: e.target.value } : c))} />
+              <span className="text-xs text-ink-faint">=</span>
+              <input className="field field-sm field-mono flex-1" placeholder="campo1 * campo2"
+                value={col.expression}
+                onChange={(e) => setCalcCols(calcCols.map((c, j) => j === i ? { ...c, expression: e.target.value } : c))} />
+              {calcCols.length > 1 && (
+                <button type="button" onClick={() => setCalcCols(calcCols.filter((_, j) => j !== i))}
+                  className="text-ink-faint hover:text-rust cursor-pointer">
+                  <Icon name="x" size={14} />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+        {firstCols.length > 0 && (
+          <p className="text-[11px] text-ink-faint font-mono mt-1">
+            Campos disponibles: {firstCols.slice(0, 10).join(', ')}{firstCols.length > 10 ? '…' : ''}
+          </p>
+        )}
+        <button type="button" onClick={() => setCalcCols([...calcCols, { name: '', expression: '' }])}
+          className="mt-1.5 inline-flex items-center gap-1 text-xs text-lumen-deep font-medium hover:underline cursor-pointer">
+          <Icon name="plus" size={12} /> Agregar columna
+        </button>
+      </div>
+
+      {/* Filtros de filas */}
+      <div>
+        <p className="text-xs font-semibold text-ink-soft uppercase tracking-wide mb-2">Filtros de filas (opcional)</p>
+        <div className="space-y-2">
+          {rowFilters.map((f, i) => (
+            <div key={i} className="flex gap-2 items-center flex-wrap">
+              <select className="field field-sm flex-1 min-w-[140px]" value={f.field}
+                onChange={(e) => setRowFilters(rowFilters.map((x, k) => k === i ? { ...x, field: e.target.value } : x))}>
+                <option value="">— Campo —</option>
+                {firstCols.map((c) => <option key={c}>{c}</option>)}
+              </select>
+              <select className="field field-sm w-24" value={f.op}
+                onChange={(e) => setRowFilters(rowFilters.map((x, k) => k === i ? { ...x, op: e.target.value } : x))}>
+                {FILTER_OPS.map((op) => <option key={op.value} value={op.value}>{op.label}</option>)}
+              </select>
+              <input className="field field-sm field-mono flex-1 min-w-[100px]" placeholder="valor"
+                value={f.value}
+                onChange={(e) => setRowFilters(rowFilters.map((x, k) => k === i ? { ...x, value: e.target.value } : x))} />
+              <button type="button" onClick={() => setRowFilters(rowFilters.filter((_, k) => k !== i))}
+                className="text-ink-faint hover:text-rust cursor-pointer">
+                <Icon name="x" size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+        <button type="button"
+          onClick={() => setRowFilters([...rowFilters, { field: '', op: 'eq', value: '' }])}
+          className="mt-1.5 inline-flex items-center gap-1 text-xs text-lumen-deep font-medium hover:underline cursor-pointer">
+          <Icon name="plus" size={12} /> Agregar filtro
+        </button>
+      </div>
+
+      <Button type="submit" disabled={busy}>{busy ? 'Creando…' : 'Crear dataset derivado'}</Button>
+      {msg && <p className="text-xs text-ink-faint font-mono">{msg}</p>}
+
+      {/* Vista previa */}
+      {(preview || previewLoading) && (
+        <div className="border border-line-soft rounded-xl overflow-hidden mt-2">
+          <div className="flex items-center justify-between px-3 py-2 bg-paper-deep border-b border-line-soft">
+            <p className="text-xs font-semibold text-ink-soft">
+              Vista previa {preview ? `· ${preview.total} filas (mostrando ${preview.rows?.length})` : ''}
+            </p>
+            {previewLoading && <span className="text-xs text-ink-faint font-mono animate-pulse">Calculando…</span>}
+          </div>
+          {preview?.rows?.length > 0 && (
+            <div className="overflow-auto max-h-56">
+              <table className="text-xs border-collapse w-full">
+                <thead>
+                  <tr>{Object.keys(preview.rows[0]).map((c) => (
+                    <th key={c} className="text-left px-2.5 py-1.5 bg-paper border-b border-line font-mono font-medium text-ink-soft whitespace-nowrap sticky top-0">{c}</th>
+                  ))}</tr>
+                </thead>
+                <tbody>
+                  {preview.rows.map((row, i) => (
+                    <tr key={i} className={i % 2 ? 'bg-paper/60' : ''}>
+                      {Object.values(row).map((v, j) => (
+                        <td key={j} className="px-2.5 py-1 border-b border-line-soft text-ink-soft font-mono max-w-[180px] truncate">
+                          {v !== null && v !== undefined ? String(v) : ''}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </form>
+  );
+}
+
+// ── Editor de dataset derivado existente ─────────────────────────────────────
+
+function DerivedDatasetEditor({ dataset, areas, availableDatasets, onSaved }) {
+  const cfg = dataset.config || {};
+  const [name, setName] = useState(dataset.name);
+  const [sources, setSources] = useState(cfg.sources || [{ datasetId: '', alias: '' }]);
+  const [joins, setJoins] = useState(cfg.joins || []);
+  const [calcCols, setCalcCols] = useState(cfg.columns?.length ? cfg.columns : [{ name: '', expression: '' }]);
+  const [rowFilters, setRowFilters] = useState(cfg.filters || []);
+  const [colsByDs, setColsByDs] = useState({});
+  const [preview, setPreview] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  const csvDbs = availableDatasets.filter((d) => d.id !== dataset.id && ['csv', 'api', 'db', 'derived'].includes(d.sourceType));
+
+  useEffect(() => {
+    sources.forEach((s) => {
+      if (s.datasetId && !colsByDs[s.datasetId]) {
+        api.get(`/datasets/${s.datasetId}/columns`).then(({ data }) =>
+          setColsByDs((c) => ({ ...c, [s.datasetId]: data }))
+        ).catch(() => {});
+      }
+    });
+  }, [sources]);
+
+  const updateSource = (i, field, val) => {
+    const next = sources.map((s, j) => (j === i ? { ...s, [field]: val } : s));
+    setSources(next);
+    if (field === 'datasetId' && val && !colsByDs[val]) {
+      api.get(`/datasets/${val}/columns`).then(({ data }) =>
+        setColsByDs((c) => ({ ...c, [val]: data }))
+      ).catch(() => {});
+    }
+  };
+
+  const firstCols = sources[0]?.datasetId ? (colsByDs[sources[0].datasetId] || []) : [];
+
+  const runPreview = async () => {
+    setPreviewLoading(true);
+    try {
+      const { data } = await api.get(`/datasets/${dataset.id}/derived/preview`);
+      setPreview(data);
+    } catch (err) {
+      setMsg(`Error en preview: ${err.response?.data?.error || err.message}`);
+    } finally { setPreviewLoading(false); }
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true); setMsg('');
+    try {
+      const payload = {
+        name,
+        sources: sources.filter((s) => s.datasetId).map((s) => ({ datasetId: s.datasetId, alias: s.alias || s.datasetId })),
+        joins: joins.filter((j) => j.rightAlias && j.leftOn && j.rightOn),
+        columns: calcCols.filter((c) => c.name.trim() && c.expression.trim()),
+        filters: rowFilters.filter((f) => f.field && f.op && f.value !== ''),
+      };
+      const { data } = await api.put(`/datasets/${dataset.id}/derived`, payload);
+      onSaved(data);
+    } catch (err) { setMsg(`Error: ${err.response?.data?.error || err.message}`); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <form onSubmit={submit} className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+      <Field label="Nombre">
+        <input value={name} onChange={(e) => setName(e.target.value)} className="field" />
+      </Field>
+
+      <div>
+        <p className="text-xs font-semibold text-ink-soft uppercase tracking-wide mb-2">Datasets fuente</p>
+        <div className="space-y-2">
+          {sources.map((src, i) => (
+            <div key={i} className="flex gap-2 items-center">
+              <select className="field field-sm flex-1" value={src.datasetId}
+                onChange={(e) => updateSource(i, 'datasetId', e.target.value)}>
+                <option value="">— Seleccionar dataset —</option>
+                {csvDbs.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+              <input className="field field-sm field-mono w-32" placeholder="alias" value={src.alias}
+                onChange={(e) => updateSource(i, 'alias', e.target.value)} />
+              {sources.length > 1 && (
+                <button type="button" onClick={() => setSources(sources.filter((_, j) => j !== i))}
+                  className="text-ink-faint hover:text-rust cursor-pointer"><Icon name="x" size={14} /></button>
+              )}
+            </div>
+          ))}
+        </div>
+        <button type="button" onClick={() => setSources([...sources, { datasetId: '', alias: '' }])}
+          className="mt-1.5 inline-flex items-center gap-1 text-xs text-lumen-deep font-medium hover:underline cursor-pointer">
+          <Icon name="plus" size={12} /> Agregar fuente
+        </button>
+      </div>
+
+      <div>
+        <p className="text-xs font-semibold text-ink-soft uppercase tracking-wide mb-2">Columnas calculadas</p>
+        <div className="space-y-2">
+          {calcCols.map((col, i) => (
+            <div key={i} className="flex gap-2 items-center">
+              <input className="field field-sm field-mono w-36" placeholder="nombre" value={col.name}
+                onChange={(e) => setCalcCols(calcCols.map((c, j) => j === i ? { ...c, name: e.target.value } : c))} />
+              <span className="text-xs text-ink-faint">=</span>
+              <input className="field field-sm field-mono flex-1" placeholder="campo1 * campo2" value={col.expression}
+                onChange={(e) => setCalcCols(calcCols.map((c, j) => j === i ? { ...c, expression: e.target.value } : c))} />
+              {calcCols.length > 1 && (
+                <button type="button" onClick={() => setCalcCols(calcCols.filter((_, j) => j !== i))}
+                  className="text-ink-faint hover:text-rust cursor-pointer"><Icon name="x" size={14} /></button>
+              )}
+            </div>
+          ))}
+        </div>
+        {firstCols.length > 0 && (
+          <p className="text-[11px] text-ink-faint font-mono mt-1">Campos: {firstCols.slice(0, 10).join(', ')}</p>
+        )}
+        <button type="button" onClick={() => setCalcCols([...calcCols, { name: '', expression: '' }])}
+          className="mt-1.5 inline-flex items-center gap-1 text-xs text-lumen-deep font-medium hover:underline cursor-pointer">
+          <Icon name="plus" size={12} /> Agregar columna
+        </button>
+      </div>
+
+      <div className="flex gap-2 flex-wrap">
+        <Button type="submit" disabled={busy}>{busy ? 'Guardando…' : 'Guardar cambios'}</Button>
+        <Button type="button" variant="soft" disabled={previewLoading} onClick={runPreview}>
+          {previewLoading ? 'Calculando…' : 'Vista previa'}
+        </Button>
+      </div>
+      {msg && <p className="text-xs text-ink-faint font-mono">{msg}</p>}
+
+      {preview?.rows?.length > 0 && (
+        <div className="border border-line-soft rounded-xl overflow-hidden">
+          <p className="text-xs font-semibold text-ink-soft px-3 py-2 bg-paper-deep border-b border-line-soft">
+            {preview.total} filas · mostrando {preview.rows.length}
+          </p>
+          <div className="overflow-auto max-h-48">
+            <table className="text-xs border-collapse w-full">
+              <thead>
+                <tr>{Object.keys(preview.rows[0]).map((c) => (
+                  <th key={c} className="text-left px-2.5 py-1.5 bg-paper border-b border-line font-mono font-medium text-ink-soft whitespace-nowrap sticky top-0">{c}</th>
+                ))}</tr>
+              </thead>
+              <tbody>
+                {preview.rows.map((row, i) => (
+                  <tr key={i} className={i % 2 ? 'bg-paper/60' : ''}>
+                    {Object.values(row).map((v, j) => (
+                      <td key={j} className="px-2.5 py-1 border-b border-line-soft text-ink-soft font-mono max-w-[160px] truncate">
+                        {v !== null && v !== undefined ? String(v) : ''}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </form>
   );
 }
