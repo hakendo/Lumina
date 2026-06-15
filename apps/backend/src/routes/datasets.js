@@ -2,6 +2,7 @@ const router = require('express').Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const { PrismaClient } = require('@prisma/client');
 const auth = require('../middleware/auth');
 const { parseFile, fetchAPI, queryDB } = require('../services/dataParser');
@@ -10,15 +11,28 @@ const { evalExpression } = require('../services/exprEval');
 
 const prisma = new PrismaClient();
 
+const ALLOWED_EXTENSIONS = new Set(['.csv', '.xlsx', '.xls', '.ods']);
+
+// SEC-003 + SEC-010: random filename, no path traversal, validated extension
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const dir = process.env.UPLOAD_DIR || './uploads';
     fs.mkdirSync(dir, { recursive: true });
     cb(null, dir);
   },
-  filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, `${crypto.randomUUID()}${ext}`);
+  },
 });
-const upload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024 } });
+const upload = multer({
+  storage,
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, ALLOWED_EXTENSIONS.has(ext));
+  },
+});
 
 function safeConfig(config) {
   if (!config) return {};
@@ -38,15 +52,12 @@ async function canReadDataset(dataset, userId) {
     if (membership) return true;
   }
 
-  // Acceso via reporte compartido o público (compatibilidad con sharing por persona)
-  const viaReport = await prisma.reportWidget.findFirst({
-    where: {
-      datasetId: dataset.id,
-      report: { OR: [{ isPublic: true }, { shares: { some: { userId } } }] },
-    },
+  // SEC-007: only direct per-user shares grant access (not public reports — those use /public/ endpoint)
+  const viaShare = await prisma.reportWidget.findFirst({
+    where: { datasetId: dataset.id, report: { shares: { some: { userId } } } },
     select: { id: true },
   });
-  return Boolean(viaReport);
+  return Boolean(viaShare);
 }
 
 // Verifica acceso de escritura: uploadedBy o org_admin del área o superadmin
@@ -122,7 +133,7 @@ router.post('/upload', auth, upload.single('file'), async (req, res) => {
     return res.status(403).json({ error: 'Sin acceso a esa área' });
   }
 
-  const rows = parseFile(req.file.path, req.file.mimetype);
+  const rows = await parseFile(req.file.path, req.file.mimetype);
 
   const dataset = await prisma.dataset.create({
     data: { areaId, uploadedById: req.user.id, name, sourceType: 'csv', filePath: req.file.path, config: {} },
@@ -149,6 +160,10 @@ router.post('/api-connector', auth, async (req, res) => {
   if (!canAccess && user?.role !== 'superadmin') {
     return res.status(403).json({ error: 'Sin acceso a esa área' });
   }
+  // SEC-013: allowInsecureSsl only for admins
+  if (allowInsecureSsl && !['org_admin', 'superadmin'].includes(user?.role)) {
+    return res.status(403).json({ error: 'Solo administradores pueden deshabilitar la validación SSL' });
+  }
 
   const publicConfig = {
     url, method, dataPath: dataPath || '',
@@ -171,6 +186,14 @@ router.put('/:id/api-connector', auth, async (req, res) => {
   if (dataset.sourceType !== 'api') return res.status(400).json({ error: 'Dataset is not an API connector' });
 
   const { name, url, method, headers, queryParams, body, dataPath, allowInsecureSsl } = req.body;
+
+  // SEC-013: allowInsecureSsl only for admins
+  if (allowInsecureSsl) {
+    const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { role: true } });
+    if (!['org_admin', 'superadmin'].includes(user?.role)) {
+      return res.status(403).json({ error: 'Solo administradores pueden deshabilitar la validación SSL' });
+    }
+  }
   const existing = safeConfig(dataset.config);
   const sensitive = dataset.config._enc ? decrypt(dataset.config._enc) : { headers: {}, queryParams: {}, body: null };
   if (headers !== undefined) sensitive.headers = headers;
@@ -287,9 +310,13 @@ router.get('/:id/derived/preview', auth, async (req, res) => {
 
   const { sources, joins, columns, filters } = dataset.config;
 
-  // Cargar filas de todos los datasets fuente
+  // SEC-004: verify user can read each source dataset before loading its rows
   const sourceData = {};
   for (const src of sources) {
+    const srcDs = await prisma.dataset.findUnique({ where: { id: src.datasetId } });
+    if (!srcDs || !(await canReadDataset(srcDs, req.user.id))) {
+      return res.status(403).json({ error: 'Sin acceso a un dataset fuente' });
+    }
     const rows = await prisma.datasetRow.findMany({
       where: { datasetId: src.datasetId },
       orderBy: { rowIndex: 'asc' },
@@ -404,6 +431,23 @@ router.get('/:id/columns', auth, async (req, res) => {
   const first = await prisma.datasetRow.findFirst({ where: { datasetId: req.params.id }, orderBy: { rowIndex: 'asc' } });
   if (!first) return res.json([]);
   res.json(Object.keys(first.rowData));
+});
+
+// SEC-003: serve raw uploaded file through authenticated route only
+router.get('/:id/file', auth, async (req, res) => {
+  const dataset = await prisma.dataset.findUnique({ where: { id: req.params.id } });
+  if (!dataset || !(await canReadDataset(dataset, req.user.id))) {
+    return res.status(404).json({ error: 'Dataset not found' });
+  }
+  if (!dataset.filePath || !fs.existsSync(dataset.filePath)) {
+    return res.status(404).json({ error: 'File not available' });
+  }
+  const ext = path.extname(dataset.filePath);
+  const mimeMap = { '.csv': 'text/csv', '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.xls': 'application/vnd.ms-excel', '.ods': 'application/vnd.oasis.opendocument.spreadsheet' };
+  res.setHeader('Content-Type', mimeMap[ext] || 'application/octet-stream');
+  const safeName = dataset.name.replace(/[\x00-\x1f\x7f"\\]/g, '_');
+  res.setHeader('Content-Disposition', `attachment; filename="${safeName}${ext}"; filename*=UTF-8''${encodeURIComponent(dataset.name)}${ext}`);
+  fs.createReadStream(dataset.filePath).pipe(res);
 });
 
 router.delete('/:id', auth, async (req, res) => {

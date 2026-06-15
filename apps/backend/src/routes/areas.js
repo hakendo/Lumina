@@ -89,11 +89,12 @@ router.get('/:id/members', auth, async (req, res) => {
   const area = await prisma.area.findUnique({ where: { id: req.params.id } });
   if (!area) return res.status(404).json({ error: 'Área no encontrada' });
 
-  // Solo miembros del área o admins pueden ver la lista
-  const isMember = await prisma.areaMember.findUnique({
-    where: { areaId_userId: { areaId: area.id, userId: req.user.id } },
-  });
-  const isAdmin = ['org_admin', 'superadmin'].includes(req.user.role);
+  // SEC-009: use live DB role — JWT may be stale if role changed within 7-day window
+  const [isMember, freshUser] = await Promise.all([
+    prisma.areaMember.findUnique({ where: { areaId_userId: { areaId: area.id, userId: req.user.id } } }),
+    prisma.user.findUnique({ where: { id: req.user.id }, select: { role: true } }),
+  ]);
+  const isAdmin = ['org_admin', 'superadmin'].includes(freshUser?.role);
   if (!isMember && !isAdmin) return res.status(403).json({ error: 'Sin acceso' });
 
   const members = await prisma.areaMember.findMany({

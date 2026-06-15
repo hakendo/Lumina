@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const { PrismaClient } = require('@prisma/client');
 const { nanoid } = require('nanoid');
+const jwt = require('jsonwebtoken');
 const auth = require('../middleware/auth');
 const { exportReportToPDF } = require('../services/pdfExport');
 
@@ -21,6 +22,14 @@ const includePages = {
 const includeLegacyWidgets = {
   widgets: { include: { dataset: { select: { id: true, name: true, sourceType: true } } } },
 };
+
+// SEC-005: returns area IDs the user can read from, or null for superadmin (no filter)
+async function getUserAreaIds(userId) {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+  if (user?.role === 'superadmin') return null;
+  const memberships = await prisma.areaMember.findMany({ where: { userId }, select: { areaId: true } });
+  return memberships.map((m) => m.areaId);
+}
 
 // ── Permisos ──────────────────────────────────────────────────────
 
@@ -245,6 +254,27 @@ router.put('/:id', auth, async (req, res) => {
   if (!report || !CAN_EDIT.has(myRole)) return res.status(404).json({ error: 'Not found' });
 
   const { title, description, pages, widgets } = req.body;
+
+  // SEC-005: verify all datasetIds in submitted widgets are accessible to this user
+  const allDatasetIds = new Set();
+  for (const page of pages ?? []) {
+    for (const w of page.widgets ?? []) { if (w.datasetId) allDatasetIds.add(w.datasetId); }
+  }
+  for (const w of (widgets ?? [])) { if (w.datasetId) allDatasetIds.add(w.datasetId); }
+  if (allDatasetIds.size > 0) {
+    const userAreaIds = await getUserAreaIds(req.user.id);
+    if (userAreaIds !== null) {
+      const ds = await prisma.dataset.findMany({
+        where: { id: { in: [...allDatasetIds] } },
+        select: { id: true, areaId: true },
+      });
+      for (const d of ds) {
+        if (d.areaId && !userAreaIds.includes(d.areaId)) {
+          return res.status(403).json({ error: 'Sin acceso a uno o más datasets' });
+        }
+      }
+    }
+  }
 
   // Guardar páginas (nuevo modelo multi-página)
   if (pages !== undefined) {
@@ -518,15 +548,26 @@ router.get('/:id/export/pdf', auth, async (req, res) => {
   });
   if (!report || report.ownerId !== req.user.id) return res.status(404).json({ error: 'Not found' });
 
-  const token = req.headers.authorization?.slice(7) || '';
+  // SEC-001: short-lived (2 min), purpose-scoped token — never expose the session JWT in a URL
+  const printToken = jwt.sign(
+    { id: req.user.id, purpose: 'pdf' },
+    process.env.JWT_SECRET,
+    { expiresIn: '2m' }
+  );
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-  const baseUrl = `${frontendUrl}/report/${report.id}/view?token=${token}&print=1`;
+  const baseUrl = `${frontendUrl}/report/${report.id}/view?token=${printToken}&print=1`;
   const pageIds = report.pages?.map((p) => p.id) ?? [];
 
   try {
     const pdf = await exportReportToPDF(baseUrl, pageIds);
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${report.title}.pdf"`);
+    // SEC-011: sanitize title to prevent header injection
+    const safeTitle = report.title.replace(/[\x00-\x1f\x7f"\\]/g, '_');
+    const encodedTitle = encodeURIComponent(report.title);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${safeTitle}.pdf"; filename*=UTF-8''${encodedTitle}.pdf`
+    );
     res.send(pdf);
   } catch (err) {
     res.status(500).json({ error: 'PDF generation failed', detail: err.message });
@@ -538,7 +579,7 @@ router.get('/:id/export/pdf', auth, async (req, res) => {
 router.get('/public/:slug/datasets/:datasetId/rows', async (req, res) => {
   const report = await prisma.report.findUnique({
     where: { slug: req.params.slug },
-    select: { id: true, isPublic: true },
+    select: { id: true, isPublic: true, ownerId: true },
   });
   if (!report || !report.isPublic) return res.status(404).json({ error: 'Not found' });
 
@@ -547,6 +588,18 @@ router.get('/public/:slug/datasets/:datasetId/rows', async (req, res) => {
     select: { id: true },
   });
   if (!widget) return res.status(404).json({ error: 'Not found' });
+
+  // SEC-006: verify dataset belongs to same org as the report owner (prevents cross-tenant leak)
+  const [dataset, owner] = await Promise.all([
+    prisma.dataset.findUnique({
+      where: { id: req.params.datasetId },
+      select: { area: { select: { orgId: true } } },
+    }),
+    prisma.user.findUnique({ where: { id: report.ownerId }, select: { orgId: true } }),
+  ]);
+  if (!dataset || dataset.area?.orgId !== owner?.orgId) {
+    return res.status(404).json({ error: 'Not found' });
+  }
 
   const rows = await prisma.datasetRow.findMany({
     where: { datasetId: req.params.datasetId },

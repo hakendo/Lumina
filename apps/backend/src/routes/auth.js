@@ -101,7 +101,8 @@ router.post('/mfa/setup', requireSessionOrStage('mfa-setup'), async (req, res) =
   });
   const otpauth = authenticator.keyuri(user.email, 'Lúmina', secret);
   const qr = await QRCode.toDataURL(otpauth);
-  res.json({ secret, otpauth, qr });
+  // SEC-014: never return the raw secret — the QR and otpauth URI already encode it
+  res.json({ otpauth, qr });
 });
 
 // Confirma el setup con un código válido y activa MFA
