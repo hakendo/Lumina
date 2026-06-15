@@ -15,6 +15,7 @@ export default function Dashboard() {
   const [newTitle, setNewTitle] = useState('');
   const [creating, setCreating] = useState(false);
   const [tab, setTab] = useState('mine');
+  const [search, setSearch] = useState('');
   const [deleteTarget, setDeleteTarget] = useState(null);
   const navigate = useNavigate();
 
@@ -84,7 +85,11 @@ export default function Dashboard() {
     { key: 'favorites', label: 'Favoritos', count: favorites.length },
   ];
 
-  const displayed = tab === 'mine' ? reports : tab === 'shared' ? shared : favorites;
+  const baseList = tab === 'mine' ? reports : tab === 'shared' ? shared : favorites;
+  const displayed = search.trim()
+    ? baseList.filter((r) => r.title.toLowerCase().includes(search.toLowerCase()) ||
+        r.description?.toLowerCase().includes(search.toLowerCase()))
+    : baseList;
 
   return (
     <div className="min-h-screen paper-bg">
@@ -104,7 +109,7 @@ export default function Dashboard() {
 
         <div className="flex gap-4 sm:gap-6 border-b border-line mb-6 overflow-x-auto">
           {tabs.map((t) => (
-            <button key={t.key} onClick={() => setTab(t.key)}
+            <button key={t.key} onClick={() => { setTab(t.key); setSearch(''); }}
               className={`pb-2.5 -mb-px text-sm font-medium border-b-2 transition cursor-pointer whitespace-nowrap ${
                 tab === t.key
                   ? 'border-lumen text-ink'
@@ -115,6 +120,17 @@ export default function Dashboard() {
             </button>
           ))}
         </div>
+
+        {tab !== 'areas' && (
+          <div className="relative mb-4">
+            <Icon name="search" size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint pointer-events-none" />
+            <input
+              type="search" value={search} onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar reportes…"
+              className="field w-full pl-9"
+            />
+          </div>
+        )}
 
         {tab === 'mine' && (
           <form onSubmit={createReport} className="flex flex-col sm:flex-row gap-3 mb-8">

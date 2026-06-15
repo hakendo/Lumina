@@ -51,11 +51,12 @@ model User {
   mfaEnforced     Boolean        @default(false)
   mfaSecret       String?
   createdAt       DateTime       @default(now())
-  uploadedDatasets Dataset[]     @relation("DatasetUploader")
+  uploadedDatasets Dataset[]      @relation("DatasetUploader")
   reports         Report[]
   favorites       UserFavorite[]
   sharedWithMe    ReportShare[]
   areaMemberships AreaMember[]
+  notifications   Notification[]
 }
 
 model Dataset {
@@ -120,6 +121,16 @@ model ReportShare {
   createdAt DateTime @default(now())
 
   @@unique([reportId, userId])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String    // share_added | area_published
+  payload   Json      @default("{}")
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
 }
 
 model UserFavorite {

@@ -18,6 +18,7 @@ app.use('/admin', require('./routes/admin'));
 app.use('/areas', require('./routes/areas'));
 app.use('/datasets', require('./routes/datasets'));
 app.use('/reports', require('./routes/reports'));
+app.use('/notifications', require('./routes/notifications'));
 
 app.get('/health', (req, res) => res.json({ ok: true }));
 

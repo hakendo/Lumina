@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, Link } from 'react-router-dom';
 import api from '../lib/api';
 import { useAuthStore } from '../store/authStore';
 import { AppHeader, Button, Field, Icon, Modal, ConfirmModal, EmptyState } from '../components/ui';
@@ -564,25 +564,63 @@ function OrgAreasPanel({ org }) {
 
 function OrgReportsPanel({ org }) {
   const [reports, setReports] = useState(null);
+  const [areas, setAreas] = useState([]);
+  const [search, setSearch] = useState('');
+  const [movingReport, setMovingReport] = useState(null);
+  const [targetAreaId, setTargetAreaId] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
     api.get(`/admin/orgs/${org.id}/reports`)
       .then(({ data }) => setReports(data))
       .catch(() => setError('No se pudo cargar reportes'));
+    api.get(`/admin/orgs/${org.id}/areas`)
+      .then(({ data }) => setAreas(data))
+      .catch(() => {});
   }, [org.id]);
+
+  const transferArea = async () => {
+    try {
+      await api.patch(`/admin/reports/${movingReport.id}`, { areaId: targetAreaId || null });
+      const areaObj = areas.find((a) => a.id === targetAreaId) || null;
+      setReports((prev) => prev.map((r) =>
+        r.id === movingReport.id ? { ...r, area: areaObj } : r
+      ));
+      setMovingReport(null);
+      setTargetAreaId('');
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error al mover reporte');
+    }
+  };
+
+  const filtered = reports
+    ? reports.filter((r) =>
+        !search.trim() ||
+        r.title.toLowerCase().includes(search.toLowerCase()) ||
+        r.owner?.name?.toLowerCase().includes(search.toLowerCase())
+      )
+    : null;
 
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-semibold text-ink-soft uppercase tracking-wide">Reportes</h3>
+        {reports && <span className="text-xs text-ink-faint font-mono">{reports.length} total</span>}
       </div>
+
+      {reports && reports.length > 0 && (
+        <div className="relative mb-4">
+          <Icon name="search" size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint pointer-events-none" />
+          <input type="search" value={search} onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar por título o autor…" className="field field-sm w-full pl-8" />
+        </div>
+      )}
 
       {error && <p className="text-rust text-xs mb-3 bg-rust-soft px-3 py-2 rounded-lg">{error}</p>}
 
-      {!reports ? (
+      {!filtered ? (
         <div className="space-y-2">{[1,2,3].map(i => <div key={i} className="skeleton h-10" />)}</div>
-      ) : reports.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <EmptyState icon="chart" title="Sin reportes" hint="Esta organización aún no tiene reportes." />
       ) : (
         <div className="bg-surface rounded-xl border border-line-soft overflow-hidden">
@@ -593,10 +631,11 @@ function OrgReportsPanel({ org }) {
                 <th className="px-3 py-2.5 font-semibold">Autor</th>
                 <th className="px-3 py-2.5 font-semibold">Área</th>
                 <th className="px-3 py-2.5 font-semibold">Widgets</th>
+                <th className="px-3 py-2.5" />
               </tr>
             </thead>
             <tbody>
-              {reports.map((r) => (
+              {filtered.map((r) => (
                 <tr key={r.id} className="border-b border-line-soft last:border-0 hover:bg-paper-deep/30">
                   <td className="px-3 py-2.5">
                     <p className="font-medium text-ink text-xs">{r.title}</p>
@@ -604,17 +643,49 @@ function OrgReportsPanel({ org }) {
                   </td>
                   <td className="px-3 py-2.5 text-xs text-ink-soft">{r.owner?.name}</td>
                   <td className="px-3 py-2.5">
-                    {r.area
-                      ? <span className="text-xs bg-lumen-soft text-lumen-deep px-2 py-0.5 rounded-full">{r.area.name}</span>
-                      : <span className="text-xs text-ink-faint">Privado</span>
-                    }
+                    <button
+                      onClick={() => { setMovingReport(r); setTargetAreaId(r.area?.id || ''); }}
+                      className="group flex items-center gap-1 cursor-pointer"
+                      title="Clic para mover a otra área"
+                    >
+                      {r.area
+                        ? <span className="text-xs bg-lumen-soft text-lumen-deep px-2 py-0.5 rounded-full group-hover:bg-lumen/20 transition">{r.area.name}</span>
+                        : <span className="text-xs text-ink-faint group-hover:text-ink-soft transition">Privado</span>
+                      }
+                      <Icon name="pencil" size={10} className="text-ink-faint opacity-0 group-hover:opacity-100 transition" />
+                    </button>
                   </td>
                   <td className="px-3 py-2.5 text-xs font-mono text-ink-faint">{r._count.widgets}</td>
+                  <td className="px-3 py-2.5">
+                    <div className="flex gap-1 justify-end">
+                      <Link to={`/report/${r.id}/view`}
+                        className="inline-flex items-center gap-1 text-xs text-ink-faint hover:text-lumen-deep transition px-1.5 py-1 rounded-lg hover:bg-lumen-soft"
+                        title="Ver reporte">
+                        <Icon name="eye" size={13} />
+                      </Link>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+      )}
+
+      {movingReport && (
+        <Modal title={`Mover reporte: ${movingReport.title}`} onClose={() => setMovingReport(null)} maxWidth="max-w-sm">
+          <p className="text-sm text-ink-soft mb-4">Asigna este reporte a otra área de la organización.</p>
+          <Field label="Área destino">
+            <select className="field" value={targetAreaId} onChange={(e) => setTargetAreaId(e.target.value)}>
+              <option value="">Sin área (privado)</option>
+              {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </Field>
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="soft" onClick={() => setMovingReport(null)}>Cancelar</Button>
+            <Button onClick={transferArea}>Mover</Button>
+          </div>
+        </Modal>
       )}
     </div>
   );

@@ -1,7 +1,8 @@
-import { useRef } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, NavLink } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
+import api from '../lib/api';
 
 /* ── Iconos (trazos estilo lucide, heredan currentColor) ─────────────── */
 
@@ -39,6 +40,7 @@ const PATHS = {
   userPlus: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><line x1="19" y1="8" x2="19" y2="14" /><line x1="16" y1="11" x2="22" y2="11" /></>,
   chevronRight: <path d="m9 18 6-6-6-6" />,
   chevronDown: <path d="m6 9 6 6 6-6" />,
+  bell: <><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></>,
 };
 
 export function Icon({ name, size = 16, className = '', filled = false, strokeWidth = 2 }) {
@@ -66,6 +68,92 @@ export function Wordmark({ className = '', size = 'text-xl' }) {
         Lúmina
       </span>
     </span>
+  );
+}
+
+/* ── Campana de notificaciones ────────────────────────────────────────── */
+
+function NotificationBell() {
+  const [items, setItems] = useState([]);
+  const [unread, setUnread] = useState(0);
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  const load = () =>
+    api.get('/notifications').then(r => {
+      setItems(r.data.items);
+      setUnread(r.data.unread);
+    }).catch(() => {});
+
+  useEffect(() => {
+    load();
+    const id = setInterval(load, 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const markRead = async () => {
+    if (unread === 0) return;
+    await api.post('/notifications/read');
+    setUnread(0);
+    setItems(prev => prev.map(n => ({ ...n, readAt: n.readAt ?? new Date().toISOString() })));
+  };
+
+  const toggle = () => {
+    setOpen(v => !v);
+    if (!open && unread > 0) markRead();
+  };
+
+  const LABELS = { share_added: 'Reporte compartido contigo', area_published: 'Nuevo reporte en tu área' };
+
+  return (
+    <div className="relative" ref={ref}>
+      <button onClick={toggle}
+        className="relative p-1.5 rounded-lg text-ink-soft hover:text-ink hover:bg-paper-deep transition cursor-pointer"
+        aria-label="Notificaciones">
+        <Icon name="bell" size={18} />
+        {unread > 0 && (
+          <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-0.5 rounded-full bg-rust text-surface text-[10px] font-bold flex items-center justify-center leading-none">
+            {unread > 9 ? '9+' : unread}
+          </span>
+        )}
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-2 w-80 bg-surface border border-line rounded-xl shadow-xl z-50 overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-line-soft flex items-center justify-between">
+            <span className="text-sm font-semibold text-ink">Notificaciones</span>
+            {unread > 0 && (
+              <button onClick={markRead} className="text-xs text-lumen-deep hover:underline cursor-pointer">
+                Marcar todo leído
+              </button>
+            )}
+          </div>
+          <ul className="max-h-80 overflow-y-auto divide-y divide-line-soft">
+            {items.length === 0 && (
+              <li className="px-4 py-6 text-center text-sm text-ink-faint">Sin notificaciones</li>
+            )}
+            {items.map(n => (
+              <li key={n.id}
+                className={`px-4 py-3 text-sm ${n.readAt ? 'text-ink-soft' : 'text-ink bg-lumen-soft/30'}`}>
+                <p className="font-medium">{LABELS[n.type] ?? n.type}</p>
+                {n.payload?.reportTitle && (
+                  <p className="text-ink-faint text-xs mt-0.5 truncate">"{n.payload.reportTitle}"</p>
+                )}
+                <p className="text-xs text-ink-faint mt-0.5">
+                  {new Date(n.createdAt).toLocaleString('es', { dateStyle: 'short', timeStyle: 'short' })}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -98,6 +186,7 @@ export function AppHeader() {
             </NavLink>
           ))}
         </nav>
+        <NotificationBell />
         <span className="text-sm text-ink-faint hidden sm:block">{user?.name}</span>
         <button onClick={logout}
           className="text-sm text-ink-soft hover:text-rust transition cursor-pointer">

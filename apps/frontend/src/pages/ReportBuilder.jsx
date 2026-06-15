@@ -115,6 +115,9 @@ export default function ReportBuilder() {
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
   const titleInputRef = useRef(null);
+  const [editingDesc, setEditingDesc] = useState(false);
+  const [descDraft, setDescDraft] = useState('');
+  const descInputRef = useRef(null);
   const { width, containerRef } = useContainerWidth({ initialWidth: 1200 });
 
   useEffect(() => {
@@ -189,6 +192,20 @@ export default function ReportBuilder() {
     await api.patch(`/reports/${id}`, { title: next });
   }, [titleDraft, report?.title, id]);
 
+  const startEditDesc = () => {
+    setDescDraft(report.description ?? '');
+    setEditingDesc(true);
+    setTimeout(() => descInputRef.current?.focus(), 0);
+  };
+
+  const commitDesc = useCallback(async () => {
+    setEditingDesc(false);
+    const next = descDraft.trim();
+    if (next === (report.description ?? '')) return;
+    patchReport({ description: next || null });
+    await api.patch(`/reports/${id}`, { description: next || null });
+  }, [descDraft, report?.description, id]);
+
   if (!report) {
     return (
       <div className="min-h-screen paper-bg flex flex-col">
@@ -262,6 +279,31 @@ export default function ReportBuilder() {
           {saving ? 'Guardando…' : 'Guardar'}
         </button>
       </header>
+
+      {/* Descripción inline editable */}
+      <div className="bg-surface border-b border-line-soft px-4 sm:px-6 py-1.5 shrink-0">
+        {editingDesc ? (
+          <input
+            ref={descInputRef}
+            value={descDraft}
+            onChange={(e) => setDescDraft(e.target.value)}
+            onBlur={commitDesc}
+            onKeyDown={(e) => { if (e.key === 'Enter') commitDesc(); if (e.key === 'Escape') setEditingDesc(false); }}
+            placeholder="Descripción del reporte…"
+            className="w-full text-xs text-ink-soft bg-transparent outline-none border-none"
+          />
+        ) : report.description ? (
+          <button onClick={startEditDesc}
+            className="text-xs text-ink-faint hover:text-ink-soft transition text-left w-full truncate cursor-text">
+            {report.description}
+          </button>
+        ) : (
+          <button onClick={startEditDesc}
+            className="text-xs text-ink-faint/40 hover:text-ink-faint transition cursor-text">
+            + Añadir descripción
+          </button>
+        )}
+      </div>
 
       {/* Barra de filtros */}
       <FilterBar />

@@ -16,6 +16,7 @@ export default defineConfig({
       '/areas': 'http://localhost:3001',
       '/datasets': 'http://localhost:3001',
       '/reports': 'http://localhost:3001',
+      '/notifications': 'http://localhost:3001',
     },
     allowedHosts:["unmortified-corporally-eulalia.ngrok-free.dev"]
 

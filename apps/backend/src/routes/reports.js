@@ -399,6 +399,30 @@ router.post('/:id/publish', auth, async (req, res) => {
     data: { areaId: areaId || null },
     include: { area: { select: { id: true, name: true } } },
   });
+
+  // Notify all area members (except the publisher) when a report is published
+  if (areaId) {
+    const members = await prisma.areaMember.findMany({
+      where: { areaId, userId: { not: req.user.id } },
+      select: { userId: true },
+    });
+    if (members.length > 0) {
+      const publisher = await prisma.user.findUnique({ where: { id: req.user.id }, select: { name: true } });
+      await prisma.notification.createMany({
+        data: members.map((m) => ({
+          userId: m.userId,
+          type: 'area_published',
+          payload: {
+            reportId: report.id,
+            reportTitle: report.title,
+            areaName: updated.area?.name ?? '',
+            publishedBy: publisher?.name ?? 'Alguien',
+          },
+        })),
+      });
+    }
+  }
+
   res.json({ areaId: updated.areaId, area: updated.area });
 });
 
@@ -508,12 +532,29 @@ router.post('/:id/shares', auth, async (req, res) => {
   if (!target) return res.status(404).json({ error: 'No existe un usuario con ese email' });
   if (target.id === req.user.id) return res.status(400).json({ error: 'No puedes compartirte un reporte a ti mismo' });
 
+  const isNew = !(await prisma.reportShare.findUnique({
+    where: { reportId_userId: { reportId: report.id, userId: target.id } },
+  }));
+
   const share = await prisma.reportShare.upsert({
     where: { reportId_userId: { reportId: report.id, userId: target.id } },
     create: { reportId: report.id, userId: target.id, role },
     update: { role },
     include: { user: { select: { id: true, name: true, email: true } } },
   });
+
+  // Notify the invited user (only on new share, not role updates)
+  if (isNew) {
+    const sharer = await prisma.user.findUnique({ where: { id: req.user.id }, select: { name: true } });
+    await prisma.notification.create({
+      data: {
+        userId: target.id,
+        type: 'share_added',
+        payload: { reportId: report.id, reportTitle: report.title, sharedBy: sharer?.name ?? 'Alguien' },
+      },
+    });
+  }
+
   res.json(share);
 });
 
