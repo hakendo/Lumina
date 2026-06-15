@@ -7,20 +7,26 @@ const ROLES = [
   { value: 'editor', label: 'Puede editar' },
 ];
 
-// Modal de compartir: personas con rol (viewer/editor) + link público.
+// Modal de compartir: personas con rol (viewer/editor) + área + link público.
 export default function ShareModal({ report, onChange, onClose }) {
   const [shares, setShares] = useState(null);
+  const [areas, setAreas] = useState([]);
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('viewer');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [copied, setCopied] = useState(false);
   const [toggling, setToggling] = useState(false);
+  const [selectedAreaId, setSelectedAreaId] = useState(report.area?.id ?? '');
+  const [publishing, setPublishing] = useState(false);
 
   useEffect(() => {
     api.get(`/reports/${report.id}/shares`)
       .then(({ data }) => setShares(data))
       .catch(() => setShares([]));
+    api.get('/areas/mine')
+      .then(({ data }) => setAreas(data))
+      .catch(() => {});
   }, [report.id]);
 
   const upsertShare = async (targetEmail, targetRole) => {
@@ -58,6 +64,27 @@ export default function ShareModal({ report, onChange, onClose }) {
       onChange({ isPublic: data.isPublic, slug: data.slug });
     } finally {
       setToggling(false);
+    }
+  };
+
+  const publishToArea = async () => {
+    setPublishing(true);
+    try {
+      const { data } = await api.post(`/reports/${report.id}/publish`, { areaId: selectedAreaId || null });
+      onChange({ areaId: data.areaId, area: data.area });
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  const unpublish = async () => {
+    setPublishing(true);
+    try {
+      const { data } = await api.post(`/reports/${report.id}/publish`, { areaId: null });
+      onChange({ areaId: data.areaId, area: data.area });
+      setSelectedAreaId('');
+    } finally {
+      setPublishing(false);
     }
   };
 
@@ -117,6 +144,43 @@ export default function ShareModal({ report, onChange, onClose }) {
             </li>
           ))}
         </ul>
+      )}
+
+      {/* Publicar al área */}
+      {areas.length > 0 && (
+        <div className="border-t border-line-soft pt-4 mt-2 mb-4">
+          <p className="text-xs font-semibold text-ink-soft uppercase tracking-widest mb-2">
+            Publicar al área
+          </p>
+          {report.area ? (
+            <div className="flex items-center gap-3 bg-lumen-soft border border-lumen-line rounded-lg px-3 py-2.5">
+              <span className="grid place-items-center w-7 h-7 rounded-lg bg-lumen-deep/10 text-lumen-deep shrink-0">
+                <Icon name="layers" size={14} />
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-ink font-medium">Publicado en <span className="text-lumen-deep">{report.area.name}</span></p>
+                <p className="text-xs text-ink-faint">Visible para todos los miembros del área.</p>
+              </div>
+              <Button size="sm" variant="soft" onClick={unpublish} disabled={publishing}>
+                <Icon name="x" size={12} /> Despublicar
+              </Button>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <select
+                value={selectedAreaId}
+                onChange={(e) => setSelectedAreaId(e.target.value)}
+                className="field field-sm flex-1"
+              >
+                <option value="">Selecciona un área…</option>
+                {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+              <Button size="sm" onClick={publishToArea} disabled={publishing || !selectedAreaId}>
+                <Icon name="layers" size={13} /> Publicar
+              </Button>
+            </div>
+          )}
+        </div>
       )}
 
       {/* Link público */}

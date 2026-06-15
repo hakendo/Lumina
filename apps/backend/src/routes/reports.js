@@ -479,15 +479,19 @@ router.post('/:id/share', auth, async (req, res) => {
 // ── PDF export ────────────────────────────────────────────────────
 
 router.get('/:id/export/pdf', auth, async (req, res) => {
-  const report = await prisma.report.findUnique({ where: { id: req.params.id } });
+  const report = await prisma.report.findUnique({
+    where: { id: req.params.id },
+    include: { pages: { orderBy: { order: 'asc' }, select: { id: true } } },
+  });
   if (!report || report.ownerId !== req.user.id) return res.status(404).json({ error: 'Not found' });
 
   const token = req.headers.authorization?.slice(7) || '';
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-  const url = `${frontendUrl}/report/${report.id}/view?token=${token}&print=1`;
+  const baseUrl = `${frontendUrl}/report/${report.id}/view?token=${token}&print=1`;
+  const pageIds = report.pages?.map((p) => p.id) ?? [];
 
   try {
-    const pdf = await exportReportToPDF(url);
+    const pdf = await exportReportToPDF(baseUrl, pageIds);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${report.title}.pdf"`);
     res.send(pdf);

@@ -28,6 +28,7 @@ export default function ReportView() {
 
   const printMode = params.get('print') === '1';
   const tokenParam = params.get('token');
+  const pageIdParam = params.get('pageId'); // used by PDF export to select a specific page
   if (printMode && tokenParam && !localStorage.getItem('token')) {
     setMemoryToken(tokenParam);
   }
@@ -36,7 +37,9 @@ export default function ReportView() {
     api.get(`/reports/${id}`)
       .then(({ data }) => {
         setReport(data);
-        setActivePageId(resolvePages(data)[0]?.id ?? null);
+        const pages = resolvePages(data);
+        const target = pageIdParam ? pages.find((p) => p.id === pageIdParam) : null;
+        setActivePageId(target?.id ?? pages[0]?.id ?? null);
       })
       .catch(() => setError('Reporte no encontrado'));
   }, [id]);
