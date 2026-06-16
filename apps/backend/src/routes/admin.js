@@ -121,15 +121,20 @@ router.post('/reports/templates', async (req, res) => {
   const { title, description = '' } = req.body;
   if (!title?.trim()) return res.status(400).json({ error: 'El título es obligatorio' });
   const report = await prisma.report.create({
-    data: { title: title.trim(), description, isTemplate: true, ownerId: req.user.id },
+    data: {
+      title: title.trim(), description, isTemplate: true, ownerId: req.user.id,
+      pages: { create: [{ title: 'Página 1', order: 0, layout: [], filters: [] }] },
+    },
+    include: { pages: true, _count: { select: { widgets: true, pages: true } } },
   });
   res.status(201).json(report);
 });
 
 // Clonar plantilla a un usuario de la org cliente
 router.post('/reports/:reportId/assign', async (req, res) => {
-  const { userId } = req.body;
+  const { userId, areaId } = req.body;
   if (!userId) return res.status(400).json({ error: 'userId es obligatorio' });
+  if (!areaId) return res.status(400).json({ error: 'areaId es obligatorio' });
 
   const src = await prisma.report.findUnique({
     where: { id: req.params.reportId, isTemplate: true },
@@ -143,7 +148,10 @@ router.post('/reports/:reportId/assign', async (req, res) => {
   const targetUser = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, orgId: true } });
   if (!targetUser?.orgId) return res.status(400).json({ error: 'Usuario no pertenece a una organización' });
 
-  // ── Clonar datasets referenciados por la plantilla ─────────────────
+  const area = await prisma.area.findUnique({ where: { id: areaId } });
+  if (!area || area.orgId !== targetUser.orgId) return res.status(400).json({ error: 'El área no pertenece a la organización del usuario' });
+
+  // ── Clonar / vincular datasets referenciados por la plantilla ─────────────
   // Collect unique datasetIds across all widgets
   const allWidgets = [
     ...src.pages.flatMap((p) => p.widgets),
@@ -155,16 +163,27 @@ router.post('/reports/:reportId/assign', async (req, res) => {
     ? await prisma.dataset.findMany({ where: { id: { in: uniqueDatasetIds } } })
     : [];
 
-  // Build stripped clones: keep structural config, strip credentials (_enc)
-  const datasetMap = {}; // old id → new id
+  // Strategy C: datasets with slotName → create DatasetSlotBinding (no clone, widget.datasetId = null)
+  // Legacy datasets (no slotName) → clone with credentials stripped, as before
+  const datasetMap = {};   // old id → new dataset id (or null for slots)
+  const slotNames = {};    // old dataset id → slotName  (for slot-aware datasets)
+  const pendingSlots = []; // { slotName } to create DatasetSlotBinding records after report creation
+
   for (const ds of srcDatasets) {
+    if (ds.slotName) {
+      // Slot-based: no clone — client will configure their own data source
+      datasetMap[ds.id] = null;
+      slotNames[ds.id] = ds.slotName;
+      pendingSlots.push({ slotName: ds.slotName });
+      continue;
+    }
+
+    // Legacy clone: strip credentials, keep structure
     let strippedConfig = {};
     if (ds.sourceType === 'api') {
-      // Keep endpoint structure; strip auth/headers/body
       const { _enc, hasHeaders, hasBody, ...pub } = ds.config ?? {};
       strippedConfig = { ...pub, hasHeaders: false, hasBody: false };
     } else if (ds.sourceType === 'db') {
-      // Keep db type + query; strip connection string
       const { _enc, ...pub } = ds.config ?? {};
       strippedConfig = pub;
     } else {
@@ -172,27 +191,31 @@ router.post('/reports/:reportId/assign', async (req, res) => {
       datasetMap[ds.id] = null;
       continue;
     }
-
     const cloned = await prisma.dataset.create({
-      data: {
-        name: ds.name,
-        sourceType: ds.sourceType,
-        config: strippedConfig,
-        uploadedById: userId,
-        areaId: null, // org admin assigns to area later
-      },
+      data: { name: ds.name, sourceType: ds.sourceType, config: strippedConfig, uploadedById: userId, areaId },
     });
     datasetMap[ds.id] = cloned.id;
   }
 
+  // For slot widgets: inject config.datasetSlot so the frontend knows which slot to configure
   const resolveDs = (id) => (id ? (datasetMap[id] ?? null) : null);
+  const resolveWidgetConfig = (w) => {
+    if (w.datasetId && slotNames[w.datasetId]) {
+      return { ...w.config, datasetSlot: slotNames[w.datasetId] };
+    }
+    return w.config;
+  };
 
   // ── Deep-clone report + pages + widgets ────────────────────────────
+  // Step 1: create report + pages without widgets.
+  // Prisma cannot auto-resolve `reportId` three levels deep (report→pages→widgets),
+  // so widgets must be created separately in step 2.
   const newReport = await prisma.report.create({
     data: {
       title: src.title,
       description: src.description,
       isTemplate: false,
+      templateId: src.id,
       ownerId: userId,
       pages: {
         create: src.pages.map((p) => ({
@@ -200,33 +223,65 @@ router.post('/reports/:reportId/assign', async (req, res) => {
           order: p.order,
           layout: p.layout,
           filters: p.filters,
-          widgets: {
-            create: p.widgets.map((w) => ({
-              widgetType: w.widgetType,
-              config: w.config,
-              position: w.position,
-              datasetId: resolveDs(w.datasetId),
-            })),
-          },
         })),
       },
     },
-    include: { _count: { select: { widgets: true, pages: true } } },
+    include: {
+      pages: { orderBy: { order: 'asc' } },
+      _count: { select: { widgets: true, pages: true } },
+    },
   });
 
-  // Legacy root-level widgets
+  // Step 2: create widgets with explicit reportId + pageId.
+  // Both src.pages and newReport.pages are sorted by `order` asc → positional match is safe.
+  for (let i = 0; i < src.pages.length; i++) {
+    const srcPage = src.pages[i];
+    const newPageId = newReport.pages[i]?.id;
+    if (!newPageId || !srcPage.widgets?.length) continue;
+    await prisma.reportWidget.createMany({
+      data: srcPage.widgets.map((w) => ({
+        reportId: newReport.id,
+        pageId: newPageId,
+        widgetType: w.widgetType,
+        config: resolveWidgetConfig(w),
+        position: w.position,
+        datasetId: resolveDs(w.datasetId),
+      })),
+    });
+  }
+
+  // Legacy root-level widgets (no pageId)
   const rootWidgets = src.widgets.filter((w) => !w.pageId);
   if (rootWidgets.length > 0) {
     await prisma.reportWidget.createMany({
       data: rootWidgets.map((w) => ({
         reportId: newReport.id,
         widgetType: w.widgetType,
-        config: w.config,
+        config: resolveWidgetConfig(w),
         position: w.position,
         datasetId: resolveDs(w.datasetId),
       })),
     });
   }
+
+  // Step 3: create pending slot bindings (one per unique slot, clientDatasetId starts null)
+  if (pendingSlots.length > 0) {
+    await prisma.datasetSlotBinding.createMany({
+      data: pendingSlots.map((s) => ({
+        reportId: newReport.id,
+        slotName: s.slotName,
+        clientDatasetId: null,
+      })),
+      skipDuplicates: true,
+    });
+  }
+
+  // Ensure target user is a member of the target area
+  await prisma.areaMember.upsert({
+    where: { areaId_userId: { areaId, userId } },
+    update: {},
+    create: { areaId, userId },
+  });
 
   // Send notification to assigned user
   await prisma.notification.create({

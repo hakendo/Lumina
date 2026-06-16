@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import api from '../lib/api';
 import { invalidateDatasetCache } from '../lib/datasetCache';
 import { AppHeader, Button, ConfirmModal, EmptyState, Field, Icon, Modal, SkeletonCards } from '../components/ui';
+import { useAuthStore } from '../store/authStore';
 
 const SOURCES = {
   csv: { label: 'CSV / Excel', icon: 'file' },
@@ -11,10 +12,14 @@ const SOURCES = {
 };
 
 export default function Datasets() {
+  const user = useAuthStore((s) => s.user);
+  const isSuperadmin = user?.role === 'superadmin';
+
   const [datasets, setDatasets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [areas, setAreas] = useState([]);
+  const [slots, setSlots] = useState([]);
   const [tab, setTab] = useState('csv'); // csv | api | db
   const [preview, setPreview] = useState(null);
   const [editTarget, setEditTarget] = useState(null);
@@ -22,17 +27,35 @@ export default function Datasets() {
   const [status, setStatus] = useState('');
   const [syncingId, setSyncingId] = useState(null);
   const syncControllerRef = useRef(null);
+  // idField config modal: { datasetId, columns }
+  const [idFieldTarget, setIdFieldTarget] = useState(null);
 
   useEffect(() => {
     Promise.all([
       api.get('/datasets'),
       api.get('/areas/mine'),
-    ]).then(([{ data: ds }, { data: ar }]) => {
+      api.get('/datasets/slots'),
+    ]).then(([{ data: ds }, { data: ar }, { data: sl }]) => {
       setDatasets(ds);
       setAreas(ar);
+      setSlots(sl);
     }).catch(() => setLoadError('No se pudieron cargar los datasets.'))
       .finally(() => setLoading(false));
   }, []);
+
+  const bindSlot = async (slotId, datasetId) => {
+    try {
+      const { data } = await api.post(`/datasets/slots/${slotId}/bind`, { datasetId });
+      setSlots((prev) => prev.map((s) => s.id === slotId
+        ? { ...s, clientDatasetId: datasetId, clientDataset: datasets.find((d) => d.id === datasetId) || s.clientDataset }
+        : s));
+      setStatus(`✓ Slot vinculado — ${data.widgetsUpdated} widget(s) actualizados. Recarga el reporte para ver los datos.`);
+      setTimeout(() => setStatus(''), 8000);
+    } catch (err) {
+      setStatus(`Error al vincular: ${err.response?.data?.error || err.message}`);
+      setTimeout(() => setStatus(''), 8000);
+    }
+  };
 
   const addDataset = (ds) => setDatasets((prev) => [ds, ...prev]);
   const replaceDataset = (ds) => setDatasets((prev) => prev.map((d) => (d.id === ds.id ? ds : d)));
@@ -59,12 +82,18 @@ export default function Datasets() {
       : d));
     try {
       const { data } = await api.post(`/datasets/${ds.id}/fetch`, {}, { signal: controller.signal });
-      invalidateDatasetCache(ds.id);
-      setStatus(`✓ "${ds.name}" — ${data.count} filas cargadas`);
+      if (!data.unchanged) invalidateDatasetCache(ds.id);
+      const msg = data.unchanged
+        ? `"${ds.name}" — sin cambios (datos idénticos al último sync)`
+        : `✓ "${ds.name}" — ${data.count} filas actualizadas`;
+      setStatus(msg);
       setDatasets((prev) => prev.map((d) => d.id === ds.id
-        ? { ...d, _count: { rows: data.count }, config: { ...d.config, lastSyncStatus: 'ok', lastSyncError: null } }
+        ? { ...d, _count: { rows: data.count }, config: { ...d.config, lastSyncStatus: data.unchanged ? 'unchanged' : 'ok', lastSyncError: null } }
         : d));
       setTimeout(() => setStatus(''), 5000);
+      if (data.needsIdConfig && data.columns?.length) {
+        setIdFieldTarget({ datasetId: ds.id, datasetName: ds.name, columns: data.columns });
+      }
     } catch (err) {
       if (err.code === 'ERR_CANCELED') {
         setDatasets((prev) => prev.map((d) => d.id === ds.id
@@ -87,6 +116,38 @@ export default function Datasets() {
 
   const stopSync = () => syncControllerRef.current?.abort();
 
+  const [syncingAll, setSyncingAll] = useState(false);
+
+  const syncAll = async () => {
+    setSyncingAll(true);
+    setStatus('Sincronizando todos los datasets…');
+    try {
+      const { data } = await api.post('/datasets/sync-all');
+      // Invalidate cache for all updated datasets
+      data.details.filter((r) => !r.unchanged && !r.error).forEach((r) => invalidateDatasetCache(r.id));
+      // Refresh dataset list to pick up new row counts
+      const { data: fresh } = await api.get('/datasets');
+      setDatasets(fresh);
+      // Show idField config modal for the first dataset needing it
+      const needsConfig = data.details.find((r) => r.needsIdConfig && r.columns?.length);
+      if (needsConfig) {
+        const ds = fresh.find((d) => d.id === needsConfig.id);
+        setIdFieldTarget({ datasetId: needsConfig.id, datasetName: ds?.name || needsConfig.name, columns: needsConfig.columns });
+      }
+      const parts = [];
+      if (data.synced) parts.push(`${data.synced} actualizado${data.synced > 1 ? 's' : ''}`);
+      if (data.unchanged) parts.push(`${data.unchanged} sin cambios`);
+      if (data.errors) parts.push(`${data.errors} error${data.errors > 1 ? 'es' : ''}`);
+      setStatus(`✓ Sync completo — ${parts.join(', ')}`);
+      setTimeout(() => setStatus(''), 8000);
+    } catch (err) {
+      setStatus(`Error en sync masivo: ${err.response?.data?.error || err.message}`);
+      setTimeout(() => setStatus(''), 8000);
+    } finally {
+      setSyncingAll(false);
+    }
+  };
+
   return (
     <div className="min-h-screen paper-bg">
       <AppHeader />
@@ -97,11 +158,20 @@ export default function Datasets() {
             <h2 className="font-display text-3xl text-ink">Datasets</h2>
             <p className="text-ink-faint text-sm mt-1">Conecta archivos, APIs y bases de datos.</p>
           </div>
-          {status && (
-            <span className="text-sm text-lumen-deep bg-lumen-soft px-3 py-1.5 rounded-full font-mono text-xs">
-              {status}
-            </span>
-          )}
+          <div className="flex items-center gap-3 flex-wrap">
+            {status && (
+              <span className="text-sm text-lumen-deep bg-lumen-soft px-3 py-1.5 rounded-full font-mono text-xs">
+                {status}
+              </span>
+            )}
+            {datasets.some((d) => ['api', 'db'].includes(d.sourceType)) && (
+              <Button size="sm" variant="soft" onClick={syncAll} disabled={syncingAll || !!syncingId}
+                className="flex items-center gap-1.5 whitespace-nowrap">
+                <Icon name="refresh" size={13} className={syncingAll ? 'animate-spin' : ''} />
+                {syncingAll ? 'Sincronizando…' : 'Sync todo'}
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Conectores */}
@@ -119,12 +189,47 @@ export default function Datasets() {
             ))}
           </div>
           <div className="p-5">
-            {tab === 'csv' && <CSVForm onCreated={addDataset} areas={areas} />}
-            {tab === 'api' && <APIForm onCreated={addDataset} areas={areas} />}
-            {tab === 'db' && <DBForm onCreated={addDataset} areas={areas} />}
-            {tab === 'derived' && <DerivedDatasetForm onCreated={addDataset} areas={areas} availableDatasets={datasets} />}
+            {tab === 'csv' && <CSVForm onCreated={addDataset} areas={areas} isSuperadmin={isSuperadmin} />}
+            {tab === 'api' && <APIForm onCreated={addDataset} areas={areas} isSuperadmin={isSuperadmin} />}
+            {tab === 'db' && <DBForm onCreated={addDataset} areas={areas} isSuperadmin={isSuperadmin} />}
+            {tab === 'derived' && <DerivedDatasetForm onCreated={addDataset} areas={areas} availableDatasets={datasets} isSuperadmin={isSuperadmin} />}
           </div>
         </div>
+
+        {/* Slots pendientes de configuración (plantillas asignadas) */}
+        {slots.filter((s) => !s.clientDatasetId).length > 0 && (
+          <div className="bg-lumen-soft border border-lumen-line rounded-xl p-5 mb-8 animate-rise">
+            <div className="flex items-center gap-2 mb-3">
+              <Icon name="link" size={15} className="text-lumen-deep" />
+              <h3 className="font-display text-sm text-lumen-deep font-semibold">Fuentes de datos pendientes</h3>
+              <span className="text-[11px] bg-lumen text-paper rounded-full px-2 py-0.5 font-mono">
+                {slots.filter((s) => !s.clientDatasetId).length}
+              </span>
+            </div>
+            <p className="text-xs text-ink-faint mb-4">
+              Tienes reportes basados en plantillas que necesitan que configures sus fuentes de datos.
+            </p>
+            <div className="space-y-3">
+              {slots.filter((s) => !s.clientDatasetId).map((slot) => (
+                <div key={slot.id} className="bg-surface border border-line-soft rounded-lg p-3 flex flex-wrap items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-ink truncate">{slot.report?.title}</p>
+                    <p className="text-xs font-mono text-lumen-deep">slot: {slot.slotName}</p>
+                  </div>
+                  <select
+                    className="field field-sm flex-1 min-w-[200px]"
+                    defaultValue=""
+                    onChange={(e) => e.target.value && bindSlot(slot.id, e.target.value)}>
+                    <option value="">— Seleccionar dataset —</option>
+                    {datasets.map((d) => (
+                      <option key={d.id} value={d.id}>{d.name} ({d.sourceType})</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {loadError ? (
           <p className="text-rust text-sm bg-rust-soft px-4 py-3 rounded-lg">{loadError}</p>
@@ -195,11 +300,11 @@ export default function Datasets() {
         {editTarget && (
           <Modal title={`Editar · ${editTarget.name}`} onClose={() => setEditTarget(null)} maxWidth="max-w-3xl">
             {editTarget.sourceType === 'api' && (
-              <APIForm initial={editTarget} onCreated={() => {}}
+              <APIForm initial={editTarget} onCreated={() => {}} isSuperadmin={isSuperadmin}
                 onSaved={(updated) => { replaceDataset(updated); setEditTarget(null); }} />
             )}
             {editTarget.sourceType === 'db' && (
-              <DBForm initial={editTarget} onCreated={() => {}}
+              <DBForm initial={editTarget} onCreated={() => {}} isSuperadmin={isSuperadmin}
                 onSaved={(updated) => { replaceDataset(updated); setEditTarget(null); }} />
             )}
             {editTarget.sourceType === 'derived' && (
@@ -207,6 +312,21 @@ export default function Datasets() {
                 onSaved={(updated) => { replaceDataset(updated); setEditTarget(null); }} />
             )}
           </Modal>
+        )}
+
+        {idFieldTarget && (
+          <IdFieldModal
+            datasetId={idFieldTarget.datasetId}
+            datasetName={idFieldTarget.datasetName}
+            columns={idFieldTarget.columns}
+            onSave={(idField) => {
+              setDatasets((prev) => prev.map((d) => d.id === idFieldTarget.datasetId
+                ? { ...d, config: { ...d.config, idField } }
+                : d));
+              setIdFieldTarget(null);
+            }}
+            onClose={() => setIdFieldTarget(null)}
+          />
         )}
       </main>
     </div>
@@ -218,11 +338,71 @@ export default function Datasets() {
 const SYNC_STATUS = {
   syncing:          { dot: 'bg-lumen-deep animate-pulse', label: 'Sincronizando…',       title: null },
   ok:               { dot: 'bg-sea',                      label: 'Sincronizado',          title: null },
+  unchanged:        { dot: 'bg-sea/50',                   label: 'Sin cambios',           title: 'Los datos de la fuente son idénticos al último sync' },
   ssl_error:        { dot: 'bg-rust animate-pulse',       label: 'Error de certificado',  title: null },
   connection_error: { dot: 'bg-rust animate-pulse',       label: 'Sin conexión',          title: null },
   http_error:       { dot: 'bg-rust animate-pulse',       label: 'Error HTTP',            title: null },
   parse_error:      { dot: 'bg-rust animate-pulse',       label: 'Respuesta inválida',    title: null },
 };
+
+function IdFieldModal({ datasetId, datasetName, columns, onSave, onClose }) {
+  const [selected, setSelected] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api.patch(`/datasets/${datasetId}/id-field`, { idField: selected || null });
+      onSave(selected || null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal title="Configurar campo ID único" onClose={onClose} maxWidth="max-w-md">
+      <div className="space-y-4">
+        <div className="bg-lumen-soft border border-lumen-line rounded-lg px-4 py-3 text-sm text-ink-soft">
+          <p className="font-medium text-ink mb-1">
+            <Icon name="database" size={13} className="inline mr-1.5 text-lumen-deep" />
+            {datasetName}
+          </p>
+          <p className="text-xs text-ink-faint">
+            Selecciona el campo que identifica de forma única cada registro. En futuros syncs, las filas se actualizarán por ese campo en lugar de borrar y reinsertar todo.
+          </p>
+        </div>
+
+        <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+          {columns.map((col) => (
+            <label key={col}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border cursor-pointer transition ${
+                selected === col
+                  ? 'border-lumen bg-lumen-soft/60 text-lumen-deep'
+                  : 'border-line-soft hover:border-line text-ink-soft'
+              }`}>
+              <input type="radio" name="idField" value={col} checked={selected === col}
+                onChange={() => setSelected(col)} className="accent-lumen-deep" />
+              <span className="font-mono text-sm">{col}</span>
+            </label>
+          ))}
+        </div>
+
+        <p className="text-xs text-ink-faint">
+          ¿No hay un campo único? Puedes omitir esto y el sistema reemplazará todos los datos en cada sync.
+        </p>
+
+        <div className="flex justify-between gap-2 pt-1">
+          <Button variant="soft" size="sm" onClick={() => { api.patch(`/datasets/${datasetId}/id-field`, { idField: null }); onSave(null); }}>
+            Sin campo ID
+          </Button>
+          <Button size="sm" onClick={save} disabled={!selected || busy}>
+            {busy ? 'Guardando…' : 'Confirmar'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
 
 function SyncStatusBadge({ config }) {
   if (!config) return null;
@@ -270,7 +450,20 @@ function DatasetCard({ ds, index, onDelete, onPreview, onSync, onEdit, isSyncing
           <Icon name={source.icon} size={17} className={isSyncing ? 'animate-pulse' : ''} />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="font-display text-sm text-ink truncate">{ds.name}</p>
+          <p className="font-display text-sm text-ink truncate flex items-center gap-1.5">
+            {ds.name}
+            {ds.slotName && (
+              <span className="text-[10px] font-mono bg-lumen-soft text-lumen-deep px-1.5 py-0.5 rounded shrink-0">
+                slot:{ds.slotName}
+              </span>
+            )}
+            {ds.config?.idField && (
+              <span className="text-[10px] font-mono bg-paper-deep border border-line-soft text-ink-faint px-1.5 py-0.5 rounded shrink-0"
+                title="Campo ID configurado para upsert">
+                id:{ds.config.idField}
+              </span>
+            )}
+          </p>
           <p className="font-mono text-[11px] text-ink-faint">
             {source.label} · {ds._count?.rows ?? 0} filas
             {ds.area && <> · <span className="text-lumen-deep">{ds.area.name}</span></>}
@@ -460,12 +653,13 @@ const rowsToObject = (rows) => {
   return o;
 };
 
-function APIForm({ onCreated, initial = {}, onSaved, areas = [] }) {
+function APIForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = false }) {
   const isEdit = !!onSaved;
   const storedHeaderKeys = initial.config?.headerKeys || [];
   const storedQueryKeys = initial.config?.queryParamKeys || [];
   const [name, setName] = useState(initial.name || '');
   const [areaId, setAreaId] = useState(initial.areaId || '');
+  const [slotName, setSlotName] = useState(initial.slotName || '');
   const [url, setUrl] = useState(initial.config?.url || '');
   const [method, setMethod] = useState(initial.config?.method || 'GET');
   const [dataPath, setDataPath] = useState(initial.config?.dataPath || '');
@@ -503,7 +697,7 @@ function APIForm({ onCreated, initial = {}, onSaved, areas = [] }) {
     setBusy(true); setMsg('');
     try {
       if (!isEdit && areas.length && !areaId) throw new Error('Selecciona un área');
-      const payload = { name, url, method, dataPath, allowInsecureSsl, ...(!isEdit && { areaId }) };
+      const payload = { name, url, method, dataPath, allowInsecureSsl, ...(!isEdit && { areaId }), ...(isSuperadmin && slotName.trim() && { slotName: slotName.trim() }) };
       // Solo enviar sensibles si el usuario escribió algo; en edición,
       // omitirlos conserva los guardados (cifrados) en el backend.
       const h = rowsToObject(headerRows);
@@ -521,8 +715,8 @@ function APIForm({ onCreated, initial = {}, onSaved, areas = [] }) {
       } else {
         ({ data } = await api.post('/datasets/api-connector', payload));
         const area = areas.find((a) => a.id === areaId);
-        onCreated({ id: data.id, name: data.name, sourceType: 'api', config: data.config, _count: { rows: 0 }, area: area ? { id: area.id, name: area.name } : null });
-        setName(''); setAreaId(''); setUrl(''); setHeaderRows([]); setQueryRows([]); setBody(''); setDataPath(''); setSample('');
+        onCreated({ id: data.id, name: data.name, sourceType: 'api', slotName: data.slotName || null, config: data.config, _count: { rows: 0 }, area: area ? { id: area.id, name: area.name } : null });
+        setName(''); setAreaId(''); setUrl(''); setHeaderRows([]); setQueryRows([]); setBody(''); setDataPath(''); setSample(''); setSlotName('');
       }
       setMsg('✓ Conector guardado');
     } catch (err) { setMsg(`Error: ${err.response?.data?.error || err.message}`); }
@@ -537,6 +731,13 @@ function APIForm({ onCreated, initial = {}, onSaved, areas = [] }) {
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="ej. API de clientes" className="field" />
           </Field>
           <AreaSelect areas={areas} value={areaId} onChange={setAreaId} />
+          {isSuperadmin && (
+            <Field label="Nombre de slot (opcional)"
+              hint="Identifica esta fuente en plantillas base. Los clientes configurarán sus propias credenciales para este slot.">
+              <input value={slotName} onChange={(e) => setSlotName(e.target.value)}
+                placeholder="ej. ventas_api, rrhh_db" className="field field-mono" />
+            </Field>
+          )}
         </>
       )}
       <div className="flex gap-2">
@@ -676,10 +877,11 @@ function APIForm({ onCreated, initial = {}, onSaved, areas = [] }) {
   );
 }
 
-function DBForm({ onCreated, initial = {}, onSaved, areas = [] }) {
+function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = false }) {
   const isEdit = !!onSaved;
   const [name, setName] = useState(initial.name || '');
   const [areaId, setAreaId] = useState(initial.areaId || '');
+  const [slotName, setSlotName] = useState(initial.slotName || '');
   const [dbType, setDbType] = useState(initial.config?.dbType || 'pg');
   const [connStr, setConnStr] = useState('');
   const [query, setQuery] = useState(initial.config?.query || '');
@@ -691,7 +893,7 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [] }) {
     setBusy(true); setMsg('');
     try {
       if (!isEdit && areas.length && !areaId) { setMsg('Selecciona un área'); setBusy(false); return; }
-      const payload = { name, dbType, query, ...(!isEdit && { areaId }), ...(connStr.trim() && { connectionString: connStr }) };
+      const payload = { name, dbType, query, ...(!isEdit && { areaId }), ...(connStr.trim() && { connectionString: connStr }), ...(isSuperadmin && !isEdit && slotName.trim() && { slotName: slotName.trim() }) };
       if (isEdit && !connStr.trim()) delete payload.connectionString;
 
       let data;
@@ -702,8 +904,8 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [] }) {
         if (!connStr.trim()) { setMsg('El connection string es requerido'); setBusy(false); return; }
         ({ data } = await api.post('/datasets/db-connector', payload));
         const area = areas.find((a) => a.id === areaId);
-        onCreated({ id: data.id, name: data.name, sourceType: 'db', config: data.config, _count: { rows: 0 }, area: area ? { id: area.id, name: area.name } : null });
-        setName(''); setAreaId(''); setConnStr(''); setQuery('');
+        onCreated({ id: data.id, name: data.name, sourceType: 'db', slotName: data.slotName || null, config: data.config, _count: { rows: 0 }, area: area ? { id: area.id, name: area.name } : null });
+        setName(''); setAreaId(''); setConnStr(''); setQuery(''); setSlotName('');
       }
       setMsg('✓ Conector guardado');
     } catch (err) { setMsg(`Error: ${err.response?.data?.error || err.message}`); }
@@ -718,6 +920,13 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [] }) {
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="ej. DB Producción" className="field" />
           </Field>
           <AreaSelect areas={areas} value={areaId} onChange={setAreaId} />
+          {isSuperadmin && (
+            <Field label="Nombre de slot (opcional)"
+              hint="Identifica esta fuente en plantillas base. Los clientes configurarán su propio connection string.">
+              <input value={slotName} onChange={(e) => setSlotName(e.target.value)}
+                placeholder="ej. produccion_db" className="field field-mono" />
+            </Field>
+          )}
         </>
       )}
       <Field label="Motor">
@@ -759,7 +968,30 @@ const FILTER_OPS = [
   { value: 'contains', label: 'contiene' },
 ];
 
-function DerivedDatasetForm({ onCreated, areas, availableDatasets }) {
+const DERIVED_TUTORIAL_STEPS = [
+  {
+    icon: 'layers',
+    title: 'Selecciona fuentes',
+    desc: 'Elige uno o más datasets existentes (CSV, API, DB). Asigna un alias corto a cada uno para usarlo en joins.',
+  },
+  {
+    icon: 'link',
+    title: 'Define joins (si hay ≥ 2 fuentes)',
+    desc: 'Une tablas por columnas en común, como un JOIN en SQL. Ejemplo: unir "clientes" con "pedidos" por cliente_id.',
+  },
+  {
+    icon: 'hash',
+    title: 'Agrega columnas calculadas',
+    desc: 'Crea campos nuevos con expresiones simples: campo1 * campo2, campo1 + campo2. Útil para márgenes, totales, etc.',
+  },
+  {
+    icon: 'filter',
+    title: 'Filtra filas (opcional)',
+    desc: 'Aplica condiciones para excluir filas. Ejemplo: solo pedidos donde estado = "entregado".',
+  },
+];
+
+function DerivedDatasetForm({ onCreated, areas, availableDatasets, isSuperadmin = false }) {
   const [name, setName] = useState('');
   const [areaId, setAreaId] = useState('');
   const [sources, setSources] = useState([{ datasetId: '', alias: '' }]);
@@ -771,6 +1003,7 @@ function DerivedDatasetForm({ onCreated, areas, availableDatasets }) {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const [showTutorial, setShowTutorial] = useState(false);
 
   const csvDbs = availableDatasets.filter((d) => ['csv', 'api', 'db', 'derived'].includes(d.sourceType));
 
@@ -840,6 +1073,40 @@ function DerivedDatasetForm({ onCreated, areas, availableDatasets }) {
 
   return (
     <form onSubmit={submit} className="space-y-5">
+      {/* Tutorial toggle */}
+      <div>
+        <button type="button" onClick={() => setShowTutorial((v) => !v)}
+          className="inline-flex items-center gap-1.5 text-xs text-lumen-deep font-medium hover:underline cursor-pointer">
+          <Icon name={showTutorial ? 'chevronDown' : 'chevronRight'} size={12} />
+          {showTutorial ? 'Ocultar tutorial' : '¿Cómo funciona el Dataset Derivado?'}
+        </button>
+        {showTutorial && (
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3 animate-rise">
+            {DERIVED_TUTORIAL_STEPS.map((step, i) => (
+              <div key={i} className="flex gap-3 bg-paper-deep border border-line-soft rounded-xl p-3">
+                <span className="grid place-items-center w-8 h-8 rounded-lg bg-lumen-soft text-lumen-deep shrink-0">
+                  <Icon name={step.icon} size={15} />
+                </span>
+                <div>
+                  <p className="text-xs font-semibold text-ink">{i + 1}. {step.title}</p>
+                  <p className="text-[11px] text-ink-faint mt-0.5 leading-relaxed">{step.desc}</p>
+                </div>
+              </div>
+            ))}
+            <div className="sm:col-span-2 bg-lumen-soft border border-lumen-line rounded-xl p-3">
+              <p className="text-xs font-semibold text-lumen-deep mb-1">Ejemplo rápido</p>
+              <p className="text-[11px] text-ink-soft font-mono leading-relaxed">
+                Dataset A: <span className="text-ink">clientes</span> (id, nombre, ciudad)<br/>
+                Dataset B: <span className="text-ink">pedidos</span> (cliente_id, monto, fecha)<br/>
+                Join: clientes.id = pedidos.cliente_id<br/>
+                Columna calculada: <span className="text-ink">iva = monto * 0.16</span><br/>
+                Resultado: una tabla con nombre, ciudad, monto e IVA por pedido.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Nombre + área */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Field label="Nombre del dataset derivado">

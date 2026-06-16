@@ -75,3 +75,35 @@ _Avoid_: Share individual, invitación directa
 **Link público**:
 URL anónima (via slug) que permite a cualquier persona ver un reporte sin tener cuenta en Lúmina.
 _Avoid_: Share público, URL de acceso, enlace externo
+
+## Plantillas y herencia
+
+**Plantilla base**:
+Reporte modelo marcado con `isTemplate: true`, gestionado exclusivamente por el superadmin. No aparece en el dashboard de ningún cliente. Sirve para crear Reportes Derivados idénticos en estructura para distintos clientes.
+_Avoid_: Template, modelo de reporte, reporte base
+
+**Reporte derivado**:
+Reporte creado a partir de una Plantilla base mediante la operación de asignación. El cliente es propietario del reporte derivado; la estructura (páginas, widgets, config) es copia de la plantilla. Apunta a la plantilla de origen mediante `templateId`.
+_Avoid_: Reporte clonado, instancia de plantilla
+
+**Dataset Slot**:
+Dataset de plantilla marcado con un `slotName` (ej: `ventas_api`). Cuando la plantilla se asigna a un cliente, no se clona el dataset; en su lugar se crea un DatasetSlotBinding con `clientDatasetId: null`. Los widgets usan `config.datasetSlot` hasta que el cliente configure su propia fuente.
+_Avoid_: Placeholder de dataset, slot de datos
+
+**DatasetSlotBinding**:
+Registro que vincula un slot de una Plantilla base con el dataset real del cliente dentro de un Reporte Derivado. Un binding pendiente (`clientDatasetId: null`) indica que el cliente aún no configuró esa fuente. Una vez vinculado, todos los widgets que referencian ese slot actualizan su `datasetId`.
+_Avoid_: Enlace de slot, configuración de fuente
+
+## Sincronización de datos
+
+**Sync**:
+Operación de obtener datos frescos de la fuente externa (API o DB) y almacenarlos en `DatasetRow`. Los datos en Lúmina son siempre una snapshot del momento del último sync; las visualizaciones leen de la DB, no de la fuente en vivo.
+_Avoid_: Actualización, refresh, pull
+
+**Campo ID (idField)**:
+Columna del dataset designada como clave única por el usuario durante el primer sync. Cuando está configurada, syncs posteriores hacen upsert fila a fila en lugar de borrar y reinsertar todo. Valor `null` = el usuario eligió explícitamente no tener campo ID. Ausencia de la clave en config = nunca configurado (muestra el modal de configuración).
+_Avoid_: Primary key, clave primaria, campo único
+
+**Sync masivo**:
+Operación `POST /datasets/sync-all` que sincroniza todos los datasets API/DB accesibles al usuario en una sola llamada. Retorna un resumen de cuántos se actualizaron, cuántos quedaron sin cambios y cuántos fallaron.
+_Avoid_: Bulk sync, actualización masiva

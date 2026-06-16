@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import GridLayout, { useContainerWidth } from 'react-grid-layout';
+import { GridLayout, useContainerWidth } from 'react-grid-layout';
 import api, { setMemoryToken } from '../lib/api';
 import { exportReportCsv } from '../lib/exportCsv';
 import { useAuthStore } from '../store/authStore';

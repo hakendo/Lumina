@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import GridLayout, { useContainerWidth } from 'react-grid-layout';
+import { GridLayout, useContainerWidth } from 'react-grid-layout';
 import { nanoid } from 'nanoid';
 import api from '../lib/api';
 import { exportReportCsv } from '../lib/exportCsv';
@@ -388,7 +388,7 @@ export default function ReportBuilder() {
             >
               {widgets.map((w) => (
                 <div key={w.id}
-                  className={`bg-surface border rounded-xl overflow-hidden flex flex-col cursor-default shadow-card transition-colors ${
+                  className={`bg-surface border rounded-xl flex flex-col cursor-default shadow-card transition-colors ${
                     selectedWidget === w.id
                       ? 'border-lumen ring-2 ring-lumen-glow/30'
                       : 'border-line-soft hover:border-line'

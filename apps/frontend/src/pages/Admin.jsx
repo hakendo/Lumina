@@ -700,7 +700,9 @@ function TemplatesPanel({ orgs }) {
   const [assignTarget, setAssignTarget] = useState(null); // template being assigned
   const [assignOrgId, setAssignOrgId] = useState('');
   const [orgUsers, setOrgUsers] = useState([]);
+  const [orgAreas, setOrgAreas] = useState([]);
   const [assignUserId, setAssignUserId] = useState('');
+  const [assignAreaId, setAssignAreaId] = useState('');
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [assignLoading, setAssignLoading] = useState(false);
   const [error, setError] = useState('');
@@ -716,9 +718,16 @@ function TemplatesPanel({ orgs }) {
   useEffect(() => {
     if (!assignOrgId) return;
     let active = true;
-    api.get(`/admin/users?orgId=${assignOrgId}`)
-      .then(({ data }) => { if (active) { setOrgUsers(data); setAssignUserId(data[0]?.id || ''); } })
-      .catch(() => { if (active) setOrgUsers([]); })
+    Promise.all([
+      api.get(`/admin/users?orgId=${assignOrgId}`),
+      api.get(`/admin/orgs/${assignOrgId}/areas`),
+    ]).then(([{ data: users }, { data: areas }]) => {
+      if (!active) return;
+      setOrgUsers(users);
+      setAssignUserId(users[0]?.id || '');
+      setOrgAreas(areas);
+      setAssignAreaId(areas[0]?.id || '');
+    }).catch(() => { if (active) { setOrgUsers([]); setOrgAreas([]); } })
       .finally(() => { if (active) setLoadingUsers(false); });
     return () => { active = false; };
   }, [assignOrgId]);
@@ -753,18 +762,20 @@ function TemplatesPanel({ orgs }) {
     setAssignTarget(t);
     setAssignOrgId(orgs[0]?.id || '');
     setOrgUsers([]);
+    setOrgAreas([]);
     setAssignUserId('');
+    setAssignAreaId('');
     setLoadingUsers(true);
     setError('');
     setSuccess('');
   };
 
   const confirmAssign = async () => {
-    if (!assignUserId) return;
+    if (!assignUserId || !assignAreaId) return;
     setAssignLoading(true);
     setError('');
     try {
-      const { data } = await api.post(`/admin/reports/${assignTarget.id}/assign`, { userId: assignUserId });
+      const { data } = await api.post(`/admin/reports/${assignTarget.id}/assign`, { userId: assignUserId, areaId: assignAreaId });
       const user = orgUsers.find((u) => u.id === assignUserId);
       const org = orgs.find((o) => o.id === assignOrgId);
       const dsMsg = data.datasetsCloned > 0 ? ` · ${data.datasetsCloned} dataset(s) clonado(s) sin credenciales` : '';
@@ -842,9 +853,10 @@ function TemplatesPanel({ orgs }) {
           <div className="text-sm text-ink-soft mb-4 space-y-2">
             <p>Se creará una copia del reporte en la cuenta del usuario seleccionado.</p>
             <ul className="text-xs text-ink-faint space-y-1 border border-line-soft rounded-lg px-3 py-2.5 bg-paper-deep/40">
-              <li>· Los <strong className="text-ink">datasets API/DB</strong> se clonan con la URL del endpoint, sin credenciales ni headers de autenticación.</li>
-              <li>· Los datasets de <strong className="text-ink">archivo</strong> (CSV/Excel) no se transfieren — el usuario deberá subir su propio archivo.</li>
-              <li>· El administrador de la organización deberá configurar sus propias credenciales desde la página de Datasets.</li>
+              <li>· Los <strong className="text-ink">datasets API/DB</strong> se clonan en el área destino, sin credenciales.</li>
+              <li>· Los datasets con <strong className="text-ink">slot</strong> quedan pendientes — el usuario los vincula desde Datasets.</li>
+              <li>· Los datasets <strong className="text-ink">CSV/Excel</strong> no se transfieren — el usuario debe subir su propio archivo.</li>
+              <li>· El usuario se agrega automáticamente al área destino si aún no es miembro.</li>
             </ul>
           </div>
           <div className="space-y-4">
@@ -853,24 +865,35 @@ function TemplatesPanel({ orgs }) {
                 {orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
               </select>
             </Field>
-            <Field label="Asignar a usuario">
-              {loadingUsers ? (
-                <div className="skeleton h-10" />
-              ) : (
-                <select className="field" value={assignUserId}
-                  onChange={(e) => setAssignUserId(e.target.value)}>
-                  <option value="">— Seleccionar —</option>
-                  {orgUsers.map((u) => (
-                    <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
-                  ))}
-                </select>
-              )}
-            </Field>
+            {loadingUsers ? (
+              <div className="skeleton h-10" />
+            ) : (
+              <>
+                <Field label="Área destino"
+                  hint="Los datasets clonados quedarán en esta área. El usuario también se agregará como miembro si aún no lo es.">
+                  <select className="field" value={assignAreaId} onChange={(e) => setAssignAreaId(e.target.value)}>
+                    <option value="">— Seleccionar área —</option>
+                    {orgAreas.map((a) => (
+                      <option key={a.id} value={a.id}>{a.name}</option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Asignar a usuario">
+                  <select className="field" value={assignUserId}
+                    onChange={(e) => setAssignUserId(e.target.value)}>
+                    <option value="">— Seleccionar —</option>
+                    {orgUsers.map((u) => (
+                      <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
+                    ))}
+                  </select>
+                </Field>
+              </>
+            )}
           </div>
           {error && <p className="text-rust text-xs mt-3 bg-rust-soft px-3 py-2 rounded-lg">{error}</p>}
           <div className="flex justify-end gap-2 mt-5">
             <Button variant="soft" onClick={() => setAssignTarget(null)}>Cancelar</Button>
-            <Button onClick={confirmAssign} disabled={!assignUserId || assignLoading}>
+            <Button onClick={confirmAssign} disabled={!assignUserId || !assignAreaId || assignLoading}>
               {assignLoading ? 'Asignando…' : 'Confirmar asignación'}
             </Button>
           </div>

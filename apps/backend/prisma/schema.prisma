@@ -69,9 +69,11 @@ model Dataset {
   sourceType   String        // csv | excel | api | db | derived
   config       Json          @default("{}")
   filePath     String?
+  slotName     String?       // non-null on template datasets: names the data slot (e.g. "ventas_api")
   createdAt    DateTime      @default(now())
   rows         DatasetRow[]
   widgets      ReportWidget[]
+  slotBindings DatasetSlotBinding[]
 }
 
 model DatasetRow {
@@ -83,22 +85,26 @@ model DatasetRow {
 }
 
 model Report {
-  id          String         @id @default(cuid())
-  ownerId     String
-  owner       User           @relation(fields: [ownerId], references: [id])
-  areaId      String?        // null = borrador privado, set = publicado al área
-  area        Area?          @relation(fields: [areaId], references: [id])
-  title       String
-  description String         @default("")
-  isPublic    Boolean        @default(false)
-  isTemplate  Boolean        @default(false)
-  slug        String?        @unique
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-  pages       ReportPage[]
-  widgets     ReportWidget[] // legacy: migrar a ReportPage.widgets
-  favoritedBy UserFavorite[]
-  shares      ReportShare[]
+  id             String         @id @default(cuid())
+  ownerId        String
+  owner          User           @relation(fields: [ownerId], references: [id])
+  areaId         String?        // null = borrador privado, set = publicado al área
+  area           Area?          @relation(fields: [areaId], references: [id])
+  title          String
+  description    String         @default("")
+  isPublic       Boolean        @default(false)
+  isTemplate     Boolean        @default(false)
+  templateId     String?        // set on derived reports: points to the source template
+  template       Report?        @relation("DerivedFromTemplate", fields: [templateId], references: [id], onDelete: SetNull)
+  derivedReports Report[]       @relation("DerivedFromTemplate")
+  slug           String?        @unique
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  pages          ReportPage[]
+  widgets        ReportWidget[] // legacy: migrar a ReportPage.widgets
+  favoritedBy    UserFavorite[]
+  shares         ReportShare[]
+  slotBindings   DatasetSlotBinding[]
 }
 
 model ReportPage {
@@ -155,4 +161,19 @@ model ReportWidget {
   widgetType String      // chart | kpi | table | pivot | map
   config     Json        @default("{}")
   position   Json        @default("{}")
+}
+
+// Maps a named slot on a derived report to the client's configured dataset.
+// Created when a template is assigned; clientDatasetId starts null until the client configures it.
+model DatasetSlotBinding {
+  id              String   @id @default(cuid())
+  reportId        String
+  report          Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  slotName        String   // matches Dataset.slotName on the source template dataset
+  clientDatasetId String?
+  clientDataset   Dataset? @relation(fields: [clientDatasetId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([reportId, slotName])
 }

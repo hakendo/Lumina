@@ -451,6 +451,26 @@ router.post('/:id/pages', auth, async (req, res) => {
   res.status(201).json(page);
 });
 
+router.patch('/:id/pages/:pageId', auth, async (req, res) => {
+  const report = await prisma.report.findUnique({ where: { id: req.params.id } });
+  const myRole = await getRole(report, req.user.id);
+  if (!report || !CAN_EDIT.has(myRole)) return res.status(404).json({ error: 'Not found' });
+
+  const { title } = req.body;
+  if (!title?.trim()) return res.status(400).json({ error: 'title required' });
+
+  const page = await prisma.reportPage.findFirst({
+    where: { id: req.params.pageId, reportId: report.id },
+  });
+  if (!page) return res.status(404).json({ error: 'Página no encontrada' });
+
+  const updated = await prisma.reportPage.update({
+    where: { id: page.id },
+    data: { title: title.trim() },
+  });
+  res.json(updated);
+});
+
 router.delete('/:id/pages/:pageId', auth, async (req, res) => {
   const report = await prisma.report.findUnique({ where: { id: req.params.id } });
   const myRole = await getRole(report, req.user.id);

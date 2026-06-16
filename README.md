@@ -23,17 +23,31 @@ Plataforma de business intelligence web, multi-usuario, inspirada en Power BI. P
 
 ## ¿Qué es Lúmina?
 
-Lúmina es una aplicación web full-stack que permite a equipos analizar datos sin necesidad de herramientas de terceros costosas. Desde una interfaz visual de arrastrar y soltar, los usuarios pueden:
+Lúmina es una plataforma **multi-tenant** de business intelligence. Múltiples organizaciones coexisten en la misma instancia sin visibilidad cruzada. Desde una interfaz visual de arrastrar y soltar, los equipos pueden:
 
 - Conectar sus propias fuentes de datos (archivos, APIs, bases de datos).
-- Construir dashboards con múltiples tipos de visualización.
+- Construir reportes con múltiples tipos de visualización.
 - Filtrar datos en tiempo real sin modificar la fuente.
+- Publicar reportes a áreas (departamentos) dentro de su organización.
+- Compartir reportes por link público o invitar a colaboradores por email.
 - Exportar reportes a PDF con un click.
-- Compartir reportes públicamente mediante un link único.
+- El superadmin global puede crear organizaciones, gestionar usuarios y asignar plantillas de reporte a cualquier cliente.
 
 ---
 
 ## Funcionalidades
+
+### Multi-tenancy y roles
+
+Lúmina aísla completamente los datos entre organizaciones. Los usuarios actúan bajo uno de tres roles:
+
+| Rol | Alcance |
+|-----|---------|
+| **Superadmin** | Global. Crea organizaciones, gestiona usuarios, asigna plantillas. No pertenece a ninguna organización. |
+| **Org Admin** | Administra una organización. Crea áreas, invita usuarios, ve todos sus reportes y datasets. |
+| **Member** | Usuario estándar. Pertenece a una organización y puede ser miembro de múltiples áreas. |
+
+Un **área** es un equipo o departamento (Ventas, Finanzas…). Los datasets y reportes publicados pertenecen a un área. Los miembros del área ven automáticamente sus reportes.
 
 ### Fuentes de datos
 | Tipo | Descripción |
@@ -41,8 +55,24 @@ Lúmina es una aplicación web full-stack que permite a equipos analizar datos s
 | CSV / Excel | Sube archivos `.csv`, `.xlsx`, `.xls`, `.ods` directamente |
 | API externa | Conecta cualquier endpoint REST — método, headers y body configurables |
 | Base de datos | Ejecuta queries SQL contra PostgreSQL o MySQL externos |
+| Dataset Derivado | Combina datasets mediante joins, filtros y columnas calculadas |
 
 Las credenciales sensibles (API keys en headers, connection strings de DB) se almacenan **cifradas con AES-256-GCM**. Nunca se devuelven al cliente en texto plano.
+
+### Sincronización de datos
+
+- **Sync individual**: `POST /datasets/:id/fetch` — obtiene datos frescos de la fuente y los almacena. Primera sincronización muestra un modal para identificar el campo ID único.
+- **Sync masivo**: `POST /datasets/sync-all` — sincroniza todos los datasets API/DB accesibles de una sola vez. Retorna resumen de actualizados/sin-cambios/errores.
+- **Deduplicación por hash**: si los datos no cambiaron desde el último sync, la escritura a la DB se omite completamente (SHA-256 sobre el conjunto de filas).
+- **Upsert por campo ID**: cuando el usuario designa un `idField`, syncs posteriores hacen upsert fila a fila en lugar de borrar y reinsertar todo.
+
+### Plantillas y herencia
+
+El superadmin puede marcar reportes como **plantillas base**. Al asignar una plantilla a un cliente:
+
+- Se clona la estructura del reporte (páginas, widgets, config) en la organización del cliente.
+- Los datasets de la plantilla marcados con `slotName` se convierten en **Dataset Slots** — el cliente los vincula con sus propias fuentes sin recibir los datos del superadmin.
+- El cliente puede re-vincular slots en cualquier momento desde la pantalla de datasets.
 
 ### Widgets disponibles
 | Widget | Descripción |
@@ -55,16 +85,21 @@ Las credenciales sensibles (API keys en headers, connection strings de DB) se al
 
 ### Report builder
 - Canvas de arrastrar y soltar con redimensionado libre (react-grid-layout).
+- Páginas múltiples por reporte con pestañas navegables.
 - Panel de configuración lateral por widget (dataset, campos, tipo).
+- **Cross-filtering**: seleccionar un valor en un widget filtra automáticamente los demás de la misma página.
 - **Filtros globales por reporte:** select, rango numérico y rango de fechas — se aplican a todos los widgets del mismo dataset en tiempo real.
 - Auto-guardado del layout y los filtros con el reporte.
 
 ### Compartir y colaborar
-- Reportes **privados** (solo el dueño) o **públicos** (link único `/public/:slug`).
-- **Favoritos**: marca reportes públicos de otros usuarios con ★.
+- **Publicar al área**: mueve el reporte de privado a visible para todos los miembros de un área.
+- **Compartir por persona**: invita a un usuario por email con rol viewer o editor, independiente del área.
+- **Link público**: URL anónima (`/public/:slug`) sin necesidad de cuenta.
+- **Favoritos**: marca reportes de otros con ★.
 - **Duplicar**: copia un reporte completo (widgets + config) a tu workspace.
 - **Explorar**: navega y busca todos los reportes públicos de la plataforma.
 - **Export PDF**: generado en el servidor con Puppeteer (A4 landscape).
+- **Export CSV**: descarga los datos de cada widget como archivos CSV.
 
 ---
 
@@ -105,9 +140,10 @@ lumina/
 │   │   │   ├── index.js             # entrada Express
 │   │   │   ├── middleware/auth.js   # validación JWT
 │   │   │   ├── routes/
-│   │   │   │   ├── auth.js          # register / login / me
-│   │   │   │   ├── datasets.js      # fuentes de datos + upload
-│   │   │   │   └── reports.js       # reportes + share + PDF
+│   │   │   │   ├── auth.js          # register / login / me / TOTP MFA
+│   │   │   │   ├── datasets.js      # fuentes de datos, sync, slots, id-field
+│   │   │   │   ├── reports.js       # reportes, páginas, share, PDF, share-by-person
+│   │   │   │   └── admin.js         # superadmin: orgs, usuarios, plantillas, asignación
 │   │   │   └── services/
 │   │   │       ├── dataParser.js    # CSV, Excel, API, DB
 │   │   │       ├── encryption.js    # AES-256-GCM
@@ -803,13 +839,17 @@ Authorization: Bearer <token>
 ### Datasets
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| GET | `/datasets` | Lista datasets del usuario |
+| GET | `/datasets` | Lista datasets accesibles al usuario |
 | POST | `/datasets/upload` | Sube CSV/Excel (`multipart/form-data`) |
 | POST | `/datasets/api-connector` | Crea conector API (credenciales cifradas) |
 | PUT | `/datasets/:id/api-connector` | Edita conector API |
 | POST | `/datasets/db-connector` | Crea conector DB (connection string cifrado) |
 | PUT | `/datasets/:id/db-connector` | Edita conector DB |
-| POST | `/datasets/:id/fetch` | Ejecuta y sincroniza datos (API o DB) |
+| POST | `/datasets/sync-all` | Sincroniza todos los datasets API/DB accesibles (sync masivo) |
+| POST | `/datasets/:id/fetch` | Sincroniza dataset individual; hash-dedup omite escritura si sin cambios |
+| PATCH | `/datasets/:id/id-field` | Configura o elimina el campo ID para upsert (`{ idField: "campo" \| null }`) |
+| GET | `/datasets/slots` | Lista Dataset Slots pendientes de vincular (solo reportes derivados del usuario) |
+| POST | `/datasets/slots/:id/bind` | Vincula un slot con un dataset real del cliente |
 | GET | `/datasets/:id/rows` | Devuelve todas las filas |
 | GET | `/datasets/:id/columns` | Devuelve nombres de columnas |
 | DELETE | `/datasets/:id` | Elimina dataset y sus filas |
@@ -817,15 +857,32 @@ Authorization: Bearer <token>
 ### Reportes
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| GET | `/reports` | Lista reportes del usuario (con `isFavorited`) |
+| GET | `/reports` | Lista reportes del usuario (con `isFavorited`, `myRole`) |
 | POST | `/reports` | Crea reporte |
 | GET | `/reports/explore` | Lista todos los reportes públicos (`?q=búsqueda`) |
 | GET | `/reports/favorites` | Lista reportes marcados como favoritos |
-| GET | `/reports/:id` | Obtiene reporte con widgets |
-| PUT | `/reports/:id` | Guarda layout, filtros y widgets |
+| GET | `/reports/:id` | Obtiene reporte con páginas, widgets y permisos del usuario |
+| PUT | `/reports/:id` | Guarda layout, páginas, filtros y widgets |
 | DELETE | `/reports/:id` | Elimina reporte |
 | POST | `/reports/:id/duplicate` | Clona reporte en el workspace propio |
-| POST | `/reports/:id/share` | Toggle público/privado |
+| POST | `/reports/:id/share` | Toggle link público/privado |
+| POST | `/reports/:id/share-person` | Invita a usuario por email (`{ email, role: "viewer"\|"editor" }`) |
+| DELETE | `/reports/:id/share-person/:userId` | Revoca acceso de un usuario específico |
 | POST | `/reports/:id/favorite` | Toggle favorito |
+| PATCH | `/reports/:id/pages/:pageId` | Actualiza nombre o layout de una página |
 | GET | `/reports/:id/export/pdf` | Descarga PDF (Puppeteer, A4 landscape) |
 | GET | `/reports/public/:slug` | Vista pública sin autenticación |
+
+### Administración (solo Superadmin)
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| GET | `/admin/orgs` | Lista todas las organizaciones |
+| POST | `/admin/orgs` | Crea una nueva organización |
+| GET | `/admin/orgs/:orgId/areas` | Lista áreas de una organización |
+| GET | `/admin/users` | Lista usuarios (`?orgId=` para filtrar por org) |
+| POST | `/admin/users` | Crea usuario en una organización con rol |
+| PATCH | `/admin/users/:id` | Edita usuario (rol, org, estado) |
+| DELETE | `/admin/users/:id` | Elimina usuario |
+| GET | `/admin/reports/templates` | Lista todas las plantillas base |
+| POST | `/admin/reports/templates` | Marca un reporte como plantilla base |
+| POST | `/admin/reports/:reportId/assign` | Asigna plantilla a un usuario en un área (`{ userId, areaId }`) |

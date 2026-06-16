@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import GridLayout, { useContainerWidth } from 'react-grid-layout';
+import { GridLayout, useContainerWidth } from 'react-grid-layout';
 import api from '../lib/api';
 import WidgetRenderer from '../components/Canvas/WidgetRenderer';
 import { ReportSkeleton, Wordmark } from '../components/ui';

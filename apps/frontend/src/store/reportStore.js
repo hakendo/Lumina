@@ -73,10 +73,19 @@ export const useReportStore = create((set, get) => ({
     });
   },
 
-  renamePage: (pageId, title) => set((s) => ({
-    pages: s.pages.map((p) => (p.id === pageId ? { ...p, title } : p)),
-    isDirty: true,
-  })),
+  renamePage: (pageId, title) => {
+    set((s) => ({
+      pages: s.pages.map((p) => (p.id === pageId ? { ...p, title } : p)),
+      isDirty: true,
+    }));
+    // Immediately persist to DB for real pages (virtual p0 has no DB row yet)
+    if (pageId !== 'p0') {
+      const { report } = get();
+      api.patch(`/reports/${report.id}/pages/${pageId}`, { title }).catch(() => {
+        // Local state still updated; will persist on next full save
+      });
+    }
+  },
 
   // ── Layout ───────────────────────────────────────────────────────────────
 
