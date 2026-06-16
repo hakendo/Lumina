@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { GridLayout, useContainerWidth } from 'react-grid-layout';
 import { nanoid } from 'nanoid';
@@ -19,6 +19,28 @@ const WIDGET_TYPES = [
   { type: 'pivot', label: 'Pivot', icon: 'grid' },
   { type: 'map', label: 'Mapa', icon: 'pin' },
 ];
+
+// Custom resize handle rendered inside each grid item.
+// Must be a forwardRef component — react-grid-layout passes a ref to it.
+const ResizeHandle = React.forwardRef(function ResizeHandle({ handleAxis, ...rest }, ref) {
+  return (
+    <div ref={ref} {...rest}
+      className="react-resizable-handle react-resizable-handle-se"
+      style={{
+        position: 'absolute', bottom: 0, right: 0,
+        width: 18, height: 18,
+        cursor: 'se-resize',
+        zIndex: 20,
+        display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end',
+        padding: '3px',
+      }}
+    >
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+        <path d="M9 1L1 9M9 5L5 9M9 9H5" stroke="rgba(150,141,123,0.6)" strokeWidth="1.5" strokeLinecap="round" />
+      </svg>
+    </div>
+  );
+});
 
 // ── Tabs de páginas ───────────────────────────────────────────────
 
@@ -397,6 +419,7 @@ export default function ReportBuilder() {
               layout={layout}
               gridConfig={{ cols: 12, rowHeight: 50 }}
               dragConfig={{ handle: '.drag-handle' }}
+              resizeConfig={{ handles: ['se'], handleComponent: ResizeHandle }}
               width={Math.max(width - 32, 320)}
               onLayoutChange={handleLayoutChange}
               style={{ minHeight: 400 }}

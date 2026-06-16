@@ -138,5 +138,9 @@ body {
   border-radius: 0.75rem;
 }
 
-.react-resizable-handle { opacity: 0.35; }
-.react-grid-item:hover .react-resizable-handle { opacity: 1; }
+/* Resize handle sits above chart canvas stacking contexts */
+.react-grid-item > .react-resizable-handle {
+  z-index: 10;
+  opacity: 0.4;
+}
+.react-grid-item:hover > .react-resizable-handle { opacity: 1; }
