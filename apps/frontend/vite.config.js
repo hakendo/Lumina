@@ -13,6 +13,18 @@ const apiProxy = (target = 'http://localhost:3001') => ({
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  build: {
+    rollupOptions: {
+      output: {
+        // Rolldown (Vite 8) requires function form for manualChunks
+        manualChunks(id) {
+          if (id.includes('react-dom') || id.includes('react-router')) return 'vendor-react';
+          if (id.includes('react-grid-layout') || id.includes('react-resizable') || id.includes('react-draggable')) return 'vendor-grid';
+          if (id.includes('/zustand/') || id.includes('/axios/') || id.includes('/nanoid/')) return 'vendor-state';
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     proxy: {

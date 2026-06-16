@@ -1,3 +1,4 @@
+import 'leaflet/dist/leaflet.css';
 import { MapContainer, TileLayer, CircleMarker, Popup } from 'react-leaflet';
 import { useMemo } from 'react';
 import { Icon } from '../ui';

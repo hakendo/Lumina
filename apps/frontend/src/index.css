@@ -1,7 +1,7 @@
 @import "tailwindcss";
 @import "react-grid-layout/css/styles.css";
 @import "react-resizable/css/styles.css";
-@import "leaflet/dist/leaflet.css";
+/* leaflet/dist/leaflet.css is imported inside MapWidget.jsx (code-split chunk) */
 
 /* ── Lúmina design tokens ─────────────────────────────────────────────────
    "Mesa de luz": papel cálido, tinta profunda, ámbar como única luz.       */
@@ -138,9 +138,16 @@ body {
   border-radius: 0.75rem;
 }
 
-/* Resize handle sits above chart canvas stacking contexts */
+/* Resize handle — must beat ECharts canvas stacking context (z-index 0) */
 .react-grid-item > .react-resizable-handle {
-  z-index: 10;
-  opacity: 0.4;
+  z-index: 30 !important;
+  opacity: 0.5;
+  pointer-events: all !important;
 }
 .react-grid-item:hover > .react-resizable-handle { opacity: 1; }
+
+/* Custom handle: same rules apply at any nesting depth */
+.react-resizable-handle {
+  z-index: 30;
+  pointer-events: all;
+}

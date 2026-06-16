@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, startTransition } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { GridLayout, useContainerWidth } from 'react-grid-layout';
 import { nanoid } from 'nanoid';
@@ -20,27 +20,29 @@ const WIDGET_TYPES = [
   { type: 'map', label: 'Mapa', icon: 'pin' },
 ];
 
-// Custom resize handle rendered inside each grid item.
-// Must be a forwardRef component — react-grid-layout passes a ref to it.
-const ResizeHandle = React.forwardRef(function ResizeHandle({ handleAxis, ...rest }, ref) {
-  return (
-    <div ref={ref} {...rest}
-      className="react-resizable-handle react-resizable-handle-se"
-      style={{
-        position: 'absolute', bottom: 0, right: 0,
-        width: 18, height: 18,
-        cursor: 'se-resize',
-        zIndex: 20,
-        display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end',
-        padding: '3px',
-      }}
-    >
-      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-        <path d="M9 1L1 9M9 5L5 9M9 9H5" stroke="rgba(150,141,123,0.6)" strokeWidth="1.5" strokeLinecap="round" />
-      </svg>
-    </div>
-  );
-});
+// react-grid-layout calls handleComponent(axis, ref) as (axis, ref) => ReactNode.
+// Solid bg patch ensures pointer events reach the handle even when ECharts canvas
+// sits at the same corner (ECharts has z-index:0; we use z-index:30).
+const resizeHandleComponent = (_axis, ref) => (
+  <div ref={ref}
+    className="react-resizable-handle react-resizable-handle-se"
+    style={{
+      position: 'absolute', bottom: 0, right: 0,
+      width: 28, height: 28,
+      cursor: 'se-resize',
+      zIndex: 30,
+      pointerEvents: 'all',
+      borderRadius: '0.75rem 0 0.75rem 0',
+      background: 'var(--color-paper-deep)',
+      display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end',
+      padding: '5px',
+    }}
+  >
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+      <path d="M11 1L1 11M11 6L6 11M11 11H6" stroke="var(--color-ink-faint)" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  </div>
+);
 
 // ── Tabs de páginas ───────────────────────────────────────────────
 
@@ -136,6 +138,7 @@ export default function ReportBuilder() {
   const [selectedWidget, setSelectedWidget] = useState(null);
   const [fullscreenWidget, setFullscreenWidget] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [shareOpen, setShareOpen] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
@@ -146,13 +149,27 @@ export default function ReportBuilder() {
   const { width, containerRef } = useContainerWidth({ initialWidth: 1200 });
 
   useEffect(() => {
-    api.get(`/reports/${id}`).then(({ data }) => {
-      if (!['owner', 'editor'].includes(data.myRole)) {
-        navigate(`/report/${id}/view`, { replace: true });
-        return;
-      }
-      setReport(data);
-    });
+    setLoadError('');
+    api.get(`/reports/${id}`)
+      .then(({ data }) => {
+        if (!['owner', 'editor'].includes(data.myRole)) {
+          navigate(`/report/${id}/view`, { replace: true });
+          return;
+        }
+        setReport(data);
+      })
+      .catch((err) => {
+        const status = err?.response?.status;
+        if (status === 404) setLoadError('Reporte no encontrado.');
+        else if (status === 403) setLoadError('Sin acceso a este reporte.');
+        else setLoadError('No se pudo cargar el reporte. ¿El servidor está activo?');
+      });
+    // Preload heavy chunks so they're ready before the user adds a widget.
+    // Without this, the first chart/map widget triggers a lazy load that
+    // suspends the new Suspense boundary and falls up to the App-level
+    // <Suspense> (PageLoader), causing the visible "full-page refresh".
+    import('../components/widgets/ChartWidget');
+    import('../components/widgets/MapWidget');
     return () => setSelectedWidget(null);
   }, [id]);
 
@@ -180,7 +197,11 @@ export default function ReportBuilder() {
   }, [isDirty, saving]);
 
   const addNewWidget = (type) => {
-    addWidget({ id: nanoid(), widgetType: type, config: {}, datasetId: null });
+    // startTransition: keeps current UI visible while React loads the lazy
+    // chunk, instead of immediately falling back to the Suspense boundary.
+    startTransition(() => {
+      addWidget({ id: nanoid(), widgetType: type, config: {}, datasetId: null });
+    });
   };
 
   // Notifica a los gráficos ECharts que el contenedor cambió de tamaño
@@ -230,6 +251,16 @@ export default function ReportBuilder() {
     patchReport({ description: next || null });
     await api.patch(`/reports/${id}`, { description: next || null });
   }, [descDraft, report?.description, id]);
+
+  if (loadError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen paper-bg gap-3">
+        <Wordmark />
+        <p className="text-ink-faint text-sm">{loadError}</p>
+        <Link to="/" className="text-lumen-deep text-sm font-medium hover:underline">← Volver al dashboard</Link>
+      </div>
+    );
+  }
 
   if (!report) {
     return (
@@ -419,14 +450,14 @@ export default function ReportBuilder() {
               layout={layout}
               gridConfig={{ cols: 12, rowHeight: 50 }}
               dragConfig={{ handle: '.drag-handle' }}
-              resizeConfig={{ handles: ['se'], handleComponent: ResizeHandle }}
+              resizeConfig={{ handles: ['se'], handleComponent: resizeHandleComponent }}
               width={Math.max(width - 32, 320)}
               onLayoutChange={handleLayoutChange}
               style={{ minHeight: 400 }}
             >
               {widgets.map((w) => (
                 <div key={w.id}
-                  className={`bg-surface border rounded-xl flex flex-col cursor-default shadow-card transition-colors ${
+                  className={`h-full bg-surface border rounded-xl flex flex-col cursor-default shadow-card transition-colors ${
                     selectedWidget === w.id
                       ? 'border-lumen ring-2 ring-lumen-glow/30'
                       : 'border-line-soft hover:border-line'
@@ -451,7 +482,7 @@ export default function ReportBuilder() {
                       <Icon name="sliders" size={12} />
                     </button>
                   </div>
-                  <div className="flex-1 overflow-hidden p-2 min-h-0">
+                  <div className="flex-1 overflow-hidden p-2 min-h-0 pointer-events-none">
                     <WidgetRenderer widget={w} />
                   </div>
                 </div>
