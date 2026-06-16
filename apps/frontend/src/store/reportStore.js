@@ -21,6 +21,9 @@ export const useReportStore = create((set, get) => ({
   filterValues: {},
   // Cross-filter: { [datasetId]: { field, value } } — runtime only, not saved
   crossFilters: {},
+  // Drill-through: survives page switches, applied as extra row filters on target page
+  drillFilters: [],  // [{ datasetId, field, value }]
+  drillStack: [],    // [{ pageId, drillFilters }] — for navigating back
   isDirty: false,
 
   setReport: (report) => {
@@ -51,7 +54,26 @@ export const useReportStore = create((set, get) => ({
 
   // ── Páginas ──────────────────────────────────────────────────────────────
 
-  setActivePage: (pageId) => set((s) => ({ ...syncActive(s.pages, pageId), crossFilters: {} })),
+  setActivePage: (pageId) => set((s) => ({ ...syncActive(s.pages, pageId), crossFilters: {}, drillFilters: [], drillStack: [] })),
+
+  // Navigate to targetPageId carrying a filter; push current page to drill stack
+  drillThrough: (targetPageId, datasetId, field, value) => set((s) => ({
+    ...syncActive(s.pages, targetPageId),
+    crossFilters: {},
+    drillFilters: [{ datasetId, field, value }],
+    drillStack: [...s.drillStack, { pageId: s.activePage, drillFilters: s.drillFilters }],
+  })),
+
+  drillBack: () => set((s) => {
+    const prev = s.drillStack[s.drillStack.length - 1];
+    if (!prev) return {};
+    return {
+      ...syncActive(s.pages, prev.pageId),
+      crossFilters: {},
+      drillFilters: prev.drillFilters,
+      drillStack: s.drillStack.slice(0, -1),
+    };
+  }),
 
   addPage: async (reportId) => {
     const title = `Página ${get().pages.length + 1}`;
@@ -210,8 +232,14 @@ export const useReportStore = create((set, get) => ({
   },
 }));
 
-export function applyFilters(rows, datasetId, filters, filterValues, crossFilters) {
-  // Cross-filter (runtime click selection)
+export function applyFilters(rows, datasetId, filters, filterValues, crossFilters, drillFilters) {
+  // Drill-through filters (survive page switch)
+  for (const df of drillFilters ?? []) {
+    if (df.datasetId === datasetId) {
+      rows = rows.filter((row) => String(row[df.field] ?? '') === String(df.value));
+    }
+  }
+  // Cross-filter (runtime click selection, same page only)
   const cf = crossFilters?.[datasetId];
   if (cf) {
     rows = rows.filter((row) => String(row[cf.field] ?? '') === String(cf.value));
@@ -225,6 +253,13 @@ export function applyFilters(rows, datasetId, filters, filterValues, crossFilter
 
     if (f.type === 'select') {
       result = result.filter((row) => String(row[f.field] ?? '') === String(val));
+    } else if (f.type === 'multiselect') {
+      if (Array.isArray(val) && val.length > 0) {
+        const set = new Set(val.map(String));
+        result = result.filter((row) => set.has(String(row[f.field] ?? '')));
+      }
+    } else if (f.type === 'contains') {
+      result = result.filter((row) => String(row[f.field] ?? '').toLowerCase().includes(String(val).toLowerCase()));
     } else if (f.type === 'range') {
       const [min, max] = val;
       result = result.filter((row) => {

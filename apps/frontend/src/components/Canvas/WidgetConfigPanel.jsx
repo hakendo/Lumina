@@ -7,7 +7,7 @@ const CHART_TYPES = ['bar', 'line', 'area', 'pie', 'scatter'];
 const AGG_TYPES = ['sum', 'avg', 'count', 'max', 'min'];
 
 export default function WidgetConfigPanel({ widget, onClose }) {
-  const { updateWidget, removeWidget } = useReportStore();
+  const { updateWidget, removeWidget, pages } = useReportStore();
   const [datasets, setDatasets] = useState([]);
   const [columnsByDs, setColumnsByDs] = useState({});
   const [cfg, setCfg] = useState(widget.config || {});
@@ -77,6 +77,7 @@ export default function WidgetConfigPanel({ widget, onClose }) {
                 <Field label="Eje Y (valor)"><ColSelect value={cfg.yField} onChange={(v) => set('yField', v)} columns={columns} /></Field>
               </>
             )}
+            <DrillTargetField value={cfg.drillTargetPageId} onChange={(v) => set('drillTargetPageId', v || null)} pages={pages} currentWidgetId={widget.id} />
           </>
         )}
 
@@ -94,10 +95,11 @@ export default function WidgetConfigPanel({ widget, onClose }) {
             <Field label="Sufijo">
               <input value={cfg.suffix || ''} onChange={(e) => set('suffix', e.target.value)} className="field field-sm" placeholder="ej. USD" />
             </Field>
-            <Field label="Color">
+            <Field label="Color base">
               <input type="color" value={cfg.color || '#b8730f'} onChange={(e) => set('color', e.target.value)}
                 className="h-8 w-full rounded-lg cursor-pointer border border-line bg-surface" />
             </Field>
+            <KpiThresholds thresholds={cfg.thresholds || []} onChange={(t) => set('thresholds', t)} />
           </>
         )}
 
@@ -110,6 +112,7 @@ export default function WidgetConfigPanel({ widget, onClose }) {
             <Field label="Cross-filter al hacer clic (campo)">
               <ColSelect value={cfg.crossFilterField} onChange={(v) => set('crossFilterField', v)} columns={columns} placeholder="— Sin cross-filter —" />
             </Field>
+            <DrillTargetField value={cfg.drillTargetPageId} onChange={(v) => set('drillTargetPageId', v || null)} pages={pages} currentWidgetId={widget.id} />
           </>
         )}
 
@@ -148,11 +151,64 @@ export default function WidgetConfigPanel({ widget, onClose }) {
   );
 }
 
+function DrillTargetField({ value, onChange, pages, currentWidgetId }) {
+  const activePage = useReportStore((s) => s.activePage);
+  const otherPages = pages.filter((p) => p.id !== activePage);
+  if (otherPages.length === 0) return null;
+  return (
+    <Field label="Drill-through a página">
+      <select value={value || ''} onChange={(e) => onChange(e.target.value)} className="field field-sm">
+        <option value="">— Cross-filter (misma página) —</option>
+        {otherPages.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
+      </select>
+    </Field>
+  );
+}
+
 function ColSelect({ value, onChange, columns, placeholder = '— Columna —' }) {
   return (
     <select value={value || ''} onChange={(e) => onChange(e.target.value)} className="field field-sm">
       <option value="">{placeholder}</option>
       {columns.map((c) => <option key={c} value={c}>{c}</option>)}
     </select>
+  );
+}
+
+const OP_LABELS = { gt: '>', gte: '≥', lt: '<', lte: '≤', eq: '=' };
+
+function KpiThresholds({ thresholds, onChange }) {
+  const add = () => onChange([...thresholds, { op: 'gt', value: '', color: '#16695f' }]);
+  const remove = (i) => onChange(thresholds.filter((_, j) => j !== i));
+  const update = (i, field, val) => onChange(thresholds.map((t, j) => j === i ? { ...t, [field]: val } : t));
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-ink-soft">Umbrales de color</span>
+        <button type="button" onClick={add}
+          className="text-xs text-lumen-deep hover:underline cursor-pointer">+ Agregar</button>
+      </div>
+      {thresholds.length === 0 && (
+        <p className="text-[11px] text-ink-faint">Sin umbrales — usa el color base siempre.</p>
+      )}
+      {thresholds.map((t, i) => (
+        <div key={i} className="flex items-center gap-1.5">
+          <select value={t.op} onChange={(e) => update(i, 'op', e.target.value)}
+            className="field field-sm w-14 shrink-0 text-center font-mono">
+            {Object.entries(OP_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+          <input type="number" value={t.value} onChange={(e) => update(i, 'value', e.target.value)}
+            className="field field-sm field-mono flex-1 min-w-0" placeholder="valor" />
+          <input type="color" value={t.color || '#16695f'} onChange={(e) => update(i, 'color', e.target.value)}
+            className="h-8 w-10 rounded-md cursor-pointer border border-line bg-surface shrink-0" />
+          <button type="button" onClick={() => remove(i)} className="text-ink-faint hover:text-rust transition cursor-pointer shrink-0">
+            <Icon name="x" size={13} />
+          </button>
+        </div>
+      ))}
+      {thresholds.length > 0 && (
+        <p className="text-[11px] text-ink-faint">Primera regla que coincide gana.</p>
+      )}
+    </div>
   );
 }

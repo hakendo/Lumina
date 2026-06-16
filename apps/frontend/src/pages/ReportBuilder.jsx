@@ -109,6 +109,7 @@ export default function ReportBuilder() {
     report, widgets, layout, isDirty,
     setReport, patchReport, updateLayout, addWidget, save,
     crossFilters, clearCrossFilters,
+    drillFilters, drillStack, drillBack, pages,
   } = useReportStore();
   const [selectedWidget, setSelectedWidget] = useState(null);
   const [fullscreenWidget, setFullscreenWidget] = useState(null);
@@ -336,6 +337,20 @@ export default function ReportBuilder() {
 
       {/* Barra de filtros */}
       <FilterBar />
+
+      {/* Breadcrumb de drill-through */}
+      {drillStack.length > 0 && (
+        <div className="bg-sea-soft border-b border-sea/20 px-4 py-1.5 flex items-center gap-2 shrink-0">
+          <Icon name="arrowLeft" size={12} className="text-sea" />
+          <span className="text-xs text-sea font-medium">
+            Drill-through desde: {pages.find((p) => p.id === drillStack[drillStack.length - 1]?.pageId)?.title ?? '…'}
+            {drillFilters.map((df, i) => <span key={i} className="ml-2 opacity-70">· {df.field} = "{df.value}"</span>)}
+          </span>
+          <button onClick={drillBack} className="text-xs text-sea hover:text-sea/70 transition cursor-pointer ml-auto underline">
+            Volver
+          </button>
+        </div>
+      )}
 
       {/* Indicador de cross-filter activo */}
       {Object.keys(crossFilters).length > 0 && (

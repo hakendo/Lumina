@@ -409,31 +409,25 @@ router.put('/:id/derived', auth, async (req, res) => {
   res.json({ ...updated, config: updated.config });
 });
 
-// Vista previa del Dataset Derivado (ejecuta joins/cálculos en memoria)
-router.get('/:id/derived/preview', auth, async (req, res) => {
-  const dataset = await prisma.dataset.findUnique({ where: { id: req.params.id } });
-  if (!dataset || !(await canReadDataset(dataset, req.user.id))) return res.status(404).json({ error: 'Dataset not found' });
-  if (dataset.sourceType !== 'derived') return res.status(400).json({ error: 'Dataset is not derived' });
-
-  const { sources, joins, columns, filters } = dataset.config;
-
-  // SEC-004: verify user can read each source dataset before loading its rows
+// SEC-004: load and join source datasets in memory for a derived dataset.
+// Returns { rows, error } — rows is the full computed result set.
+async function computeDerived(dataset, userId) {
+  const { sources = [], joins = [], columns = [], filters = [] } = dataset.config;
   const sourceData = {};
   for (const src of sources) {
     const srcDs = await prisma.dataset.findUnique({ where: { id: src.datasetId } });
-    if (!srcDs || !(await canReadDataset(srcDs, req.user.id))) {
-      return res.status(403).json({ error: 'Sin acceso a un dataset fuente' });
+    if (!srcDs || !(await canReadDataset(srcDs, userId))) {
+      return { rows: null, error: 'Sin acceso a un dataset fuente' };
     }
-    const rows = await prisma.datasetRow.findMany({
+    const dbRows = await prisma.datasetRow.findMany({
       where: { datasetId: src.datasetId },
       orderBy: { rowIndex: 'asc' },
       select: { rowData: true },
     });
-    sourceData[src.alias || src.datasetId] = rows.map((r) => r.rowData);
+    sourceData[src.alias || src.datasetId] = dbRows.map((r) => r.rowData);
   }
 
-  // Join simple en memoria (equi-join por columna)
-  let result = sourceData[sources[0].alias || sources[0].datasetId] || [];
+  let result = sourceData[sources[0]?.alias || sources[0]?.datasetId] || [];
   for (const join of joins) {
     const rightRows = sourceData[join.rightAlias] || [];
     const rightIndex = {};
@@ -446,25 +440,19 @@ router.get('/:id/derived/preview', auth, async (req, res) => {
     for (const leftRow of result) {
       const key = leftRow[join.leftOn];
       const matches = rightIndex[key] || [{}];
-      for (const rightRow of matches) {
-        merged.push({ ...leftRow, ...rightRow });
-      }
+      for (const rightRow of matches) merged.push({ ...leftRow, ...rightRow });
     }
     result = merged;
   }
 
-  // Aplicar columnas calculadas usando evaluador seguro (sin eval / new Function)
   if (columns.length) {
     result = result.map((row) => {
       const extra = {};
-      for (const col of columns) {
-        extra[col.name] = evalExpression(col.expression, row);
-      }
+      for (const col of columns) extra[col.name] = evalExpression(col.expression, row);
       return { ...row, ...extra };
     });
   }
 
-  // Aplicar filtros
   for (const f of filters) {
     result = result.filter((row) => {
       const val = row[f.field];
@@ -477,7 +465,18 @@ router.get('/:id/derived/preview', auth, async (req, res) => {
     });
   }
 
-  res.json({ rows: result.slice(0, 200), total: result.length });
+  return { rows: result };
+}
+
+// Vista previa del Dataset Derivado — limita a 200 filas para el editor
+router.get('/:id/derived/preview', auth, async (req, res) => {
+  const dataset = await prisma.dataset.findUnique({ where: { id: req.params.id } });
+  if (!dataset || !(await canReadDataset(dataset, req.user.id))) return res.status(404).json({ error: 'Dataset not found' });
+  if (dataset.sourceType !== 'derived') return res.status(400).json({ error: 'Dataset is not derived' });
+
+  const { rows, error } = await computeDerived(dataset, req.user.id);
+  if (error) return res.status(403).json({ error });
+  res.json({ rows: rows.slice(0, 200), total: rows.length });
 });
 
 // ── Fetch / sync ──────────────────────────────────────────────────
@@ -579,6 +578,11 @@ router.get('/:id/rows', auth, async (req, res) => {
   if (!dataset || !(await canReadDataset(dataset, req.user.id))) {
     return res.status(404).json({ error: 'Dataset not found' });
   }
+  if (dataset.sourceType === 'derived') {
+    const { rows, error } = await computeDerived(dataset, req.user.id);
+    if (error) return res.status(403).json({ error });
+    return res.json(rows);
+  }
   const rows = await prisma.datasetRow.findMany({
     where: { datasetId: dataset.id },
     orderBy: { rowIndex: 'asc' },
@@ -591,6 +595,11 @@ router.get('/:id/columns', auth, async (req, res) => {
   const dataset = await prisma.dataset.findUnique({ where: { id: req.params.id } });
   if (!dataset || !(await canReadDataset(dataset, req.user.id))) {
     return res.status(404).json({ error: 'Dataset not found' });
+  }
+  if (dataset.sourceType === 'derived') {
+    const { rows, error } = await computeDerived(dataset, req.user.id);
+    if (error) return res.status(403).json({ error });
+    return res.json(rows[0] ? Object.keys(rows[0]) : []);
   }
   const first = await prisma.datasetRow.findFirst({ where: { datasetId: req.params.id }, orderBy: { rowIndex: 'asc' } });
   if (!first) return res.json([]);

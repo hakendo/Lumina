@@ -6,6 +6,8 @@ import { Icon } from '../ui';
 
 const FILTER_TYPES = [
   { value: 'select', label: 'Selección' },
+  { value: 'multiselect', label: 'Multi-selección' },
+  { value: 'contains', label: 'Contiene texto' },
   { value: 'range', label: 'Rango numérico' },
   { value: 'daterange', label: 'Rango de fechas' },
 ];
@@ -24,7 +26,7 @@ export default function FilterBar() {
 
   useEffect(() => {
     for (const f of filters) {
-      if (f.type === 'select' && f.datasetId && f.field && !optionsByFilter[f.id]) {
+      if ((f.type === 'select' || f.type === 'multiselect') && f.datasetId && f.field && !optionsByFilter[f.id]) {
         api.get(`/datasets/${f.datasetId}/rows`).then(({ data: rows }) => {
           const opts = [...new Set(rows.map((r) => String(r[f.field] ?? '')))].sort();
           setOptionsByFilter((prev) => ({ ...prev, [f.id]: opts }));
@@ -128,6 +130,44 @@ function FilterChip({ filter, value, options, onChange, onRemove }) {
           <option value="">Todos</option>
           {(options || []).map((o) => <option key={o} value={o}>{o}</option>)}
         </select>
+      </ChipShell>
+    );
+  }
+
+  if (filter.type === 'multiselect') {
+    const selected = Array.isArray(value) ? value : [];
+    const toggle = (opt) => {
+      const next = selected.includes(opt) ? selected.filter((x) => x !== opt) : [...selected, opt];
+      onChange(next.length ? next : null);
+    };
+    return (
+      <ChipShell onRemove={onRemove}>
+        <span className="text-lumen-deep font-semibold">{label}:</span>
+        <div className="relative group">
+          <button type="button" className="text-ink text-xs border-none outline-none bg-transparent cursor-pointer max-w-[100px] truncate">
+            {selected.length ? `${selected.length} sel.` : 'Todos'}
+          </button>
+          <div className="absolute left-0 top-full mt-1 z-50 bg-surface border border-line rounded-lg shadow-lift min-w-[140px] py-1 hidden group-focus-within:block">
+            {(options || []).map((o) => (
+              <label key={o} className="flex items-center gap-2 px-3 py-1 hover:bg-paper cursor-pointer text-xs text-ink">
+                <input type="checkbox" checked={selected.includes(o)} onChange={() => toggle(o)}
+                  className="accent-lumen-deep" />
+                {o}
+              </label>
+            ))}
+          </div>
+        </div>
+      </ChipShell>
+    );
+  }
+
+  if (filter.type === 'contains') {
+    return (
+      <ChipShell onRemove={onRemove}>
+        <span className="text-lumen-deep font-semibold">{label}:</span>
+        <input type="text" value={value || ''} onChange={(e) => onChange(e.target.value || null)}
+          placeholder="buscar…"
+          className="border-none outline-none text-xs bg-transparent text-ink w-24 placeholder:text-ink-faint" />
       </ChipShell>
     );
   }

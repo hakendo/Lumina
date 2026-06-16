@@ -13,7 +13,9 @@ export default function WidgetRenderer({ widget, publicSlug }) {
   const filters = useReportStore((s) => s.filters);
   const filterValues = useReportStore((s) => s.filterValues);
   const crossFilters = useReportStore((s) => s.crossFilters);
+  const drillFilters = useReportStore((s) => s.drillFilters);
   const setCrossFilter = useReportStore((s) => s.setCrossFilter);
+  const drillThrough = useReportStore((s) => s.drillThrough);
 
   const rawData = widget.datasetId ? CACHE[widget.datasetId] ?? fetched : null;
 
@@ -31,12 +33,18 @@ export default function WidgetRenderer({ widget, publicSlug }) {
   }, [widget.datasetId, publicSlug]);
 
   const data = rawData
-    ? applyFilters(rawData, widget.datasetId, filters, filterValues, crossFilters)
+    ? applyFilters(rawData, widget.datasetId, filters, filterValues, crossFilters, drillFilters)
     : [];
 
-  // Emite cross-filter al hacer click en un elemento del widget
+  const drillPageId = widget.config?.drillTargetPageId;
   const onCrossFilter = widget.datasetId && !publicSlug
-    ? (field, value) => setCrossFilter(widget.datasetId, field, value)
+    ? (field, value) => {
+        if (drillPageId) {
+          drillThrough(drillPageId, widget.datasetId, field, value);
+        } else {
+          setCrossFilter(widget.datasetId, field, value);
+        }
+      }
     : null;
 
   const props = { config: widget.config || {}, data, onCrossFilter };
