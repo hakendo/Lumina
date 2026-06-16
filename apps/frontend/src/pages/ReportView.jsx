@@ -8,38 +8,36 @@ import WidgetRenderer from '../components/Canvas/WidgetRenderer';
 import { Icon, ReportSkeleton, Wordmark } from '../components/ui';
 import { useReportStore } from '../store/reportStore';
 
-function resolvePages(report) {
-  if (report.pages?.length) return report.pages;
-  return [{
-    id: 'legacy', title: 'Página 1', order: 0,
-    layout: report.layout || [], widgets: report.widgets || [],
-  }];
-}
-
 export default function ReportView() {
   const { id } = useParams();
   const [params] = useSearchParams();
   const user = useAuthStore((s) => s.user);
-  const [report, setReport] = useState(null);
+  const {
+    report, pages, activePage, widgets: pageWidgets, layout: pageLayout,
+    setReport, setActivePage,
+    crossFilters, clearCrossFilters,
+    drillFilters, drillStack, drillBack,
+  } = useReportStore();
   const [error, setError] = useState('');
-  const [activePageId, setActivePageId] = useState(null);
-  const { crossFilters, clearCrossFilters } = useReportStore();
   const { width, containerRef } = useContainerWidth({ initialWidth: 1200 });
 
   const printMode = params.get('print') === '1';
   const tokenParam = params.get('token');
-  const pageIdParam = params.get('pageId'); // used by PDF export to select a specific page
+  const pageIdParam = params.get('pageId');
   if (printMode && tokenParam && !localStorage.getItem('token')) {
     setMemoryToken(tokenParam);
   }
 
   useEffect(() => {
+    setError('');
     api.get(`/reports/${id}`)
       .then(({ data }) => {
         setReport(data);
-        const pages = resolvePages(data);
-        const target = pageIdParam ? pages.find((p) => p.id === pageIdParam) : null;
-        setActivePageId(target?.id ?? pages[0]?.id ?? null);
+        if (pageIdParam) {
+          const resolvedPages = data.pages?.length ? data.pages : [{ id: 'p0' }];
+          const target = resolvedPages.find((p) => p.id === pageIdParam);
+          if (target) setActivePage(target.id);
+        }
       })
       .catch(() => setError('Reporte no encontrado'));
   }, [id]);
@@ -53,7 +51,8 @@ export default function ReportView() {
       </div>
     );
   }
-  if (!report) {
+
+  if (!report || report.id !== id) {
     return (
       <div className="min-h-screen paper-bg flex flex-col">
         <div className="flex items-center gap-3 px-6 py-4"><Wordmark size="text-base" /></div>
@@ -61,11 +60,6 @@ export default function ReportView() {
       </div>
     );
   }
-
-  const pages = resolvePages(report);
-  const activePage = pages.find((p) => p.id === activePageId) ?? pages[0];
-  const pageWidgets = activePage?.widgets ?? [];
-  const pageLayout = activePage?.layout ?? [];
 
   const isOwner = report.ownerId === user?.id;
   const canEdit = isOwner || report.myRole === 'editor';
@@ -116,14 +110,14 @@ export default function ReportView() {
         </header>
       )}
 
-      {/* Tabs de páginas — solo si hay más de una */}
+      {/* Tabs de páginas */}
       {pages.length > 1 && !printMode && (
         <div className="bg-surface border-b border-line flex items-center overflow-x-auto px-1 gap-0.5">
           {pages.map((page) => (
             <button key={page.id}
-              onClick={() => setActivePageId(page.id)}
+              onClick={() => setActivePage(page.id)}
               className={`text-xs px-3 py-2.5 font-medium border-b-2 transition whitespace-nowrap ${
-                page.id === activePageId
+                page.id === activePage
                   ? 'border-lumen-deep text-lumen-deep'
                   : 'border-transparent text-ink-soft hover:text-ink'
               }`}
@@ -134,7 +128,24 @@ export default function ReportView() {
         </div>
       )}
 
-      {Object.keys(crossFilters).length > 0 && (
+      {/* Breadcrumb de drill-through */}
+      {drillStack.length > 0 && !printMode && (
+        <div className="bg-sea-soft border-b border-sea/20 px-4 py-1.5 flex items-center gap-2">
+          <Icon name="arrowLeft" size={12} className="text-sea" />
+          <span className="text-xs text-sea font-medium">
+            Drill-through desde: {pages.find((p) => p.id === drillStack[drillStack.length - 1]?.pageId)?.title ?? '…'}
+            {drillFilters.map((df, i) => (
+              <span key={i} className="ml-2 opacity-70">· {df.field} = "{df.value}"</span>
+            ))}
+          </span>
+          <button onClick={drillBack} className="text-xs text-sea hover:text-sea/70 transition cursor-pointer ml-auto underline">
+            Volver
+          </button>
+        </div>
+      )}
+
+      {/* Indicador de cross-filter activo */}
+      {Object.keys(crossFilters).length > 0 && !printMode && (
         <div className="bg-lumen-soft border-b border-lumen-line px-4 py-1.5 flex items-center gap-2">
           <Icon name="filter" size={12} className="text-lumen-deep" />
           <span className="text-xs text-lumen-deep font-medium">

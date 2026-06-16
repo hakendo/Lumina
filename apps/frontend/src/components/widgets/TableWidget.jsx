@@ -8,9 +8,11 @@ export default function TableWidget({ config, data, onCrossFilter }) {
     ? columns
     : data?.[0] ? Object.keys(data[0]).slice(0, 8) : [];
 
-  // Auto-default: first non-numeric column so tables cross-filter without manual config
-  const effectiveCrossFilterField = crossFilterField ||
-    (data?.[0] ? cols.find((c) => isNaN(Number(data[0][c])) && data[0][c] !== null) ?? cols[0] : null);
+  // crossFilterField === '' means user explicitly disabled cross-filter via config panel.
+  // crossFilterField === undefined means never configured → auto-detect first non-numeric column.
+  const effectiveCrossFilterField = crossFilterField !== undefined && crossFilterField !== null
+    ? crossFilterField  // '' disables, 'col' uses that column
+    : (data?.[0] ? cols.find((c) => isNaN(Number(data[0][c])) && data[0][c] !== null) ?? cols[0] : null);
 
   if (!data?.length) {
     return <div className="h-full flex items-center justify-center text-ink-faint text-sm">Sin datos</div>;
