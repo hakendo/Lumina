@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback, startTransition } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { GridLayout, useContainerWidth } from 'react-grid-layout';
+import { GridLayout, useContainerWidth, noCompactor } from 'react-grid-layout';
 import { nanoid } from 'nanoid';
 import api from '../lib/api';
 import { exportReportCsv } from '../lib/exportCsv';
@@ -146,7 +146,14 @@ export default function ReportBuilder() {
   const [editingDesc, setEditingDesc] = useState(false);
   const [descDraft, setDescDraft] = useState('');
   const descInputRef = useRef(null);
+  const [sizeUnit, setSizeUnit] = useState('grid');
   const { width, containerRef } = useContainerWidth({ initialWidth: 1200 });
+  const effectiveWidth = Math.max(width - 32, 320);
+
+  const resizeWidget = (widgetId, w, h) => {
+    updateLayout(layout.map((l) => l.i === widgetId ? { ...l, w, h } : l));
+    setTimeout(() => window.dispatchEvent(new Event('resize')), 150);
+  };
 
   useEffect(() => {
     setLoadError('');
@@ -449,8 +456,9 @@ export default function ReportBuilder() {
             <GridLayout
               layout={layout}
               gridConfig={{ cols: 12, rowHeight: 50 }}
-              dragConfig={{ handle: '.drag-handle' }}
+              dragConfig={{ cancel: '.drag-cancel,button,input,select,a' }}
               resizeConfig={{ handles: ['se'], handleComponent: resizeHandleComponent }}
+              compactor={noCompactor}
               width={Math.max(width - 32, 320)}
               onLayoutChange={handleLayoutChange}
               style={{ minHeight: 400 }}
@@ -464,21 +472,29 @@ export default function ReportBuilder() {
                   }`}
                   onClick={(e) => { e.stopPropagation(); setSelectedWidget(w.id); }}
                 >
-                  <div className="drag-handle h-7 bg-paper border-b border-line-soft flex items-center gap-2 px-2 cursor-grab active:cursor-grabbing shrink-0">
+                  <div className="drag-handle h-7 bg-paper border-b border-line-soft flex items-center gap-1.5 px-2 cursor-grab active:cursor-grabbing shrink-0">
                     <span className="text-ink-faint/60 select-none leading-none tracking-tighter text-[10px]">⠿⠿</span>
-                    <span className="font-mono text-[11px] text-ink-faint flex-1 truncate select-none">
+                    <span className="font-mono text-[11px] text-ink-faint flex-1 truncate select-none min-w-0">
                       {w.config?.title || w.widgetType}
                     </span>
+                    <SizeControl
+                      widgetId={w.id}
+                      layout={layout}
+                      effectiveWidth={effectiveWidth}
+                      unit={sizeUnit}
+                      onUnitChange={setSizeUnit}
+                      onResize={resizeWidget}
+                    />
                     <button
                       onClick={(e) => { e.stopPropagation(); setFullscreenWidget(w); }}
                       title="Vista completa"
-                      className="text-ink-faint hover:text-lumen-deep px-1 cursor-pointer">
+                      className="text-ink-faint hover:text-lumen-deep px-0.5 cursor-pointer shrink-0">
                       <Icon name="eye" size={12} />
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); setSelectedWidget(w.id); }}
                       title="Configurar"
-                      className="text-ink-faint hover:text-lumen-deep px-1 cursor-pointer">
+                      className="text-ink-faint hover:text-lumen-deep px-0.5 cursor-pointer shrink-0">
                       <Icon name="sliders" size={12} />
                     </button>
                   </div>
@@ -518,5 +534,88 @@ export default function ReportBuilder() {
         <ShareModal report={report} onChange={patchReport} onClose={() => setShareOpen(false)} />
       )}
     </div>
+  );
+}
+
+// ── SizeControl ───────────────────────────────────────────────────────────────
+// Inputs for W × H in the drag handle. Converts between grid units, px and rem.
+// .drag-cancel class stops DraggableCore from starting a drag on mousedown here.
+
+const COL_COUNT = 12;
+const ROW_PX    = 50;
+
+function toDisplay(gridVal, axis, unit, colPx) {
+  if (unit === 'grid') return gridVal;
+  const px = axis === 'w' ? gridVal * colPx : gridVal * ROW_PX;
+  if (unit === 'px')  return Math.round(px);
+  if (unit === 'rem') return +(px / 16).toFixed(1);
+}
+
+function toGrid(raw, axis, unit, colPx) {
+  const n = parseFloat(raw);
+  if (!isFinite(n) || n <= 0) return null;
+  if (unit === 'grid') return Math.max(1, Math.round(n));
+  const px = unit === 'rem' ? n * 16 : n;
+  const grid = axis === 'w'
+    ? Math.max(1, Math.round(px / colPx))
+    : Math.max(1, Math.round(px / ROW_PX));
+  return axis === 'w' ? Math.min(grid, COL_COUNT) : grid;
+}
+
+function SizeControl({ widgetId, layout, effectiveWidth, unit, onUnitChange, onResize }) {
+  const item   = layout.find((l) => l.i === widgetId);
+  if (!item) return null;
+  const colPx  = effectiveWidth / COL_COUNT;
+
+  const commit = (raw, axis) => {
+    const g = toGrid(raw, axis, unit, colPx);
+    if (!g) return;
+    onResize(widgetId, axis === 'w' ? g : item.w, axis === 'h' ? g : item.h);
+  };
+
+  return (
+    <div
+      className="drag-cancel flex items-center gap-0.5 shrink-0"
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <SizeInput
+        value={toDisplay(item.w, 'w', unit, colPx)}
+        key={`w-${item.w}-${unit}`}
+        onCommit={(v) => commit(v, 'w')}
+        title="Ancho"
+      />
+      <span className="text-[9px] text-ink-faint/50 select-none">×</span>
+      <SizeInput
+        value={toDisplay(item.h, 'h', unit, colPx)}
+        key={`h-${item.h}-${unit}`}
+        onCommit={(v) => commit(v, 'h')}
+        title="Alto"
+      />
+      <select
+        value={unit}
+        onChange={(e) => onUnitChange(e.target.value)}
+        className="text-[9px] text-ink-faint bg-transparent border border-line rounded px-0.5 py-0 cursor-pointer leading-none h-4"
+      >
+        <option value="grid">col</option>
+        <option value="px">px</option>
+        <option value="rem">rem</option>
+      </select>
+    </div>
+  );
+}
+
+function SizeInput({ value, onCommit, title }) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => { setDraft(String(value)); }, [value]);
+  return (
+    <input
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={(e) => onCommit(e.target.value)}
+      onKeyDown={(e) => { if (e.key === 'Enter') onCommit(e.target.value); }}
+      title={title}
+      className="w-9 text-[10px] font-mono text-ink-faint bg-paper-deep border border-line rounded px-1 py-0 text-center h-4 leading-none focus:outline-none focus:border-lumen"
+    />
   );
 }

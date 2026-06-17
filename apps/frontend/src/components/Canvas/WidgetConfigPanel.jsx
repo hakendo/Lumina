@@ -1,8 +1,8 @@
 import { useEffect, useState, useMemo } from 'react';
 import api from '../../lib/api';
-import { CACHE } from '../../lib/datasetCache';
+import { CACHE, invalidateDatasetCache } from '../../lib/datasetCache';
 import { useReportStore } from '../../store/reportStore';
-import { Button, Field, Icon } from '../ui';
+import { Button, Field, Icon, Modal } from '../ui';
 
 // ── Type inference ────────────────────────────────────────────────────────────
 
@@ -97,6 +97,62 @@ function getWells(widgetType, chartType) {
 const AGG_TYPES = ['sum', 'avg', 'count', 'max', 'min'];
 const OP_LABELS  = { gt: '>', gte: '≥', lt: '<', lte: '≤', eq: '=' };
 
+// ── Client-side expression evaluator (mirrors exprEval.js — no eval/Function) ─
+
+function _tokenize(expr) {
+  const tokens = [];
+  let i = 0;
+  while (i < expr.length) {
+    if (/\s/.test(expr[i])) { i++; continue; }
+    if (/[+\-*/()]/.test(expr[i])) { tokens.push(expr[i++]); continue; }
+    if (/[\d.]/.test(expr[i])) {
+      let num = '';
+      while (i < expr.length && /[\d.]/.test(expr[i])) num += expr[i++];
+      tokens.push(num);
+      continue;
+    }
+    return null;
+  }
+  return tokens;
+}
+function _atom(t, p) {
+  if (t[p.i] === '(') { p.i++; const v = _expr(t, p); if (t[p.i] !== ')') return null; p.i++; return v; }
+  const tok = t[p.i++];
+  return (tok !== undefined && /^-?\d*\.?\d+$/.test(tok)) ? Number(tok) : null;
+}
+function _unary(t, p) {
+  if (t[p.i] === '-') { p.i++; const v = _atom(t, p); return v === null ? null : -v; }
+  return _atom(t, p);
+}
+function _term(t, p) {
+  let l = _unary(t, p); if (l === null) return null;
+  while (p.i < t.length && (t[p.i] === '*' || t[p.i] === '/')) {
+    const op = t[p.i++]; const r = _unary(t, p); if (r === null) return null;
+    l = op === '*' ? l * r : r === 0 ? null : l / r;
+  }
+  return l;
+}
+function _expr(t, p) {
+  let l = _term(t, p); if (l === null) return null;
+  while (p.i < t.length && (t[p.i] === '+' || t[p.i] === '-')) {
+    const op = t[p.i++]; const r = _term(t, p); if (r === null) return null;
+    l = op === '+' ? l + r : l - r;
+  }
+  return l;
+}
+const _FIELD_RE = /\b([a-zA-Z_][a-zA-Z0-9_]*)\b/g;
+function clientEval(expression, row) {
+  if (typeof expression !== 'string' || !expression.trim()) return null;
+  const sub = expression.replace(_FIELD_RE, (_, f) => {
+    const v = row[f]; if (v == null || v === '') return '0';
+    const n = Number(v); return isNaN(n) ? '0' : String(n);
+  });
+  if (/[a-zA-Z_]/.test(sub)) return null;
+  const tokens = _tokenize(sub); if (!tokens) return null;
+  const pos = { i: 0 }; const result = _expr(tokens, pos);
+  return pos.i === tokens.length ? result : null;
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function WidgetConfigPanel({ widget, onClose }) {
@@ -105,9 +161,10 @@ export default function WidgetConfigPanel({ widget, onClose }) {
   const [columns,    setColumns]    = useState([]);
   const [cfg,        setCfg]        = useState(widget.config || {});
   const [datasetId,  setDatasetId]  = useState(widget.datasetId || '');
-  const [activeWell, setActiveWell] = useState(null);
-  const [search,     setSearch]     = useState('');
-  const [optOpen,    setOptOpen]    = useState(false);
+  const [activeWell,   setActiveWell]   = useState(null);
+  const [search,       setSearch]       = useState('');
+  const [optOpen,      setOptOpen]      = useState(false);
+  const [formulaOpen,  setFormulaOpen]  = useState(false);
 
   useEffect(() => { api.get('/datasets').then(({ data }) => setDatasets(data)); }, []);
 
@@ -181,6 +238,14 @@ export default function WidgetConfigPanel({ widget, onClose }) {
           <option value="">— Sin dataset —</option>
           {datasets.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
+        {datasetId && (
+          <button
+            onClick={() => setFormulaOpen(true)}
+            className="mt-1.5 flex items-center gap-1 text-[11px] text-lumen-deep hover:text-lumen font-medium cursor-pointer transition"
+          >
+            <span className="font-mono text-[12px]">fx</span> Columnas calculadas
+          </button>
+        )}
       </div>
 
       {/* ── Chart type grid ── */}
@@ -396,6 +461,28 @@ export default function WidgetConfigPanel({ widget, onClose }) {
           <Icon name="trash" size={13} />
         </Button>
       </div>
+
+      {formulaOpen && datasetId && (
+        <FormulaEditor
+          datasetId={datasetId}
+          datasetName={datasets.find((d) => d.id === datasetId)?.name || 'Dataset'}
+          cachedRows={cachedRows}
+          sourceColumns={columns}
+          onClose={() => setFormulaOpen(false)}
+          onSaved={(newDatasetId) => {
+            const refresh = newDatasetId !== datasetId;
+            const targetId = newDatasetId;
+            setDatasetId(targetId);
+            setFormulaOpen(false);
+            invalidateDatasetCache(targetId);
+            if (refresh) {
+              api.get('/datasets').then(({ data }) => setDatasets(data));
+            }
+            api.get(`/datasets/${targetId}/columns`).then(({ data }) => setColumns(data));
+            updateWidget(widget.id, { datasetId: targetId });
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -406,6 +493,204 @@ function ColSelect({ value, onChange, columns, placeholder = '— Columna —' }
       <option value="">{placeholder}</option>
       {columns.map((c) => <option key={c} value={c}>{c}</option>)}
     </select>
+  );
+}
+
+// ── Formula Editor modal ──────────────────────────────────────────────────────
+
+function FormulaEditor({ datasetId, datasetName, cachedRows, sourceColumns, onClose, onSaved }) {
+  const [formulas, setFormulas]     = useState([]);
+  const [saving,   setSaving]       = useState(false);
+  const [error,    setError]        = useState(null);
+  const [dsInfo,   setDsInfo]       = useState(null); // { sourceType, config, name }
+
+  // Load existing columns if this is already a derived dataset
+  useEffect(() => {
+    api.get(`/datasets/${datasetId}`).then(({ data }) => {
+      setDsInfo(data);
+      if (data.sourceType === 'derived' && data.config?.columns?.length) {
+        setFormulas(data.config.columns.map((c, i) => ({ _id: i, name: c.name, expression: c.expression })));
+      }
+    }).catch(() => {});
+  }, [datasetId]);
+
+  const addFormula = () =>
+    setFormulas((f) => [...f, { _id: Date.now(), name: '', expression: '' }]);
+
+  const removeFormula = (id) =>
+    setFormulas((f) => f.filter((x) => x._id !== id));
+
+  const updateFormula = (id, field, val) =>
+    setFormulas((f) => f.map((x) => x._id === id ? { ...x, [field]: val } : x));
+
+  // Preview: evaluate each formula against first 3 cached rows
+  const previewRows = useMemo(() => {
+    if (!cachedRows?.length || !formulas.length) return [];
+    return cachedRows.slice(0, 3).map((row) => {
+      const out = { ...row };
+      for (const f of formulas) {
+        if (f.name && f.expression) {
+          out[f.name] = clientEval(f.expression, row);
+        }
+      }
+      return out;
+    });
+  }, [formulas, cachedRows]);
+
+  const save = async () => {
+    const cols = formulas.filter((f) => f.name.trim() && f.expression.trim())
+      .map((f) => ({ name: f.name.trim(), expression: f.expression.trim() }));
+    if (!cols.length) { setError('Agrega al menos una fórmula con nombre y expresión.'); return; }
+
+    setSaving(true); setError(null);
+    try {
+      if (dsInfo?.sourceType === 'derived') {
+        await api.put(`/datasets/${datasetId}/derived`, { columns: cols });
+        onSaved(datasetId);
+      } else {
+        const { data } = await api.post('/datasets/derived', {
+          name: `${datasetName} (calculado)`,
+          areaId: dsInfo?.areaId || null,
+          sources: [{ datasetId, alias: 'src' }],
+          columns: cols,
+        });
+        onSaved(data.id);
+      }
+    } catch (e) {
+      setError(e.response?.data?.error || 'Error al guardar.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const previewCols = [
+    ...sourceColumns.slice(0, 6),
+    ...formulas.filter((f) => f.name).map((f) => f.name),
+  ];
+
+  return (
+    <Modal title="Columnas calculadas" onClose={onClose} maxWidth="max-w-2xl">
+      <div className="flex gap-4">
+        {/* Left: formula list */}
+        <div className="flex-1 min-w-0 space-y-3">
+          <p className="text-[11px] text-ink-faint">
+            Usa nombres de columna del dataset como variables. Soporta <span className="font-mono">+ − × ÷</span> y paréntesis.
+          </p>
+
+          {formulas.length === 0 && (
+            <p className="text-sm text-ink-faint/60 italic py-2">Sin fórmulas todavía.</p>
+          )}
+
+          {formulas.map((f) => {
+            const previewVal = previewRows[0]?.[f.name];
+            const evalOk = !f.expression || previewVal !== null || !f.name || !previewRows.length;
+            return (
+              <div key={f._id} className="bg-paper-deep rounded-xl p-3 space-y-2 border border-line">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-lumen-deep text-[12px] shrink-0">fx</span>
+                  <input
+                    value={f.name}
+                    onChange={(e) => updateFormula(f._id, 'name', e.target.value)}
+                    placeholder="nombre_columna"
+                    className="field field-sm field-mono flex-1 min-w-0"
+                  />
+                  <button onClick={() => removeFormula(f._id)} className="text-ink-faint hover:text-rust transition cursor-pointer shrink-0">
+                    <Icon name="x" size={13} />
+                  </button>
+                </div>
+                <div className="relative">
+                  <input
+                    value={f.expression}
+                    onChange={(e) => updateFormula(f._id, 'expression', e.target.value)}
+                    placeholder="precio * cantidad"
+                    className={`field field-sm field-mono w-full pr-20 ${f.expression && !evalOk ? 'border-rust/60 bg-rust/5' : ''}`}
+                  />
+                  {f.expression && previewVal !== undefined && previewVal !== null && (
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] font-mono text-sea">
+                      = {typeof previewVal === 'number' ? previewVal.toLocaleString('es', { maximumFractionDigits: 4 }) : previewVal}
+                    </span>
+                  )}
+                  {f.expression && !evalOk && (
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] text-rust">error</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
+          <button
+            onClick={addFormula}
+            className="flex items-center gap-1.5 text-sm text-lumen-deep hover:text-lumen transition cursor-pointer font-medium"
+          >
+            <Icon name="plus" size={14} /> Nueva fórmula
+          </button>
+
+          {error && <p className="text-sm text-rust">{error}</p>}
+
+          {dsInfo && dsInfo.sourceType !== 'derived' && (
+            <p className="text-[11px] text-ink-faint bg-paper rounded-lg px-3 py-2 border border-line-soft">
+              Se creará un nuevo dataset derivado basado en <span className="font-medium text-ink-soft">{datasetName}</span>.
+              El widget usará ese dataset a partir de ahora.
+            </p>
+          )}
+        </div>
+
+        {/* Right: column reference */}
+        <div className="w-36 shrink-0">
+          <p className="text-[10px] font-semibold text-ink-faint uppercase tracking-widest mb-2">Columnas</p>
+          <div className="space-y-0.5 max-h-72 overflow-y-auto">
+            {sourceColumns.map((col) => (
+              <button
+                key={col}
+                onClick={() => {
+                  const active = [...formulas].reverse().find((f) => f._id);
+                  if (!active) return;
+                  updateFormula(active._id, 'expression', (active.expression ? active.expression + ' + ' : '') + col);
+                }}
+                title="Insertar en última fórmula"
+                className="w-full text-left px-2 py-0.5 rounded text-[11px] font-mono text-ink-soft hover:bg-lumen-soft hover:text-lumen-deep cursor-pointer transition truncate"
+              >
+                {col}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Preview table */}
+      {previewRows.length > 0 && previewCols.length > 0 && (
+        <div className="mt-4 overflow-x-auto">
+          <p className="text-[10px] font-semibold text-ink-faint uppercase tracking-widest mb-1.5">Vista previa (3 filas)</p>
+          <table className="w-full text-[11px] font-mono border-collapse">
+            <thead>
+              <tr className="border-b border-line">
+                {previewCols.map((c) => (
+                  <th key={c} className={`text-left px-2 py-1 text-ink-faint font-medium truncate max-w-[100px] ${formulas.some((f) => f.name === c) ? 'text-lumen-deep' : ''}`}>{c}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {previewRows.map((row, i) => (
+                <tr key={i} className="border-b border-line-soft">
+                  {previewCols.map((c) => (
+                    <td key={c} className={`px-2 py-1 truncate max-w-[100px] ${formulas.some((f) => f.name === c) ? 'text-lumen-deep font-semibold' : 'text-ink-soft'}`}>
+                      {row[c] == null ? <span className="text-ink-faint/40">—</span> : String(row[c])}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="flex justify-end gap-2 mt-5">
+        <Button variant="ghost" size="sm" onClick={onClose}>Cancelar</Button>
+        <Button size="sm" onClick={save} disabled={saving}>
+          {saving ? 'Guardando…' : 'Guardar fórmulas'}
+        </Button>
+      </div>
+    </Modal>
   );
 }
 
