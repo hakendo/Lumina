@@ -56,7 +56,7 @@ export default function SchemaExplorer({ schema, selectedTables, selectedColumns
                 <Icon name="x" size={14} /> Cerrar diagrama
               </button>
             </div>
-            <div className="flex-1">
+            <div style={{ flex: 1, overflow: 'hidden' }}>
               <Suspense fallback={<div className="flex items-center justify-center h-full text-sm text-ink-faint">Cargando diagrama…</div>}>
                 <ERDiagram
                   schema={schema}

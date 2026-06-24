@@ -180,7 +180,7 @@ function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable
       </div>
 
       {/* Canvas */}
-      <div className="flex-1">
+      <div style={{ flex: 1, height: '100%' }}>
         <ReactFlow
           nodes={nodes}
           edges={edges}
