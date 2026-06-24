@@ -1,0 +1,21 @@
+node_modules/
+dist/
+.env
+uploads/
+*.zip
+*.tar
+.agents/
+.claude/
+.windsurf/
+skills-lock.json
+
+# Temp scripts
+create-user.js
+test-*.js
+test-*.ps1
+fix-*.js
+fix-*.ps1
+check-*.js
+sync-*.ps1
+gen-prisma.ps1
+deploy-backend.ps1

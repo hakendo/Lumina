@@ -1,0 +1,254 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Planes ────────────────────────────────────────────────────────────────────
+
+model Plan {
+  id               String         @id @default(cuid())
+  name             String         @unique  // consumer | enterprise | custom | …
+  retentionDays    Int            @default(30)
+  maxUsers         Int?           // null = sin límite
+  storageLimitMB   Float?         // null = sin límite
+  allowPublicLinks Boolean        @default(true)
+  allowExternalShare Boolean      @default(true)
+  syncRateLimit    Json           @default("{}")  // { maxPerMinute?, maxPerHour?, maxPerDay? }
+  createdAt        DateTime       @default(now())
+  orgs             Organization[]
+}
+
+// ── Tenancy ───────────────────────────────────────────────────────────────────
+
+model Organization {
+  id           String          @id @default(cuid())
+  name         String
+  slug         String          @unique
+  isActive     Boolean         @default(true)
+  createdAt    DateTime        @default(now())
+  // Plan
+  planId       String?
+  plan         Plan?           @relation(fields: [planId], references: [id])
+  storageUsedMB Float          @default(0)
+  // Política default de org (áreas sin política explícita heredan estos valores)
+  policyAllowPublicLink    Boolean @default(true)
+  policyAllowExternalShare Boolean @default(true)
+  policyAllowPublishToArea Boolean @default(true)
+  policyAllowCreateReport  Boolean @default(true)
+  // Relations
+  memberships  OrgMembership[]
+  areas        Area[]
+  auditLogs    OrgAuditLog[]
+}
+
+// Membresía usuario ↔ organización con rol org-scoped
+model OrgMembership {
+  id       String       @id @default(cuid())
+  userId   String
+  user     User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgId    String
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  role     String       @default("member") // member | org_admin
+  joinedAt DateTime     @default(now())
+
+  @@unique([userId, orgId])
+}
+
+model Area {
+  id        String       @id @default(cuid())
+  orgId     String
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name      String
+  createdAt DateTime     @default(now())
+  members   AreaMember[]
+  datasets  Dataset[]
+  reports   Report[]
+  policy    AreaPolicy?
+}
+
+model AreaMember {
+  id     String @id @default(cuid())
+  areaId String
+  area   Area   @relation(fields: [areaId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([areaId, userId])
+}
+
+// Política de visibilidad de un área específica.
+// Áreas sin AreaPolicy heredan la política default de la org.
+model AreaPolicy {
+  id                   String  @id @default(cuid())
+  areaId               String  @unique
+  area                 Area    @relation(fields: [areaId], references: [id], onDelete: Cascade)
+  allowPublicLink      Boolean @default(true)
+  allowExternalShare   Boolean @default(true)
+  allowPublishToArea   Boolean @default(true)
+  allowCreateReport    Boolean @default(true)
+}
+
+// ── Usuarios ──────────────────────────────────────────────────────────────────
+
+model User {
+  id               String          @id @default(cuid())
+  email            String          @unique
+  passwordHash     String
+  name             String
+  role             String          @default("member") // member | superadmin
+  isActive         Boolean         @default(true)
+  mfaEnabled       Boolean         @default(false)
+  mfaEnforced      Boolean         @default(false)
+  mfaSecret        String?
+  createdAt        DateTime        @default(now())
+  memberships      OrgMembership[]
+  uploadedDatasets Dataset[]       @relation("DatasetUploader")
+  reports          Report[]
+  favorites        UserFavorite[]
+  sharedWithMe     ReportShare[]
+  areaMemberships  AreaMember[]
+  notifications    Notification[]
+  orgAuditLogs     OrgAuditLog[]   @relation("AdminAuditLogs")
+}
+
+// ── Datos ─────────────────────────────────────────────────────────────────────
+
+model Dataset {
+  id           String               @id @default(cuid())
+  areaId       String?
+  area         Area?                @relation(fields: [areaId], references: [id])
+  uploadedById String?
+  uploadedBy   User?                @relation("DatasetUploader", fields: [uploadedById], references: [id])
+  name         String
+  sourceType   String               // csv | excel | api | db | derived
+  config       Json                 @default("{}")
+  filePath     String?
+  slotName     String?
+  deletedAt    DateTime?            // null = activo; set = en papelera
+  createdAt    DateTime             @default(now())
+  rows         DatasetRow[]
+  widgets      ReportWidget[]
+  slotBindings DatasetSlotBinding[]
+}
+
+model DatasetRow {
+  id        String  @id @default(cuid())
+  datasetId String
+  dataset   Dataset @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  rowData   Json
+  rowIndex  Int
+}
+
+// ── Reportes ──────────────────────────────────────────────────────────────────
+
+model Report {
+  id             String               @id @default(cuid())
+  ownerId        String
+  owner          User                 @relation(fields: [ownerId], references: [id])
+  areaId         String?
+  area           Area?                @relation(fields: [areaId], references: [id])
+  title          String
+  description    String               @default("")
+  isPublic       Boolean              @default(false)
+  isTemplate     Boolean              @default(false)
+  templateId     String?
+  template       Report?              @relation("DerivedFromTemplate", fields: [templateId], references: [id], onDelete: SetNull)
+  derivedReports Report[]             @relation("DerivedFromTemplate")
+  slug           String?              @unique
+  deletedAt      DateTime?            // null = activo; set = en papelera
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  pages          ReportPage[]
+  widgets        ReportWidget[]
+  favoritedBy    UserFavorite[]
+  shares         ReportShare[]
+  slotBindings   DatasetSlotBinding[]
+}
+
+model ReportPage {
+  id       String         @id @default(cuid())
+  reportId String
+  report   Report         @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  title    String         @default("Página 1")
+  order    Int            @default(0)
+  layout   Json           @default("[]")
+  filters  Json           @default("[]")
+  widgets  ReportWidget[]
+}
+
+model ReportShare {
+  id        String   @id @default(cuid())
+  reportId  String
+  report    Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String   @default("viewer") // viewer | editor
+  createdAt DateTime @default(now())
+
+  @@unique([reportId, userId])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  payload   Json      @default("{}")
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+}
+
+model UserFavorite {
+  id       String @id @default(cuid())
+  userId   String
+  user     User   @relation(fields: [userId], references: [id])
+  reportId String
+  report   Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, reportId])
+}
+
+model ReportWidget {
+  id         String      @id @default(cuid())
+  reportId   String
+  report     Report      @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  pageId     String?
+  page       ReportPage? @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  datasetId  String?
+  dataset    Dataset?    @relation(fields: [datasetId], references: [id])
+  widgetType String      // chart | kpi | table | pivot | map
+  config     Json        @default("{}")
+  position   Json        @default("{}")
+}
+
+model DatasetSlotBinding {
+  id              String   @id @default(cuid())
+  reportId        String
+  report          Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  slotName        String
+  clientDatasetId String?
+  clientDataset   Dataset? @relation(fields: [clientDatasetId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([reportId, slotName])
+}
+
+// ── Auditoría de cambios administrativos en orgs ──────────────────────────────
+
+model OrgAuditLog {
+  id        String       @id @default(cuid())
+  orgId     String
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  adminId   String
+  admin     User         @relation("AdminAuditLogs", fields: [adminId], references: [id])
+  action    String       // 'plan_changed' | 'status_changed'
+  oldValue  String?
+  newValue  String?
+  reason    String
+  createdAt DateTime     @default(now())
+}

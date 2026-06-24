@@ -1,0 +1,1014 @@
+# Lúmina
+
+Plataforma de business intelligence web, multi-usuario, inspirada en Power BI. Permite cargar datos desde múltiples fuentes, construir reportes interactivos con widgets de arrastrar y soltar, y compartirlos pública o privadamente.
+
+---
+
+## Índice
+
+- [¿Qué es Lúmina?](#qué-es-lúmina)
+- [Funcionalidades](#funcionalidades)
+- [Arquitectura y stack](#arquitectura-y-stack)
+- [Estructura del proyecto](#estructura-del-proyecto)
+- [Variables de entorno](#variables-de-entorno)
+- [Desarrollo local](#desarrollo-local)
+- [Deploy en producción](#deploy-en-producción)
+  - [Opción A — Railway (recomendado)](#opción-a--railway-recomendado)
+  - [Opción B — VPS / servidor propio (Ubuntu)](#opción-b--vps--servidor-propio-ubuntu)
+  - [Opción C — Docker Compose](#opción-c--docker-compose)
+  - [Opción D — Windows Server (IIS + NSSM)](#opción-d--windows-server-iis--nssm)
+- [API — Referencia rápida](#api--referencia-rápida)
+
+---
+
+## ¿Qué es Lúmina?
+
+Lúmina es una plataforma **multi-tenant** de business intelligence. Múltiples organizaciones coexisten en la misma instancia sin visibilidad cruzada. Desde una interfaz visual de arrastrar y soltar, los equipos pueden:
+
+- Conectar sus propias fuentes de datos (archivos, APIs, bases de datos).
+- Construir reportes con múltiples tipos de visualización.
+- Filtrar datos en tiempo real sin modificar la fuente.
+- Publicar reportes a áreas (departamentos) dentro de su organización.
+- Compartir reportes por link público o invitar a colaboradores por email.
+- Exportar reportes a PDF con un click.
+- El superadmin global puede crear organizaciones, gestionar usuarios y asignar plantillas de reporte a cualquier cliente.
+
+---
+
+## Funcionalidades
+
+### Multi-tenancy y roles
+
+Lúmina aísla completamente los datos entre organizaciones. Los usuarios actúan bajo uno de tres roles:
+
+| Rol | Alcance |
+|-----|---------|
+| **Superadmin** | Global. Crea organizaciones, gestiona usuarios, asigna plantillas. No pertenece a ninguna organización. |
+| **Org Admin** | Administra una organización. Crea áreas, invita usuarios, ve todos sus reportes y datasets. |
+| **Member** | Usuario estándar. Pertenece a una organización y puede ser miembro de múltiples áreas. |
+
+Un **área** es un equipo o departamento (Ventas, Finanzas…). Los datasets y reportes publicados pertenecen a un área. Los miembros del área ven automáticamente sus reportes.
+
+### Fuentes de datos
+| Tipo | Descripción |
+|------|-------------|
+| CSV / Excel | Sube archivos `.csv`, `.xlsx`, `.xls`, `.ods` directamente |
+| API externa | Conecta cualquier endpoint REST — método, headers y body configurables |
+| Base de datos | Ejecuta queries SQL contra PostgreSQL o MySQL externos |
+| Dataset Derivado | Combina datasets mediante joins, filtros y columnas calculadas |
+
+Las credenciales sensibles (API keys en headers, connection strings de DB) se almacenan **cifradas con AES-256-GCM**. Nunca se devuelven al cliente en texto plano.
+
+### Sincronización de datos
+
+- **Sync individual**: `POST /datasets/:id/fetch` — obtiene datos frescos de la fuente y los almacena. Primera sincronización muestra un modal para identificar el campo ID único.
+- **Sync masivo**: `POST /datasets/sync-all` — sincroniza todos los datasets API/DB accesibles de una sola vez. Retorna resumen de actualizados/sin-cambios/errores.
+- **Deduplicación por hash**: si los datos no cambiaron desde el último sync, la escritura a la DB se omite completamente (SHA-256 sobre el conjunto de filas).
+- **Upsert por campo ID**: cuando el usuario designa un `idField`, syncs posteriores hacen upsert fila a fila en lugar de borrar y reinsertar todo.
+
+### Plantillas y herencia
+
+El superadmin puede marcar reportes como **plantillas base**. Al asignar una plantilla a un cliente:
+
+- Se clona la estructura del reporte (páginas, widgets, config) en la organización del cliente.
+- Los datasets de la plantilla marcados con `slotName` se convierten en **Dataset Slots** — el cliente los vincula con sus propias fuentes sin recibir los datos del superadmin.
+- El cliente puede re-vincular slots en cualquier momento desde la pantalla de datasets.
+
+### Widgets disponibles
+| Widget | Descripción |
+|--------|-------------|
+| **Gráfico** | Bar, line, area, pie, scatter (con tamaño de burbuja y etiquetas) |
+| **KPI** | Tarjeta de métrica con agregación sum/avg/count/max/min, prefijo, sufijo y color |
+| **Tabla** | Tabla scrolleable con columnas seleccionables |
+| **Pivot** | Tabla cruzada con filas, columnas, valores y totales automáticos |
+| **Mapa** | Puntos geográficos sobre OpenStreetMap vía Leaflet |
+
+### Report builder
+- Canvas de arrastrar y soltar con redimensionado libre (react-grid-layout).
+- Páginas múltiples por reporte con pestañas navegables.
+- Panel de configuración lateral por widget (dataset, campos, tipo).
+- **Cross-filtering**: seleccionar un valor en un widget filtra automáticamente los demás de la misma página.
+- **Filtros globales por reporte:** select, rango numérico y rango de fechas — se aplican a todos los widgets del mismo dataset en tiempo real.
+- Auto-guardado del layout y los filtros con el reporte.
+
+### Compartir y colaborar
+- **Publicar al área**: mueve el reporte de privado a visible para todos los miembros de un área.
+- **Compartir por persona**: invita a un usuario por email con rol viewer o editor, independiente del área.
+- **Link público**: URL anónima (`/public/:slug`) sin necesidad de cuenta.
+- **Favoritos**: marca reportes de otros con ★.
+- **Duplicar**: copia un reporte completo (widgets + config) a tu workspace.
+- **Explorar**: navega y busca todos los reportes públicos de la plataforma.
+- **Export PDF**: generado en el servidor con Puppeteer (A4 landscape).
+- **Export CSV**: descarga los datos de cada widget como archivos CSV.
+
+---
+
+## Arquitectura y stack
+
+```
+┌─────────────────────┐        ┌────────────────────────┐
+│   Frontend          │  HTTP  │   Backend              │
+│   React 19 + Vite   │◄──────►│   Node.js + Express 5  │
+│   Tailwind CSS v4   │        │   Prisma 5 ORM         │
+│   Zustand           │        │   JWT + bcrypt         │
+│   ECharts           │        │   AES-256-GCM (crypto) │
+│   Leaflet           │        │   Puppeteer (PDF)      │
+│   react-grid-layout │        └───────────┬────────────┘
+└─────────────────────┘                    │
+                                           │
+                               ┌───────────▼────────────┐
+                               │   PostgreSQL 16         │
+                               │   (datos + reportes +  │
+                               │    credenciales cifr.) │
+                               └────────────────────────┘
+```
+
+**Frontend** corre en el puerto `5173` (dev) o como archivos estáticos servidos por nginx/CDN (prod).  
+**Backend** corre en el puerto `3001`.
+
+---
+
+## Estructura del proyecto
+
+```
+lumina/
+├── apps/
+│   ├── backend/
+│   │   ├── prisma/
+│   │   │   └── schema.prisma        # modelos de DB
+│   │   ├── src/
+│   │   │   ├── index.js             # entrada Express
+│   │   │   ├── middleware/auth.js   # validación JWT
+│   │   │   ├── routes/
+│   │   │   │   ├── auth.js          # register / login / me / TOTP MFA
+│   │   │   │   ├── datasets.js      # fuentes de datos, sync, slots, id-field
+│   │   │   │   ├── reports.js       # reportes, páginas, share, PDF, share-by-person
+│   │   │   │   └── admin.js         # superadmin: orgs, usuarios, plantillas, asignación
+│   │   │   └── services/
+│   │   │       ├── dataParser.js    # CSV, Excel, API, DB
+│   │   │       ├── encryption.js    # AES-256-GCM
+│   │   │       └── pdfExport.js     # Puppeteer
+│   │   └── uploads/                 # archivos subidos (local)
+│   └── frontend/
+│       └── src/
+│           ├── pages/               # Login, Dashboard, ReportBuilder...
+│           ├── components/
+│           │   ├── Canvas/          # FilterBar, WidgetRenderer, ConfigPanel
+│           │   └── widgets/         # Chart, KPI, Table, Pivot, Map
+│           ├── store/               # authStore, reportStore (Zustand)
+│           └── lib/api.js           # cliente Axios con interceptores JWT
+└── package.json                     # workspaces raíz
+```
+
+---
+
+## Variables de entorno
+
+Crea el archivo `apps/backend/.env` (no se commitea):
+
+```env
+# Base de datos
+DATABASE_URL="postgresql://USER:PASSWORD@HOST:5432/lumina"
+
+# Autenticación JWT — cámbialo en producción
+JWT_SECRET="un_string_largo_y_aleatorio"
+
+# Cifrado de credenciales — genera uno con el comando de abajo
+ENCRYPTION_KEY="64_caracteres_hexadecimales"
+
+# Servidor
+PORT=3001
+
+# Directorio para archivos subidos
+UPLOAD_DIR="./uploads"
+
+# URL del frontend (para PDF export con Puppeteer)
+FRONTEND_URL="https://tu-dominio.com"
+```
+
+**Generar claves seguras:**
+```bash
+# JWT_SECRET
+node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+
+# ENCRYPTION_KEY (debe ser exactamente 64 chars hex = 32 bytes)
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+> **Importante:** si pierdes `ENCRYPTION_KEY`, los datasets con conectores API/DB quedarán inutilizables porque no se podrán descifrar sus credenciales. Guárdala en un gestor de secretos.
+
+---
+
+## Desarrollo local
+
+### Requisitos
+- Node.js 18 o superior
+- PostgreSQL 14 o superior
+
+### Pasos
+
+```bash
+# 1. Clonar el repositorio
+git clone https://github.com/hakendo/Lumina.git
+cd Lumina
+
+# 2. Instalar todas las dependencias (frontend + backend juntos)
+npm install
+
+# 3. Crear la base de datos
+psql -U postgres -c "CREATE DATABASE lumina;"
+
+# 4. Configurar variables de entorno
+cp apps/backend/.env.example apps/backend/.env
+# Editar apps/backend/.env con tus valores
+
+# 5. Aplicar migraciones
+cd apps/backend
+npx prisma migrate deploy
+cd ../..
+
+# 6. Levantar todo
+npm run dev
+```
+
+- Frontend: http://localhost:5173
+- Backend: http://localhost:3001
+- Health check: http://localhost:3001/health
+
+---
+
+## Deploy en producción
+
+### Opción A — Railway (recomendado)
+
+Railway permite deployar backend y base de datos sin configurar servidores.
+
+#### 1. Base de datos
+
+1. Crea un proyecto en [railway.app](https://railway.app).
+2. Agrega un plugin **PostgreSQL**.
+3. Copia la variable `DATABASE_URL` que Railway genera automáticamente.
+
+#### 2. Backend
+
+1. En el mismo proyecto, crea un nuevo servicio desde el repositorio de GitHub.
+2. Configura el **Root Directory** como `apps/backend`.
+3. Configura el **Start Command**:
+   ```bash
+   npx prisma migrate deploy && node src/index.js
+   ```
+4. Agrega las variables de entorno en Railway:
+   ```
+   DATABASE_URL        → (la del plugin PostgreSQL)
+   JWT_SECRET          → (genera uno seguro)
+   ENCRYPTION_KEY      → (genera uno seguro — guárdalo)
+   PORT                → 3001
+   UPLOAD_DIR          → ./uploads
+   FRONTEND_URL        → https://tu-frontend.vercel.app
+   ```
+5. Deploy. Railway asignará una URL pública como `https://lumina-backend.railway.app`.
+
+#### 3. Frontend
+
+1. Importa el repositorio en [vercel.com](https://vercel.com) (o Netlify).
+2. Configura:
+   - **Root Directory:** `apps/frontend`
+   - **Build Command:** `npm run build`
+   - **Output Directory:** `dist`
+3. Agrega la variable de entorno:
+   ```
+   VITE_API_URL=https://lumina-backend.railway.app
+   ```
+4. Actualiza `apps/frontend/src/lib/api.js` para usar `import.meta.env.VITE_API_URL` como `baseURL`.
+5. Actualiza `FRONTEND_URL` en el backend con la URL de Vercel.
+
+---
+
+### Opción B — VPS / servidor propio (Ubuntu)
+
+#### 1. Preparar el servidor
+
+```bash
+# Actualizar sistema
+sudo apt update && sudo apt upgrade -y
+
+# Instalar Node.js 22
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# Instalar PostgreSQL
+sudo apt install -y postgresql postgresql-contrib
+
+# Instalar nginx
+sudo apt install -y nginx
+
+# Instalar PM2 (process manager)
+sudo npm install -g pm2
+```
+
+#### 2. Base de datos
+
+```bash
+sudo -u postgres psql
+
+-- Dentro de psql:
+CREATE USER lumina_user WITH PASSWORD 'password_seguro';
+CREATE DATABASE lumina OWNER lumina_user;
+GRANT ALL PRIVILEGES ON DATABASE lumina TO lumina_user;
+\q
+```
+
+#### 3. Clonar y configurar la app
+
+```bash
+cd /var/www
+sudo git clone https://github.com/hakendo/Lumina.git lumina
+sudo chown -R $USER:$USER /var/www/lumina
+cd /var/www/lumina
+
+# Instalar dependencias
+npm install
+
+# Configurar variables de entorno
+cp apps/backend/.env.example apps/backend/.env
+nano apps/backend/.env
+# Completar DATABASE_URL, JWT_SECRET, ENCRYPTION_KEY, FRONTEND_URL
+
+# Migrar base de datos
+cd apps/backend && npx prisma migrate deploy && cd ../..
+
+# Compilar frontend
+cd apps/frontend && npm run build && cd ../..
+```
+
+#### 4. Levantar el backend con PM2
+
+```bash
+# Crear archivo de configuración PM2
+cat > /var/www/lumina/ecosystem.config.js << 'EOF'
+module.exports = {
+  apps: [{
+    name: 'lumina-backend',
+    script: 'src/index.js',
+    cwd: '/var/www/lumina/apps/backend',
+    env: {
+      NODE_ENV: 'production',
+    },
+    instances: 1,
+    autorestart: true,
+    max_memory_restart: '500M',
+  }]
+}
+EOF
+
+pm2 start /var/www/lumina/ecosystem.config.js
+pm2 save
+pm2 startup  # seguir las instrucciones que imprime
+```
+
+#### 5. Configurar nginx
+
+```bash
+sudo nano /etc/nginx/sites-available/lumina
+```
+
+Pegar la siguiente configuración (reemplaza `tu-dominio.com`):
+
+```nginx
+server {
+    listen 80;
+    server_name tu-dominio.com www.tu-dominio.com;
+
+    # Frontend — archivos estáticos
+    location / {
+        root /var/www/lumina/apps/frontend/dist;
+        index index.html;
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Backend — proxy inverso
+    location /auth/ {
+        proxy_pass http://localhost:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+    location /datasets/ {
+        proxy_pass http://localhost:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        client_max_body_size 55M;
+    }
+    location /reports/ {
+        proxy_pass http://localhost:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+    location /health {
+        proxy_pass http://localhost:3001;
+    }
+
+    # Archivos subidos
+    location /uploads/ {
+        alias /var/www/lumina/apps/backend/uploads/;
+    }
+}
+```
+
+```bash
+sudo ln -s /etc/nginx/sites-available/lumina /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+#### 6. SSL con Let's Encrypt
+
+```bash
+sudo apt install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d tu-dominio.com -d www.tu-dominio.com
+# Certbot reconfigura nginx automáticamente con HTTPS
+```
+
+---
+
+### Opción C — Docker Compose
+
+Crea `docker-compose.yml` en la raíz del proyecto:
+
+```yaml
+version: '3.9'
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_DB: lumina
+      POSTGRES_USER: lumina_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lumina_user -d lumina"]
+      interval: 10s
+      retries: 5
+
+  backend:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://lumina_user:${DB_PASSWORD}@db:5432/lumina
+      JWT_SECRET: ${JWT_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      PORT: 3001
+      UPLOAD_DIR: /app/uploads
+      FRONTEND_URL: ${FRONTEND_URL}
+    volumes:
+      - uploads:/app/uploads
+    ports:
+      - "3001:3001"
+
+  frontend:
+    build:
+      context: ./apps/frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL}
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+
+volumes:
+  pgdata:
+  uploads:
+```
+
+**`apps/backend/Dockerfile`:**
+```dockerfile
+FROM node:22-alpine
+WORKDIR /app
+COPY package.json ./
+RUN npm install --production
+COPY . .
+RUN npx prisma generate
+EXPOSE 3001
+CMD ["sh", "-c", "npx prisma migrate deploy && node src/index.js"]
+```
+
+**`apps/frontend/Dockerfile`:**
+```dockerfile
+FROM node:22-alpine AS builder
+WORKDIR /app
+COPY package.json ./
+RUN npm install
+COPY . .
+ARG VITE_API_URL
+ENV VITE_API_URL=$VITE_API_URL
+RUN npm run build
+
+FROM nginx:alpine
+COPY --from=builder /app/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80
+```
+
+**`apps/frontend/nginx.conf`:**
+```nginx
+server {
+    listen 80;
+    root /usr/share/nginx/html;
+    index index.html;
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
+```
+
+**`.env` en la raíz para Docker:**
+```env
+DB_PASSWORD=password_seguro
+JWT_SECRET=tu_jwt_secret
+ENCRYPTION_KEY=tu_encryption_key_64_chars
+FRONTEND_URL=https://tu-dominio.com
+VITE_API_URL=https://tu-dominio.com
+```
+
+**Levantar:**
+```bash
+docker compose up -d
+docker compose logs -f   # ver logs en tiempo real
+```
+
+---
+
+### Opción D — Windows Server 2022 (IIS + NSSM)
+
+Pasos para desplegar en **Windows Server 2022** usando IIS como proxy inverso y NSSM para mantener el backend corriendo como servicio de Windows.
+
+> **Instalación sin internet en el servidor:** usa el script de release para preparar un paquete completo (app + instaladores) desde una máquina con internet y transferirlo al servidor.
+
+#### Generar el paquete de release
+
+Desde la raíz del repositorio, en una máquina con acceso a internet:
+
+```powershell
+.\scripts\make-release.ps1
+# Salida: lumina-release-YYYY-MM-DD.zip (~350 MB)
+```
+
+El ZIP incluye la app compilada con sus dependencias, más los instaladores de Node.js, PostgreSQL 17, NSSM, IIS URL Rewrite y ARR.
+
+Copia el ZIP al servidor (USB, carpeta compartida de red interna, RDP, etc.) y extráelo:
+
+```powershell
+Expand-Archive "D:\lumina-release-2026-06-22.zip" -DestinationPath "D:\lumina-release" -Force
+```
+
+Luego abre **PowerShell como Administrador** en el servidor y ejecuta el instalador:
+
+```powershell
+cd D:\lumina-release
+Set-ExecutionPolicy Bypass -Scope Process -Force
+.\instalar.ps1 -Domain "tu-dominio.com"
+```
+
+El script instala todos los prerrequisitos, configura la base de datos, registra el servicio de Windows y configura IIS. Solicita contraseñas por pantalla. Al terminar, la app está disponible en `http://tu-dominio.com`.
+
+Los pasos manuales detallados se describen a continuación como referencia.
+
+---
+
+#### 1. Instalar prerrequisitos
+
+El servidor no tiene salida a internet. Descarga los instaladores en una máquina con acceso, transfiérelos al servidor (USB, carpeta compartida de red interna, etc.) y luego instala desde ahí.
+
+**1.1 — En la máquina con internet: descargar instaladores**
+
+```powershell
+$ProgressPreference = 'SilentlyContinue'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$dest = "C:\lumina-installers"
+New-Item -ItemType Directory -Force -Path $dest
+
+$nodeVersion = "22.14.0"
+$pgVersion   = "17.2-1"
+
+Invoke-WebRequest "https://nodejs.org/dist/v$nodeVersion/node-v$nodeVersion-x64.msi" `
+  -OutFile "$dest\node.msi"
+
+Invoke-WebRequest "https://get.enterprisedb.com/postgresql/postgresql-$pgVersion-windows-x64.exe" `
+  -OutFile "$dest\postgresql.exe"
+
+Invoke-WebRequest "https://nssm.cc/release/nssm-2.24.zip" `
+  -OutFile "$dest\nssm.zip"
+```
+
+Copia la carpeta `C:\lumina-installers\` completa al servidor (USB, recurso compartido, SCP, etc.).
+
+---
+
+**1.2 — En el servidor: instalar desde archivos locales**
+
+Abre **PowerShell como Administrador**, ajusta `$src` a donde copiaste los archivos:
+
+```powershell
+$src = "D:\lumina-installers"   # <-- cambia según destino real en el servidor
+
+# Node.js 22 LTS
+Start-Process msiexec.exe -ArgumentList "/i `"$src\node.msi`" /qn ADDLOCAL=ALL" -Wait
+
+# PostgreSQL 17
+Start-Process "$src\postgresql.exe" `
+  -ArgumentList "--unattendedmodeui none --mode unattended --superpassword postgres_temp --servicename postgresql-x64-17" `
+  -Wait
+
+# NSSM
+Expand-Archive "$src\nssm.zip" -DestinationPath "C:\tools\" -Force
+Copy-Item "C:\tools\nssm-2.24\win64\nssm.exe" "C:\Windows\System32\nssm.exe"
+```
+
+> Cierra y vuelve a abrir PowerShell para que los comandos `node` y `npm` queden disponibles en el PATH.
+>
+> La contraseña `postgres_temp` es solo para la instalación. Cámbiala en el paso 2.
+
+#### 2. Configurar PostgreSQL
+
+Conéctate desde psql (usa la contraseña `postgres_temp` definida en la instalación):
+
+```powershell
+& "C:\Program Files\PostgreSQL\17\bin\psql.exe" -U postgres
+```
+
+```sql
+-- Cambiar la contraseña del superusuario postgres
+ALTER USER postgres WITH PASSWORD 'nueva_password_segura';
+
+-- Crear usuario y base de datos para Lúmina
+CREATE USER lumina_user WITH PASSWORD 'password_seguro';
+CREATE DATABASE lumina OWNER lumina_user;
+GRANT ALL PRIVILEGES ON DATABASE lumina TO lumina_user;
+\q
+```
+
+Verifica que PostgreSQL esté corriendo como servicio de Windows:
+
+```powershell
+Get-Service -Name "postgresql*"
+# Si está detenido:
+Start-Service -Name "postgresql-x64-17"
+```
+
+#### 3. Transferir y configurar la aplicación
+
+Sin acceso a internet desde el servidor, no es posible usar `git clone`. Prepara el paquete en la máquina con internet:
+
+**3.1 — En la máquina con internet: empaquetar la app y sus dependencias**
+
+```powershell
+# Clonar y preparar el paquete
+git clone https://github.com/hakendo/Lumina.git lumina-deploy
+cd lumina-deploy
+
+# Instalar dependencias (incluye node_modules para transferir)
+npm install
+
+# Compilar el frontend
+cd apps\frontend
+npm run build
+cd ..\..
+
+# Comprimir todo (excluyendo .git para reducir tamaño)
+Compress-Archive -Path "lumina-deploy\*" `
+  -DestinationPath "lumina-deploy.zip" `
+  -CompressionLevel Optimal
+```
+
+Copia `lumina-deploy.zip` al servidor.
+
+---
+
+**3.2 — En el servidor: desplegar**
+
+```powershell
+$src = "D:\lumina-deploy.zip"   # <-- ajusta ruta real
+
+Expand-Archive $src -DestinationPath "C:\inetpub\lumina" -Force
+cd C:\inetpub\lumina
+
+# Crear archivo de entorno del backend
+Copy-Item apps\backend\.env.example apps\backend\.env
+notepad apps\backend\.env
+```
+
+Edita `apps\backend\.env` con los valores reales:
+
+```env
+DATABASE_URL="postgresql://lumina_user:password_seguro@localhost:5432/lumina"
+JWT_SECRET="un_string_largo_y_aleatorio"
+ENCRYPTION_KEY="64_caracteres_hexadecimales"
+PORT=3001
+UPLOAD_DIR="C:\\inetpub\\lumina\\apps\\backend\\uploads"
+FRONTEND_URL="https://tu-dominio.com"
+```
+
+```powershell
+# Aplicar migraciones (node_modules y dist ya vienen en el paquete transferido)
+cd apps\backend
+npx prisma migrate deploy
+cd ..\..
+```
+
+#### 4. Registrar el backend como servicio de Windows con NSSM
+
+```powershell
+# Crear directorio de logs antes de configurar NSSM
+New-Item -ItemType Directory -Force -Path "C:\inetpub\lumina\logs"
+
+# Registrar el servicio
+nssm install lumina-backend "C:\Program Files\nodejs\node.exe"
+nssm set lumina-backend AppDirectory "C:\inetpub\lumina\apps\backend"
+nssm set lumina-backend AppParameters "src\index.js"
+nssm set lumina-backend AppEnvironmentExtra "NODE_ENV=production"
+nssm set lumina-backend DisplayName "Lumina Backend"
+nssm set lumina-backend Description "Lumina BI – API Node.js"
+nssm set lumina-backend Start SERVICE_AUTO_START
+
+# Configurar logs (antes de iniciar el servicio)
+nssm set lumina-backend AppStdout "C:\inetpub\lumina\logs\backend.log"
+nssm set lumina-backend AppStderr "C:\inetpub\lumina\logs\backend-error.log"
+nssm set lumina-backend AppRotateFiles 1
+
+# Iniciar el servicio
+nssm start lumina-backend
+
+# Verificar estado
+nssm status lumina-backend
+```
+
+Desde ahora el backend arranca automáticamente con Windows. Para ver logs:
+
+```powershell
+Get-Content "C:\inetpub\lumina\logs\backend.log" -Wait -Tail 50
+```
+
+> **Windows Defender:** En Windows Server 2022, el antivirus en tiempo real puede ralentizar significativamente las operaciones de Node.js. Agrega exclusiones para el directorio de la app y el proceso de Node:
+> ```powershell
+> Add-MpPreference -ExclusionPath "C:\inetpub\lumina"
+> Add-MpPreference -ExclusionProcess "node.exe"
+> ```
+
+#### 5. Instalar y configurar IIS como proxy inverso
+
+**5.1 Habilitar IIS y los módulos necesarios:**
+
+```powershell
+# Instalar IIS con los módulos requeridos
+Install-WindowsFeature -Name Web-Server, Web-Static-Content, Web-Http-Redirect -IncludeManagementTools
+
+# Instalar URL Rewrite Module (necesario para proxy inverso)
+# Descargar desde: https://www.iis.net/downloads/microsoft/url-rewrite
+# O via winget:
+winget install Microsoft.IISUrlRewrite
+
+# Instalar Application Request Routing (ARR — proxy inverso)
+# Descargar desde: https://www.iis.net/downloads/microsoft/application-request-routing
+# O via winget:
+winget install Microsoft.ApplicationRequestRouting
+```
+
+**5.2 Habilitar el proxy en ARR:**
+
+```powershell
+# Habilitar proxy en ARR via PowerShell con el módulo WebAdministration
+Import-Module WebAdministration
+Set-WebConfigurationProperty -pspath 'MACHINE/WEBROOT/APPHOST' `
+  -filter "system.webServer/proxy" -name "enabled" -value "True"
+```
+
+**5.3 Crear el sitio en IIS:**
+
+En el **Administrador de IIS** (o via PowerShell):
+
+```powershell
+Import-Module WebAdministration
+
+# Crear grupo de aplicaciones
+New-WebAppPool -Name "lumina"
+Set-ItemProperty "IIS:\AppPools\lumina" -Name processModel.identityType -Value "ApplicationPoolIdentity"
+
+# Crear sitio apuntando al frontend compilado
+New-Website -Name "lumina" `
+  -PhysicalPath "C:\inetpub\lumina\apps\frontend\dist" `
+  -ApplicationPool "lumina" `
+  -Port 80 `
+  -HostHeader "tu-dominio.com"
+```
+
+**5.4 Agregar `web.config` al frontend compilado** para SPA routing y proxy al backend:
+
+Crea el archivo `C:\inetpub\lumina\apps\frontend\dist\web.config`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+  <system.webServer>
+
+    <!-- Proxy inverso al backend para rutas de API -->
+    <rewrite>
+      <rules>
+        <rule name="API Auth" stopProcessing="true">
+          <match url="^auth/(.*)" />
+          <action type="Rewrite" url="http://localhost:3001/auth/{R:1}" />
+        </rule>
+        <rule name="API Admin" stopProcessing="true">
+          <match url="^admin/(.*)" />
+          <action type="Rewrite" url="http://localhost:3001/admin/{R:1}" />
+        </rule>
+        <rule name="API Org" stopProcessing="true">
+          <match url="^org/(.*)" />
+          <action type="Rewrite" url="http://localhost:3001/org/{R:1}" />
+        </rule>
+        <rule name="API Areas" stopProcessing="true">
+          <match url="^areas/(.*)" />
+          <action type="Rewrite" url="http://localhost:3001/areas/{R:1}" />
+        </rule>
+        <rule name="API Datasets" stopProcessing="true">
+          <match url="^datasets/(.*)" />
+          <action type="Rewrite" url="http://localhost:3001/datasets/{R:1}" />
+        </rule>
+        <rule name="API Reports" stopProcessing="true">
+          <match url="^reports/(.*)" />
+          <action type="Rewrite" url="http://localhost:3001/reports/{R:1}" />
+        </rule>
+        <rule name="API Notifications" stopProcessing="true">
+          <match url="^notifications/(.*)" />
+          <action type="Rewrite" url="http://localhost:3001/notifications/{R:1}" />
+        </rule>
+        <rule name="Health" stopProcessing="true">
+          <match url="^health$" />
+          <action type="Rewrite" url="http://localhost:3001/health" />
+        </rule>
+        <!-- SPA fallback — siempre devolver index.html -->
+        <rule name="SPA Fallback" stopProcessing="true">
+          <match url=".*" />
+          <conditions logicalGrouping="MatchAll">
+            <add input="{REQUEST_FILENAME}" matchType="IsFile" negate="true" />
+            <add input="{REQUEST_FILENAME}" matchType="IsDirectory" negate="true" />
+          </conditions>
+          <action type="Rewrite" url="/index.html" />
+        </rule>
+      </rules>
+    </rewrite>
+
+    <!-- Cabecera de tamaño máximo para subida de archivos (50 MB) -->
+    <security>
+      <requestFiltering>
+        <requestLimits maxAllowedContentLength="52428800" />
+      </requestFiltering>
+    </security>
+
+    <staticContent>
+      <mimeMap fileExtension=".webmanifest" mimeType="application/manifest+json" />
+    </staticContent>
+
+  </system.webServer>
+</configuration>
+```
+
+#### 6. SSL con win-acme (Let's Encrypt)
+
+```powershell
+# Descargar win-acme desde https://www.win-acme.com/
+# Extraer en C:\win-acme y ejecutar:
+cd C:\win-acme
+.\wacs.exe
+
+# Seguir el asistente:
+# - Seleccionar "Create new certificate"
+# - Elegir el sitio IIS "lumina"
+# - Confirmar el dominio tu-dominio.com
+# win-acme instala el certificado y configura la renovación automática como tarea de Windows
+```
+
+> win-acme crea una **Tarea Programada de Windows** que renueva el certificado automáticamente antes de que expire.
+
+#### 7. Firewall de Windows
+
+```powershell
+# Permitir tráfico HTTP y HTTPS
+New-NetFirewallRule -DisplayName "HTTP" -Direction Inbound -Protocol TCP -LocalPort 80 -Action Allow
+New-NetFirewallRule -DisplayName "HTTPS" -Direction Inbound -Protocol TCP -LocalPort 443 -Action Allow
+
+# El puerto 3001 del backend NO debe exponerse al exterior (IIS hace el proxy)
+```
+
+#### 8. Comandos de mantenimiento útiles
+
+```powershell
+# Ver estado del servicio backend
+nssm status lumina-backend
+
+# Reiniciar el backend (p.ej. tras un deploy)
+nssm restart lumina-backend
+
+# Ver logs en tiempo real
+Get-Content "C:\inetpub\lumina\logs\backend.log" -Wait -Tail 50
+Get-Content "C:\inetpub\lumina\logs\backend-error.log" -Wait -Tail 50
+
+# Actualizar la aplicación (servidor sin internet)
+# 1. En máquina con internet: preparar nuevo paquete (ver paso 3.1)
+# 2. Transferir lumina-deploy.zip al servidor
+# 3. En el servidor:
+
+# Respaldar .env antes de borrar (contiene credenciales de producción)
+Copy-Item "C:\inetpub\lumina\apps\backend\.env" "$env:TEMP\lumina.env.bak"
+
+nssm stop lumina-backend
+Remove-Item "C:\inetpub\lumina" -Recurse -Force
+Expand-Archive "D:\lumina-deploy.zip" -DestinationPath "C:\inetpub\lumina" -Force
+
+# Restaurar .env de producción (no usar el .env.example del paquete)
+Copy-Item "$env:TEMP\lumina.env.bak" "C:\inetpub\lumina\apps\backend\.env"
+
+cd C:\inetpub\lumina\apps\backend
+npx prisma migrate deploy
+cd ..\..
+nssm start lumina-backend
+# IIS sirve automáticamente el nuevo dist/ incluido en el paquete
+```
+
+---
+
+## API — Referencia rápida
+
+Todas las rutas (excepto las públicas) requieren el header:
+```
+Authorization: Bearer <token>
+```
+
+### Autenticación
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| POST | `/auth/register` | `{ email, password, name }` → `{ token, user }` |
+| POST | `/auth/login` | `{ email, password }` → `{ token, user }` |
+| GET | `/auth/me` | Perfil del usuario autenticado |
+
+### Datasets
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| GET | `/datasets` | Lista datasets accesibles al usuario |
+| POST | `/datasets/upload` | Sube CSV/Excel (`multipart/form-data`) |
+| POST | `/datasets/api-connector` | Crea conector API (credenciales cifradas) |
+| PUT | `/datasets/:id/api-connector` | Edita conector API |
+| POST | `/datasets/db-connector` | Crea conector DB (connection string cifrado) |
+| PUT | `/datasets/:id/db-connector` | Edita conector DB |
+| POST | `/datasets/sync-all` | Sincroniza todos los datasets API/DB accesibles (sync masivo) |
+| POST | `/datasets/:id/fetch` | Sincroniza dataset individual; hash-dedup omite escritura si sin cambios |
+| PATCH | `/datasets/:id/id-field` | Configura o elimina el campo ID para upsert (`{ idField: "campo" \| null }`) |
+| GET | `/datasets/slots` | Lista Dataset Slots pendientes de vincular (solo reportes derivados del usuario) |
+| POST | `/datasets/slots/:id/bind` | Vincula un slot con un dataset real del cliente |
+| GET | `/datasets/:id/rows` | Devuelve todas las filas |
+| GET | `/datasets/:id/columns` | Devuelve nombres de columnas |
+| DELETE | `/datasets/:id` | Elimina dataset y sus filas |
+
+### Reportes
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| GET | `/reports` | Lista reportes del usuario (con `isFavorited`, `myRole`) |
+| POST | `/reports` | Crea reporte |
+| GET | `/reports/explore` | Lista todos los reportes públicos (`?q=búsqueda`) |
+| GET | `/reports/favorites` | Lista reportes marcados como favoritos |
+| GET | `/reports/:id` | Obtiene reporte con páginas, widgets y permisos del usuario |
+| PUT | `/reports/:id` | Guarda layout, páginas, filtros y widgets |
+| DELETE | `/reports/:id` | Elimina reporte |
+| POST | `/reports/:id/duplicate` | Clona reporte en el workspace propio |
+| POST | `/reports/:id/share` | Toggle link público/privado |
+| POST | `/reports/:id/share-person` | Invita a usuario por email (`{ email, role: "viewer"\|"editor" }`) |
+| DELETE | `/reports/:id/share-person/:userId` | Revoca acceso de un usuario específico |
+| POST | `/reports/:id/favorite` | Toggle favorito |
+| PATCH | `/reports/:id/pages/:pageId` | Actualiza nombre o layout de una página |
+| GET | `/reports/:id/export/pdf` | Descarga PDF (Puppeteer, A4 landscape) |
+| GET | `/reports/public/:slug` | Vista pública sin autenticación |
+
+### Administración (solo Superadmin)
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| GET | `/admin/orgs` | Lista todas las organizaciones |
+| POST | `/admin/orgs` | Crea una nueva organización |
+| GET | `/admin/orgs/:orgId/areas` | Lista áreas de una organización |
+| GET | `/admin/users` | Lista usuarios (`?orgId=` para filtrar por org) |
+| POST | `/admin/users` | Crea usuario en una organización con rol |
+| PATCH | `/admin/users/:id` | Edita usuario (rol, org, estado) |
+| DELETE | `/admin/users/:id` | Elimina usuario |
+| GET | `/admin/reports/templates` | Lista todas las plantillas base |
+| POST | `/admin/reports/templates` | Marca un reporte como plantilla base |
+| POST | `/admin/reports/:reportId/assign` | Asigna plantilla a un usuario en un área (`{ userId, areaId }`) |
