@@ -569,6 +569,9 @@ function QueryEditorModal({ datasetId, dataset, onClose, onSaved }) {
             }
             if (found.length) {
               setSelectedTables(found);
+              const aliasMap = new Map();
+              found.forEach(f => aliasMap.set(f.alias, f.name));
+
               const joinPattern = /JOIN\s+(?:\[?\w+\]?\.)?(?:\[?\w+\]?)\s+(?:\[?)(\w+)(?:\]?)\s+ON\s+(?:\[?)(\w+)(?:\]?)\.(?:\[?)(\w+)(?:\]?)\s*=\s*(?:\[?)(\w+)(?:\]?)\.(?:\[?)(\w+)(?:\]?)/gi;
               const parsedJoins = [];
               let jm;
@@ -576,6 +579,19 @@ function QueryEditorModal({ datasetId, dataset, onClose, onSaved }) {
                 parsedJoins.push({ type: 'INNER', leftTable: jm[2], leftColumn: jm[3], rightTable: jm[4], rightColumn: jm[5] });
               }
               if (parsedJoins.length) setJoins(parsedJoins);
+
+              const selectMatch = query.match(/^SELECT\s+(?:TOP\s+\d+\s+)?(.+?)\s+FROM\s/is);
+              if (selectMatch) {
+                const colMap = {};
+                for (const part of selectMatch[1].split(',').map(s => s.trim())) {
+                  const cm = part.match(/(?:\[?)(\w+)(?:\]?)\.(?:\[?)(\w+)(?:\]?)$/);
+                  if (cm) {
+                    const tableName = aliasMap.get(cm[1]);
+                    if (tableName) { (colMap[tableName] ||= []).push(cm[2]); }
+                  }
+                }
+                if (Object.keys(colMap).length) setSelectedColumns(colMap);
+              }
             }
           }
         })

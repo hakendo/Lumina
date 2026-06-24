@@ -1031,6 +1031,25 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
             });
           }
           if (parsedJoins.length) setJoins(parsedJoins);
+
+          const selectMatch = query.match(/^SELECT\s+(?:TOP\s+\d+\s+)?(.+?)\s+FROM\s/is);
+          if (selectMatch) {
+            const colMap = {};
+            const colParts = selectMatch[1].split(',').map(s => s.trim());
+            for (const part of colParts) {
+              const cm = part.match(/(?:\[?)(\w+)(?:\]?)\.(?:\[?)(\w+)(?:\]?)$/);
+              if (cm) {
+                const alias = cm[1];
+                const col = cm[2];
+                const tableName = aliasMap.get(alias);
+                if (tableName) {
+                  if (!colMap[tableName]) colMap[tableName] = [];
+                  if (!colMap[tableName].includes(col)) colMap[tableName].push(col);
+                }
+              }
+            }
+            if (Object.keys(colMap).length) setSelectedColumns(colMap);
+          }
         }
       }
 
