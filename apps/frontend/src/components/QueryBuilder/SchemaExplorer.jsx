@@ -1,4 +1,5 @@
 import { useState, lazy, Suspense } from 'react';
+import { createPortal } from 'react-dom';
 import { Icon } from '../ui';
 
 const ERDiagram = lazy(() => import('./ERDiagram'));
@@ -27,28 +28,50 @@ export default function SchemaExplorer({ schema, selectedTables, selectedColumns
 
   if (viewMode === 'diagram') {
     return (
-      <div className="flex flex-col" style={{ height: '100%', minHeight: 500 }}>
-        <div className="flex gap-1 bg-paper-deep rounded-md p-0.5 mb-2 shrink-0">
-          <button type="button" onClick={() => changeView('list')}
-            className="flex-1 px-2 py-1 text-[10px] font-medium rounded transition text-ink-faint hover:text-ink">
-            <Icon name="grid" size={11} className="inline mr-1" />Lista
-          </button>
-          <button type="button" onClick={() => changeView('diagram')}
-            className="flex-1 px-2 py-1 text-[10px] font-medium rounded transition bg-surface text-ink shadow-sm">
-            <Icon name="layers" size={11} className="inline mr-1" />Diagrama
-          </button>
+      <>
+        <div className="flex flex-col h-full">
+          <div className="flex gap-1 bg-paper-deep rounded-md p-0.5 mb-2 shrink-0">
+            <button type="button" onClick={() => changeView('list')}
+              className="flex-1 px-2 py-1 text-[10px] font-medium rounded transition text-ink-faint hover:text-ink">
+              <Icon name="grid" size={11} className="inline mr-1" />Lista
+            </button>
+            <button type="button" onClick={() => changeView('diagram')}
+              className="flex-1 px-2 py-1 text-[10px] font-medium rounded transition bg-surface text-ink shadow-sm">
+              <Icon name="layers" size={11} className="inline mr-1" />Diagrama
+            </button>
+          </div>
+          <p className="text-[11px] text-ink-faint text-center py-8">
+            Diagrama abierto en pantalla completa
+          </p>
         </div>
-        <Suspense fallback={<div className="flex-1 flex items-center justify-center text-xs text-ink-faint">Cargando diagrama…</div>}>
-          <ERDiagram
-            schema={schema}
-            selectedTables={selectedTables}
-            selectedColumns={selectedColumns}
-            onToggleTable={onToggleTable}
-            onToggleColumn={onToggleColumn}
-            onSelectAllColumns={onSelectAllColumns}
-          />
-        </Suspense>
-      </div>
+        {createPortal(
+          <div className="fixed inset-0 z-[100] bg-surface flex flex-col">
+            <div className="flex items-center justify-between px-4 py-2 border-b border-line-soft bg-paper shrink-0">
+              <h3 className="text-sm font-semibold text-ink flex items-center gap-2">
+                <Icon name="layers" size={16} /> Diagrama ER
+                <span className="text-ink-faint font-normal">— {schema?.tables?.length || 0} tablas</span>
+              </h3>
+              <button onClick={() => changeView('list')}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-paper-deep rounded-lg hover:bg-line-soft transition">
+                <Icon name="x" size={14} /> Cerrar diagrama
+              </button>
+            </div>
+            <div className="flex-1">
+              <Suspense fallback={<div className="flex items-center justify-center h-full text-sm text-ink-faint">Cargando diagrama…</div>}>
+                <ERDiagram
+                  schema={schema}
+                  selectedTables={selectedTables}
+                  selectedColumns={selectedColumns}
+                  onToggleTable={onToggleTable}
+                  onToggleColumn={onToggleColumn}
+                  onSelectAllColumns={onSelectAllColumns}
+                />
+              </Suspense>
+            </div>
+          </div>,
+          document.body
+        )}
+      </>
     );
   }
 

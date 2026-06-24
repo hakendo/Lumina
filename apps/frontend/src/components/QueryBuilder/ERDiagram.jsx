@@ -104,7 +104,7 @@ export default function ERDiagram({ schema, selectedTables, selectedColumns, onT
   }, [filtered, nodes]);
 
   return (
-    <div className="flex flex-col" style={{ height: '100%', minHeight: 500 }}>
+    <div className="flex flex-col h-full p-3">
       <input
         value={search}
         onChange={(e) => setSearch(e.target.value)}
@@ -131,7 +131,7 @@ export default function ERDiagram({ schema, selectedTables, selectedColumns, onT
           {filtered.length > 8 && <span className="text-[10px] text-ink-faint">+{filtered.length - 8}</span>}
         </div>
       )}
-      <div className="rounded-lg overflow-hidden border border-line-soft" style={{ flex: 1, minHeight: 400, height: '100%' }}>
+      <div className="flex-1 rounded-lg overflow-hidden border border-line-soft">
         <ReactFlow
           nodes={nodes}
           edges={edges}
