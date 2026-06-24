@@ -1293,6 +1293,10 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
                   onSelectAllColumns={selectAllColumns}
                   onViewModeChange={setSchemaViewMode}
                   onReset={resetToOriginal}
+                  query={query}
+                  joins={joins}
+                  onJoinsChange={setJoins}
+                  suggestedJoins={suggestedJoins}
                 />
               </div>
               <div className="space-y-3">

@@ -38,7 +38,8 @@ const MODES = [
   { key: 'add', icon: 'layers', label: 'Esquema', hint: 'Click = explorar esquema completo' },
 ];
 
-function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable, onToggleColumn, onSelectAllColumns, onReset }) {
+function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable, onToggleColumn, onSelectAllColumns, onReset, query, joins: externalJoins, onJoinsChange, suggestedJoins: externalSuggested }) {
+  const [bottomOpen, setBottomOpen] = useState(true);
   const allTables = schema?.tables || [];
   const fks = schema?.foreignKeys || [];
   const [search, setSearch] = useState('');
@@ -293,29 +294,96 @@ function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable
         </div>
       </div>
 
-      {/* Canvas */}
-      <div style={{ flex: 1, height: '100%' }}>
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onNodeDoubleClick={onNodeDoubleClick}
-          nodeTypes={nodeTypes}
-          fitView
-          minZoom={0.05}
-          maxZoom={2}
-          defaultEdgeOptions={{ type: 'smoothstep' }}
-          proOptions={{ hideAttribution: true }}
-        >
-          <Background color="var(--color-line-soft)" gap={20} size={1} />
-          <Controls className="!bg-surface !border-line !shadow-sm" />
-          <MiniMap
-            nodeStrokeColor={(n) => isSelected(n.id) ? 'var(--color-lumen)' : 'var(--color-line)'}
-            nodeColor={(n) => isSelected(n.id) ? 'var(--color-lumen-soft)' : 'var(--color-paper-deep)'}
-            className="!bg-paper !border-line"
-          />
-        </ReactFlow>
+      {/* Right panel: canvas + bottom SQL */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <div style={{ flex: 1 }}>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onNodeDoubleClick={onNodeDoubleClick}
+            nodeTypes={nodeTypes}
+            fitView
+            minZoom={0.05}
+            maxZoom={2}
+            defaultEdgeOptions={{ type: 'smoothstep' }}
+            proOptions={{ hideAttribution: true }}
+          >
+            <Background color="var(--color-line-soft)" gap={20} size={1} />
+            <Controls className="!bg-surface !border-line !shadow-sm" />
+            <MiniMap
+              nodeStrokeColor={(n) => isSelected(n.id) ? 'var(--color-lumen)' : 'var(--color-line)'}
+              nodeColor={(n) => isSelected(n.id) ? 'var(--color-lumen-soft)' : 'var(--color-paper-deep)'}
+              className="!bg-paper !border-line"
+            />
+          </ReactFlow>
+        </div>
+
+        {/* Bottom panel: SQL + Joins */}
+        <div className="border-t border-line-soft bg-paper shrink-0">
+          <button type="button" onClick={() => setBottomOpen(p => !p)}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] font-semibold text-ink-faint hover:text-ink transition">
+            <Icon name={bottomOpen ? 'chevronDown' : 'chevronRight'} size={12} />
+            SQL Generado
+            {externalJoins?.length > 0 && (
+              <span className="bg-lumen-soft text-lumen-deep px-1.5 py-0.5 rounded text-[9px] font-mono">{externalJoins.length} join{externalJoins.length > 1 ? 's' : ''}</span>
+            )}
+            {selectedTables.length > 1 && (!externalJoins?.length) && (
+              <span className="bg-rust/10 text-rust px-1.5 py-0.5 rounded text-[9px]">Sin joins</span>
+            )}
+            {externalSuggested?.length > 0 && (
+              <span className="bg-sea/10 text-sea px-1.5 py-0.5 rounded text-[9px]">{externalSuggested.length} sugerido{externalSuggested.length > 1 ? 's' : ''}</span>
+            )}
+          </button>
+          {bottomOpen && (
+            <div className="px-3 pb-3 space-y-2 max-h-48 overflow-y-auto">
+              {externalJoins?.length > 0 && (
+                <div className="space-y-1">
+                  {externalJoins.map((j, i) => (
+                    <div key={i} className="flex items-center gap-1.5 text-[10px] font-mono bg-lumen-soft/20 rounded px-2 py-1">
+                      <span className="text-ink-faint">{j.type || 'INNER'}</span>
+                      <span className="font-semibold">{j.leftTable}.{j.leftColumn}</span>
+                      <span className="text-ink-faint">=</span>
+                      <span className="font-semibold">{j.rightTable}.{j.rightColumn}</span>
+                      {onJoinsChange && (
+                        <button type="button" onClick={() => onJoinsChange(externalJoins.filter((_, idx) => idx !== i))}
+                          className="ml-auto text-rust hover:text-rust/80">
+                          <Icon name="x" size={11} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {externalSuggested?.length > 0 && externalJoins?.length === 0 && (
+                <div className="text-[10px] text-sea space-y-0.5">
+                  <p className="font-semibold">Relaciones detectadas (click para agregar):</p>
+                  {externalSuggested.map((s, i) => (
+                    <button key={i} type="button"
+                      onClick={() => {
+                        if (!onJoinsChange) return;
+                        const leftAlias = selectedTables.find(t => t.name === s.fromTable)?.alias;
+                        const rightAlias = selectedTables.find(t => t.name === s.toTable)?.alias;
+                        if (leftAlias && rightAlias) {
+                          onJoinsChange([...(externalJoins || []), { type: 'INNER', leftTable: leftAlias, leftColumn: s.fromColumn, rightTable: rightAlias, rightColumn: s.toColumn }]);
+                        }
+                      }}
+                      className="flex items-center gap-1 hover:underline">
+                      <Icon name="plus" size={10} />
+                      {s.fromTable}.{s.fromColumn} → {s.toTable}.{s.toColumn}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {query ? (
+                <pre className="text-[10px] font-mono bg-paper-deep rounded-lg p-2 whitespace-pre-wrap overflow-x-auto">{query}</pre>
+              ) : (
+                <p className="text-[10px] text-ink-faint italic">Selecciona tablas y columnas para generar SQL</p>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

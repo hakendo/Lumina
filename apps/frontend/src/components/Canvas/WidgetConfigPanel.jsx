@@ -733,8 +733,12 @@ function QueryEditorModal({ datasetId, dataset, onClose, onSaved }) {
                     onToggleTable={toggleTable}
                     onToggleColumn={toggleColumn}
                     onSelectAllColumns={selectAllColumns}
-                  onReset={resetToOriginal}
+                    onReset={resetToOriginal}
                     onViewModeChange={setSchemaViewMode}
+                    query={query}
+                    joins={joins}
+                    onJoinsChange={setJoins}
+                    suggestedJoins={suggestedJoins}
                   />
                 </div>
                 <div className="space-y-3">
