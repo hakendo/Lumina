@@ -581,9 +581,9 @@ function QueryEditorModal({ datasetId, dataset, onClose, onSaved }) {
               }
               if (parsedJoins.length) setJoins(parsedJoins);
 
+              let colMap = {};
               const selectMatch = query.match(/^SELECT\s+(?:TOP\s+\d+\s+)?(.+?)\s+FROM\s/is);
               if (selectMatch) {
-                const colMap = {};
                 for (const part of selectMatch[1].split(',').map(s => s.trim())) {
                   const cm = part.match(/(?:\[?)(\w+)(?:\]?)\.(?:\[?)(\w+)(?:\]?)$/);
                   if (cm) {
@@ -593,7 +593,7 @@ function QueryEditorModal({ datasetId, dataset, onClose, onSaved }) {
                 }
                 if (Object.keys(colMap).length) setSelectedColumns(colMap);
               }
-              originalStateRef.current = { tables: found, columns: colMap || {}, joins: parsedJoins, query };
+              originalStateRef.current = { tables: found, columns: colMap, joins: parsedJoins, query };
             }
           }
         })
