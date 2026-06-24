@@ -125,10 +125,14 @@ async function getUserAreaIds(userId) {
 
 router.get('/', auth, async (req, res) => {
   const areaIds = await getUserAreaIds(req.user.id);
-  // superadmin (areaIds===null) sees only their own uploads; regular users see their area datasets
-  const where = areaIds !== null
-    ? { areaId: { in: areaIds }, deletedAt: null }
-    : { uploadedById: req.user.id, deletedAt: null };
+  const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { role: true } });
+  const isSuperadmin = user?.role === 'superadmin';
+  // superadmin sees all datasets; regular users see their area datasets
+  const where = isSuperadmin
+    ? { deletedAt: null }
+    : areaIds !== null
+      ? { areaId: { in: areaIds }, deletedAt: null }
+      : { uploadedById: req.user.id, deletedAt: null };
 
   const datasets = await prisma.dataset.findMany({
     where,
