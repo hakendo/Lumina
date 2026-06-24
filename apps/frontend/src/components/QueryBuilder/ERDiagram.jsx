@@ -33,6 +33,7 @@ function autoLayout(tables, foreignKeys) {
 }
 
 const MODES = [
+  { key: 'query', icon: 'filter', label: 'Query', hint: 'Tablas de la query actual' },
   { key: 'focus', icon: 'search', label: 'Foco', hint: 'Click = ver tabla + relacionadas' },
   { key: 'add', icon: 'plus', label: 'Agregar', hint: 'Click = agregar al diagrama' },
 ];
@@ -41,7 +42,7 @@ function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable
   const allTables = schema?.tables || [];
   const fks = schema?.foreignKeys || [];
   const [search, setSearch] = useState('');
-  const [mode, setMode] = useState('focus');
+  const [mode, setMode] = useState(selectedTables.length > 0 ? 'query' : 'focus');
   const [diagramTables, setDiagramTables] = useState(new Set());
   const [focusTable, setFocusTable] = useState(null);
   const { fitView } = useReactFlow();
@@ -50,18 +51,25 @@ function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable
   const getCols = useCallback((name) => selectedColumns[name] || [], [selectedColumns]);
 
   const visibleTableNames = useMemo(() => {
-    if (mode === 'add' && diagramTables.size > 0) {
-      return diagramTables;
+    if (mode === 'query') {
+      return selectedTables.length > 0
+        ? new Set(selectedTables.map(t => t.name))
+        : new Set(allTables.slice(0, 10).map(t => t.name));
     }
+    if (mode === 'add') {
+      const names = new Set(diagramTables);
+      for (const t of selectedTables) names.add(t.name);
+      return names.size > 0 ? names : new Set(allTables.slice(0, 10).map(t => t.name));
+    }
+    // mode === 'focus'
     if (focusTable) {
       const names = new Set([focusTable]);
       for (const r of getRelatedTables(focusTable, fks)) names.add(r);
       return names;
     }
-    if (selectedTables.length > 0) {
-      return new Set(selectedTables.map(t => t.name));
-    }
-    return new Set(allTables.slice(0, 20).map(t => t.name));
+    return selectedTables.length > 0
+      ? new Set(selectedTables.map(t => t.name))
+      : new Set(allTables.slice(0, 10).map(t => t.name));
   }, [focusTable, selectedTables, fks, allTables, mode, diagramTables]);
 
   const visibleTables = useMemo(() =>
@@ -134,7 +142,9 @@ function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable
   }, [visibleFks, selectedTables]);
 
   const handleSidebarClick = (t) => {
-    if (mode === 'focus') {
+    if (mode === 'query') {
+      onToggleTable(t);
+    } else if (mode === 'focus') {
       setFocusTable(prev => prev === t.name ? null : t.name);
     } else if (mode === 'add') {
       setDiagramTables(prev => {
@@ -204,7 +214,7 @@ function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable
         {/* Mode toggle */}
         <div className="flex gap-0.5 p-1.5 border-b border-line-soft shrink-0">
           {MODES.map(m => (
-            <button key={m.key} type="button" onClick={() => { setMode(m.key); if (m.key === 'focus') setDiagramTables(new Set()); }}
+            <button key={m.key} type="button" onClick={() => { setMode(m.key); setFocusTable(null); if (m.key !== 'add') setDiagramTables(new Set()); }}
               title={m.hint}
               className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 text-[10px] font-medium rounded transition ${
                 mode === m.key ? 'bg-surface text-ink shadow-sm' : 'text-ink-faint hover:text-ink'
@@ -272,7 +282,7 @@ function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable
         <div className="p-2 border-t border-line-soft text-[10px] text-ink-faint shrink-0 space-y-0.5">
           <div>{selectedTables.length} seleccionadas · {visibleTables.length} en diagrama</div>
           <div className="text-[9px] italic">
-            {mode === 'focus' ? 'Click = ver relaciones' : 'Click = agregar + relaciones'}
+            {mode === 'query' ? 'Click = agregar/quitar de query' : mode === 'focus' ? 'Click = ver relaciones' : 'Click = agregar + relaciones'}
             {' · '}Doble-click nodo = seleccionar todo
           </div>
         </div>
