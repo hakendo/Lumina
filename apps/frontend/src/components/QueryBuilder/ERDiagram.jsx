@@ -59,12 +59,7 @@ function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable
       return names;
     }
     if (selectedTables.length > 0) {
-      const names = new Set();
-      for (const t of selectedTables) {
-        names.add(t.name);
-        for (const r of getRelatedTables(t.name, fks)) names.add(r);
-      }
-      return names;
+      return new Set(selectedTables.map(t => t.name));
     }
     return new Set(allTables.slice(0, 20).map(t => t.name));
   }, [focusTable, selectedTables, fks, allTables, mode, diagramTables]);
