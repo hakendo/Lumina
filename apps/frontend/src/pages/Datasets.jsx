@@ -998,6 +998,24 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
       }
       const { data } = await api.post('/datasets/db-connector/introspect', payload);
       setSchema(data);
+
+      if (isEdit && !selectedTables.length && query) {
+        const tablePattern = /(?:FROM|JOIN)\s+(?:\[?\w+\]?\.)?(?:\[?)(\w+)(?:\]?)\s/gi;
+        const found = new Set();
+        let m;
+        while ((m = tablePattern.exec(query))) found.add(m[1]);
+        if (found.size > 0) {
+          const matched = [];
+          for (const name of found) {
+            const t = data.tables.find(st => st.name.toLowerCase() === name.toLowerCase());
+            if (t && !matched.some(s => s.name === t.name)) {
+              matched.push({ name: t.name, schema: t.schema, type: t.type, alias: `t${matched.length}` });
+            }
+          }
+          if (matched.length) setSelectedTables(matched);
+        }
+      }
+
       setMsg(`✓ ${data.tables.length} tablas encontradas`);
       setTimeout(() => setMsg(''), 4000);
     } catch (err) { setMsg(`Error: ${err.response?.data?.error || err.message}`); }
