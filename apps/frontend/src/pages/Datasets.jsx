@@ -1000,19 +1000,37 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
       setSchema(data);
 
       if (isEdit && !selectedTables.length && query) {
-        const tablePattern = /(?:FROM|JOIN)\s+(?:\[?\w+\]?\.)?(?:\[?)(\w+)(?:\]?)\s/gi;
-        const found = new Set();
+        const tablePattern = /(?:FROM|JOIN)\s+(?:\[?\w+\]?\.)?(?:\[?)(\w+)(?:\]?)\s+(?:\[?)(\w+)(?:\]?)/gi;
+        const found = [];
+        const aliasMap = new Map();
         let m;
-        while ((m = tablePattern.exec(query))) found.add(m[1]);
-        if (found.size > 0) {
-          const matched = [];
-          for (const name of found) {
-            const t = data.tables.find(st => st.name.toLowerCase() === name.toLowerCase());
-            if (t && !matched.some(s => s.name === t.name)) {
-              matched.push({ name: t.name, schema: t.schema, type: t.type, alias: `t${matched.length}` });
+        while ((m = tablePattern.exec(query))) {
+          const tableName = m[1];
+          const alias = m[2];
+          if (!found.some(f => f.name.toLowerCase() === tableName.toLowerCase())) {
+            const t = data.tables.find(st => st.name.toLowerCase() === tableName.toLowerCase());
+            if (t) {
+              found.push({ name: t.name, schema: t.schema, type: t.type, alias });
+              aliasMap.set(alias, t.name);
             }
           }
-          if (matched.length) setSelectedTables(matched);
+        }
+        if (found.length) {
+          setSelectedTables(found);
+
+          const joinPattern = /JOIN\s+(?:\[?\w+\]?\.)?(?:\[?\w+\]?)\s+(?:\[?)(\w+)(?:\]?)\s+ON\s+(?:\[?)(\w+)(?:\]?)\.(?:\[?)(\w+)(?:\]?)\s*=\s*(?:\[?)(\w+)(?:\]?)\.(?:\[?)(\w+)(?:\]?)/gi;
+          const parsedJoins = [];
+          let jm;
+          while ((jm = joinPattern.exec(query))) {
+            parsedJoins.push({
+              type: 'INNER',
+              leftTable: jm[2],
+              leftColumn: jm[3],
+              rightTable: jm[4],
+              rightColumn: jm[5],
+            });
+          }
+          if (parsedJoins.length) setJoins(parsedJoins);
         }
       }
 
@@ -1043,7 +1061,6 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
   const buildQueryFromVisual = useCallback(async () => {
     if (!selectedTables.length || (!hasConnFields && !isEdit)) return;
     const completeJoins = joins.filter(j => j.leftTable && j.leftColumn && j.rightTable && j.rightColumn);
-    if (selectedTables.length > 1 && !completeJoins.length) return;
     setBuildingQuery(true);
     try {
       const tables = selectedTables.map((t, i) => ({ name: t.name, schema: t.schema, alias: t.alias || `t${i}` }));
