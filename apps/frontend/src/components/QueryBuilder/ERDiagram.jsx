@@ -32,10 +32,17 @@ function autoLayout(tables, foreignKeys) {
   }));
 }
 
+const MODES = [
+  { key: 'focus', icon: 'search', label: 'Foco', hint: 'Click = ver tabla + relacionadas' },
+  { key: 'add', icon: 'plus', label: 'Agregar', hint: 'Click = agregar al diagrama' },
+];
+
 function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable, onToggleColumn, onSelectAllColumns }) {
   const allTables = schema?.tables || [];
   const fks = schema?.foreignKeys || [];
   const [search, setSearch] = useState('');
+  const [mode, setMode] = useState('focus');
+  const [diagramTables, setDiagramTables] = useState(new Set());
   const [focusTable, setFocusTable] = useState(null);
   const { fitView } = useReactFlow();
 
@@ -43,18 +50,24 @@ function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable
   const getCols = useCallback((name) => selectedColumns[name] || [], [selectedColumns]);
 
   const visibleTableNames = useMemo(() => {
-    if (!focusTable) {
+    if (mode === 'add' && diagramTables.size > 0) {
+      return diagramTables;
+    }
+    if (focusTable) {
+      const names = new Set([focusTable]);
+      for (const r of getRelatedTables(focusTable, fks)) names.add(r);
+      return names;
+    }
+    if (selectedTables.length > 0) {
       const names = new Set();
       for (const t of selectedTables) {
         names.add(t.name);
         for (const r of getRelatedTables(t.name, fks)) names.add(r);
       }
-      return names.size > 0 ? names : new Set(allTables.slice(0, 30).map(t => t.name));
+      return names;
     }
-    const names = new Set([focusTable]);
-    for (const r of getRelatedTables(focusTable, fks)) names.add(r);
-    return names;
-  }, [focusTable, selectedTables, fks, allTables]);
+    return new Set(allTables.slice(0, 20).map(t => t.name));
+  }, [focusTable, selectedTables, fks, allTables, mode, diagramTables]);
 
   const visibleTables = useMemo(() =>
     allTables.filter(t => visibleTableNames.has(t.name)),
@@ -86,7 +99,7 @@ function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable
       },
     }));
     setNodes(newNodes);
-    setTimeout(() => fitView({ padding: 0.1, duration: 300 }), 100);
+    setTimeout(() => fitView({ padding: 0.1, duration: 300 }), 150);
   }, [visibleTables, positions]);
 
   useEffect(() => {
@@ -125,6 +138,51 @@ function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable
     }));
   }, [visibleFks, selectedTables]);
 
+  const handleSidebarClick = (t) => {
+    if (mode === 'focus') {
+      setFocusTable(prev => prev === t.name ? null : t.name);
+    } else if (mode === 'add') {
+      setDiagramTables(prev => {
+        const next = new Set(prev);
+        if (next.has(t.name)) {
+          next.delete(t.name);
+        } else {
+          next.add(t.name);
+          for (const r of getRelatedTables(t.name, fks)) next.add(r);
+        }
+        return next;
+      });
+    }
+  };
+
+  const expandFromNode = useCallback((tableName) => {
+    const related = getRelatedTables(tableName, fks);
+    setDiagramTables(prev => {
+      const next = new Set(prev);
+      next.add(tableName);
+      for (const r of related) next.add(r);
+      return next;
+    });
+    setMode('add');
+  }, [fks]);
+
+  const selectAll = () => {
+    for (const t of allTables) {
+      if (!isSelected(t.name)) onToggleTable(t);
+    }
+  };
+
+  const deselectAll = () => {
+    for (const t of [...selectedTables]) {
+      onToggleTable(t);
+    }
+  };
+
+  const clearDiagram = () => {
+    setDiagramTables(new Set());
+    setFocusTable(null);
+  };
+
   const filteredList = search
     ? allTables.filter(t => t.name.toLowerCase().includes(search.toLowerCase()))
     : allTables;
@@ -137,10 +195,43 @@ function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable
     return counts;
   }, [allTables, fks]);
 
+  const onNodeDoubleClick = useCallback((_, node) => {
+    const t = allTables.find(t => t.name === node.id);
+    if (!t) return;
+    if (!isSelected(t.name)) onToggleTable(t);
+    onSelectAllColumns(t);
+    expandFromNode(t.name);
+  }, [allTables, isSelected, onToggleTable, onSelectAllColumns, expandFromNode]);
+
   return (
     <div className="flex h-full">
-      {/* Sidebar — tabla list */}
       <div className="w-64 shrink-0 border-r border-line-soft flex flex-col bg-paper">
+        {/* Mode toggle */}
+        <div className="flex gap-0.5 p-1.5 border-b border-line-soft shrink-0">
+          {MODES.map(m => (
+            <button key={m.key} type="button" onClick={() => { setMode(m.key); if (m.key === 'focus') setDiagramTables(new Set()); }}
+              title={m.hint}
+              className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 text-[10px] font-medium rounded transition ${
+                mode === m.key ? 'bg-surface text-ink shadow-sm' : 'text-ink-faint hover:text-ink'
+              }`}>
+              <Icon name={m.icon} size={11} />{m.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Actions */}
+        <div className="flex gap-1 px-2 py-1.5 border-b border-line-soft shrink-0">
+          <button type="button" onClick={selectAll}
+            className="text-[10px] text-lumen-deep hover:underline">Seleccionar todo</button>
+          <span className="text-ink-faint text-[10px]">·</span>
+          <button type="button" onClick={deselectAll}
+            className="text-[10px] text-rust hover:underline">Ninguna</button>
+          <span className="text-ink-faint text-[10px]">·</span>
+          <button type="button" onClick={clearDiagram}
+            className="text-[10px] text-ink-faint hover:underline">Limpiar</button>
+        </div>
+
+        {/* Search */}
         <div className="p-2 border-b border-line-soft shrink-0">
           <input
             value={search}
@@ -149,9 +240,12 @@ function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable
             className="field field-sm w-full"
           />
         </div>
+
+        {/* Table list */}
         <div className="flex-1 overflow-y-auto">
           {filteredList.map(t => {
             const isFocused = focusTable === t.name;
+            const inDiagram = visibleTableNames.has(t.name);
             const sel = isSelected(t.name);
             const rels = relatedCount.get(t.name) || 0;
             return (
@@ -159,14 +253,18 @@ function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable
                 className={`flex items-center gap-1.5 px-2 py-1 text-[11px] cursor-pointer border-l-2 transition ${
                   isFocused ? 'border-lumen bg-lumen-soft/30 font-semibold' :
                   sel ? 'border-lumen/50 bg-lumen-soft/10' :
+                  inDiagram ? 'border-sea/40 bg-sea/5' :
                   'border-transparent hover:bg-paper-deep/60'
                 }`}
-                onClick={() => setFocusTable(isFocused ? null : t.name)}>
+                onClick={() => handleSidebarClick(t)}>
                 <input type="checkbox" checked={sel}
                   onChange={(e) => { e.stopPropagation(); onToggleTable(t); }}
                   className="accent-lumen shrink-0" />
                 <Icon name={t.type === 'view' ? 'eye' : 'table'} size={11} className="text-ink-faint shrink-0" />
                 <span className="truncate flex-1">{t.name}</span>
+                {inDiagram && !sel && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-sea shrink-0" title="En diagrama" />
+                )}
                 {rels > 0 && (
                   <span className="text-[9px] text-ink-faint bg-paper-deep px-1 rounded shrink-0">{rels}</span>
                 )}
@@ -174,8 +272,14 @@ function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable
             );
           })}
         </div>
-        <div className="p-2 border-t border-line-soft text-[10px] text-ink-faint shrink-0">
-          {selectedTables.length} seleccionadas · {visibleTables.length} en diagrama
+
+        {/* Footer */}
+        <div className="p-2 border-t border-line-soft text-[10px] text-ink-faint shrink-0 space-y-0.5">
+          <div>{selectedTables.length} seleccionadas · {visibleTables.length} en diagrama</div>
+          <div className="text-[9px] italic">
+            {mode === 'focus' ? 'Click = ver relaciones' : 'Click = agregar + relaciones'}
+            {' · '}Doble-click nodo = seleccionar todo
+          </div>
         </div>
       </div>
 
@@ -186,6 +290,7 @@ function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable
           edges={edges}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
+          onNodeDoubleClick={onNodeDoubleClick}
           nodeTypes={nodeTypes}
           fitView
           minZoom={0.05}
