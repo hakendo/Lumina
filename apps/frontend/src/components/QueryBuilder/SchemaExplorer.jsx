@@ -27,7 +27,7 @@ export default function SchemaExplorer({ schema, selectedTables, selectedColumns
 
   if (viewMode === 'diagram') {
     return (
-      <div className="flex flex-col h-full">
+      <div className="flex flex-col" style={{ height: '100%', minHeight: 500 }}>
         <div className="flex gap-1 bg-paper-deep rounded-md p-0.5 mb-2 shrink-0">
           <button type="button" onClick={() => changeView('list')}
             className="flex-1 px-2 py-1 text-[10px] font-medium rounded transition text-ink-faint hover:text-ink">

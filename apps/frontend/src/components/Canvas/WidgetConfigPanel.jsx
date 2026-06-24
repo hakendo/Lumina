@@ -673,7 +673,7 @@ function QueryEditorModal({ datasetId, dataset, onClose, onSaved }) {
               </div>
             ) : schema ? (
               <div className={schemaViewMode === 'diagram' ? 'space-y-3' : 'grid grid-cols-1 md:grid-cols-[2fr_3fr] gap-3 min-h-[400px]'}>
-                <div className={`border border-line-soft rounded-xl bg-paper-deep/50 p-2 flex flex-col ${schemaViewMode === 'diagram' ? 'min-h-[500px]' : 'max-h-[60vh]'}`}>
+                <div className={`border border-line-soft rounded-xl bg-paper-deep/50 p-2 flex flex-col ${schemaViewMode === 'diagram' ? '' : 'max-h-[60vh]'}`} style={schemaViewMode === 'diagram' ? { height: '60vh', minHeight: 500 } : undefined}>
                   <SchemaExplorer
                     schema={schema}
                     selectedTables={selectedTables}

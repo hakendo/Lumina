@@ -1216,7 +1216,7 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
 
           {schema && (
             <div className={schemaViewMode === 'diagram' ? 'space-y-3' : 'grid grid-cols-1 md:grid-cols-[2fr_3fr] gap-3'}>
-              <div className={`border border-line-soft rounded-xl bg-paper-deep/50 p-2 flex flex-col ${schemaViewMode === 'diagram' ? 'min-h-[500px]' : 'max-h-[70vh]'}`}>
+              <div className={`border border-line-soft rounded-xl bg-paper-deep/50 p-2 flex flex-col ${schemaViewMode === 'diagram' ? '' : 'max-h-[70vh]'}`} style={schemaViewMode === 'diagram' ? { height: '70vh', minHeight: 550 } : undefined}>
                 <SchemaExplorer
                   schema={schema}
                   selectedTables={selectedTables}

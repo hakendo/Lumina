@@ -104,7 +104,7 @@ export default function ERDiagram({ schema, selectedTables, selectedColumns, onT
   }, [filtered, nodes]);
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col" style={{ height: '100%', minHeight: 500 }}>
       <input
         value={search}
         onChange={(e) => setSearch(e.target.value)}
@@ -116,13 +116,10 @@ export default function ERDiagram({ schema, selectedTables, selectedColumns, onT
           {filtered.slice(0, 8).map(t => (
             <button key={t.name} type="button"
               onClick={() => {
-                const node = nodes.find(n => n.id === t.name);
-                if (node) {
-                  setNodes(prev => prev.map(n => n.id === t.name
-                    ? { ...n, selected: true }
-                    : { ...n, selected: false }
-                  ));
-                }
+                setNodes(prev => prev.map(n => n.id === t.name
+                  ? { ...n, selected: true }
+                  : { ...n, selected: false }
+                ));
                 setSearch('');
               }}
               className={`text-[10px] px-1.5 py-0.5 rounded border transition ${
@@ -134,7 +131,7 @@ export default function ERDiagram({ schema, selectedTables, selectedColumns, onT
           {filtered.length > 8 && <span className="text-[10px] text-ink-faint">+{filtered.length - 8}</span>}
         </div>
       )}
-      <div className="flex-1 rounded-lg overflow-hidden border border-line-soft" style={{ minHeight: 450 }}>
+      <div className="rounded-lg overflow-hidden border border-line-soft" style={{ flex: 1, minHeight: 400, height: '100%' }}>
         <ReactFlow
           nodes={nodes}
           edges={edges}
