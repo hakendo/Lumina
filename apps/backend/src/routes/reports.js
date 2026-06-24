@@ -36,6 +36,8 @@ async function getUserAreaIds(userId) {
 async function getRole(report, userId) {
   if (!report) return null;
   if (report.ownerId === userId) return 'owner';
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+  if (user?.role === 'superadmin') return 'owner';
   const share = await prisma.reportShare.findUnique({
     where: { reportId_userId: { reportId: report.id, userId } },
   });
@@ -44,6 +46,15 @@ async function getRole(report, userId) {
 }
 
 const CAN_EDIT = new Set(['owner', 'editor']);
+
+async function isSuperadmin(userId) {
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+  return u?.role === 'superadmin';
+}
+
+async function isOwnerOrSuperadmin(report, userId) {
+  return report.ownerId === userId || await isSuperadmin(userId);
+}
 
 // Verifica que el usuario tenga acceso al área (miembro o superadmin)
 async function userCanAccessArea(userId, areaId) {
@@ -92,7 +103,9 @@ async function getEffectivePolicy(report, orgId) {
 router.get('/', auth, async (req, res) => {
   const [reports, favIds] = await Promise.all([
     prisma.report.findMany({
-      where: { ownerId: req.user.id, isTemplate: false, deletedAt: null },
+      where: await isSuperadmin(req.user.id)
+        ? { isTemplate: false, deletedAt: null }
+        : { ownerId: req.user.id, isTemplate: false, deletedAt: null },
       include: {
         area: { select: { id: true, name: true } },
         _count: { select: { widgets: true, pages: true } },
@@ -234,7 +247,7 @@ router.get('/favorites', auth, async (req, res) => {
 
 router.post('/:id/favorite', auth, async (req, res) => {
   const report = await prisma.report.findUnique({ where: { id: req.params.id } });
-  if (!report || (!report.isPublic && report.ownerId !== req.user.id)) {
+  if (!report || (!report.isPublic && !(await isOwnerOrSuperadmin(report, req.user.id)))) {
     return res.status(404).json({ error: 'Not found' });
   }
   const existing = await prisma.userFavorite.findUnique({
@@ -410,7 +423,7 @@ router.put('/:id', auth, async (req, res) => {
 
 router.delete('/:id', auth, async (req, res) => {
   const report = await prisma.report.findUnique({ where: { id: req.params.id } });
-  if (!report || report.ownerId !== req.user.id) return res.status(404).json({ error: 'Not found' });
+  if (!report || !(await isOwnerOrSuperadmin(report, req.user.id))) return res.status(404).json({ error: 'Not found' });
   // Soft-delete: va a papelera, el Org Admin puede recuperarlo
   await prisma.report.update({ where: { id: report.id }, data: { deletedAt: new Date() } });
   res.json({ ok: true });
@@ -420,7 +433,7 @@ router.delete('/:id', auth, async (req, res) => {
 
 router.post('/:id/publish', auth, async (req, res) => {
   const report = await prisma.report.findUnique({ where: { id: req.params.id } });
-  if (!report || report.ownerId !== req.user.id) return res.status(404).json({ error: 'Not found' });
+  if (!report || !(await isOwnerOrSuperadmin(report, req.user.id))) return res.status(404).json({ error: 'Not found' });
 
   const { areaId } = req.body; // null = despublicar, string = publicar al área
 
@@ -569,7 +582,7 @@ router.post('/:id/duplicate', auth, async (req, res) => {
 
 router.get('/:id/shares', auth, async (req, res) => {
   const report = await prisma.report.findUnique({ where: { id: req.params.id } });
-  if (!report || report.ownerId !== req.user.id) return res.status(404).json({ error: 'Not found' });
+  if (!report || !(await isOwnerOrSuperadmin(report, req.user.id))) return res.status(404).json({ error: 'Not found' });
   const shares = await prisma.reportShare.findMany({
     where: { reportId: report.id },
     include: { user: { select: { id: true, name: true, email: true } } },
@@ -580,7 +593,7 @@ router.get('/:id/shares', auth, async (req, res) => {
 
 router.post('/:id/shares', auth, async (req, res) => {
   const report = await prisma.report.findUnique({ where: { id: req.params.id } });
-  if (!report || report.ownerId !== req.user.id) return res.status(404).json({ error: 'Not found' });
+  if (!report || !(await isOwnerOrSuperadmin(report, req.user.id))) return res.status(404).json({ error: 'Not found' });
 
   const policy = await getEffectivePolicy(report, req.user.orgId);
   if (!policy.allowExternalShare) return res.status(403).json({ error: 'Compartir externo deshabilitado por la política de la organización' });
@@ -621,7 +634,7 @@ router.post('/:id/shares', auth, async (req, res) => {
 
 router.delete('/:id/shares/:shareId', auth, async (req, res) => {
   const report = await prisma.report.findUnique({ where: { id: req.params.id } });
-  if (!report || report.ownerId !== req.user.id) return res.status(404).json({ error: 'Not found' });
+  if (!report || !(await isOwnerOrSuperadmin(report, req.user.id))) return res.status(404).json({ error: 'Not found' });
   const share = await prisma.reportShare.findUnique({ where: { id: req.params.shareId } });
   if (!share || share.reportId !== report.id) return res.status(404).json({ error: 'Share not found' });
   await prisma.reportShare.delete({ where: { id: share.id } });
@@ -632,7 +645,7 @@ router.delete('/:id/shares/:shareId', auth, async (req, res) => {
 
 router.post('/:id/share', auth, async (req, res) => {
   const report = await prisma.report.findUnique({ where: { id: req.params.id } });
-  if (!report || report.ownerId !== req.user.id) return res.status(404).json({ error: 'Not found' });
+  if (!report || !(await isOwnerOrSuperadmin(report, req.user.id))) return res.status(404).json({ error: 'Not found' });
 
   const isPublic = !report.isPublic;
   if (isPublic) {
@@ -652,7 +665,7 @@ router.get('/:id/export/pdf', auth, async (req, res) => {
     where: { id: req.params.id },
     include: { pages: { orderBy: { order: 'asc' }, select: { id: true } } },
   });
-  if (!report || report.ownerId !== req.user.id) return res.status(404).json({ error: 'Not found' });
+  if (!report || !(await isOwnerOrSuperadmin(report, req.user.id))) return res.status(404).json({ error: 'Not found' });
 
   // SEC-001: short-lived (2 min), purpose-scoped token — never expose the session JWT in a URL
   const printToken = jwt.sign(
