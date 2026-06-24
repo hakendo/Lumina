@@ -35,7 +35,7 @@ function autoLayout(tables, foreignKeys) {
 const MODES = [
   { key: 'query', icon: 'filter', label: 'Query', hint: 'Tablas de la query actual' },
   { key: 'focus', icon: 'search', label: 'Foco', hint: 'Click = ver tabla + relacionadas' },
-  { key: 'add', icon: 'plus', label: 'Agregar', hint: 'Click = agregar al diagrama' },
+  { key: 'add', icon: 'layers', label: 'Esquema', hint: 'Click = explorar esquema completo' },
 ];
 
 function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable, onToggleColumn, onSelectAllColumns }) {
@@ -52,14 +52,12 @@ function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable
 
   const visibleTableNames = useMemo(() => {
     if (mode === 'query') {
-      return selectedTables.length > 0
-        ? new Set(selectedTables.map(t => t.name))
-        : new Set(allTables.slice(0, 10).map(t => t.name));
+      return new Set(selectedTables.map(t => t.name));
     }
     if (mode === 'add') {
       const names = new Set(diagramTables);
       for (const t of selectedTables) names.add(t.name);
-      return names.size > 0 ? names : new Set(allTables.slice(0, 10).map(t => t.name));
+      return names;
     }
     // mode === 'focus'
     if (focusTable) {
@@ -67,9 +65,7 @@ function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable
       for (const r of getRelatedTables(focusTable, fks)) names.add(r);
       return names;
     }
-    return selectedTables.length > 0
-      ? new Set(selectedTables.map(t => t.name))
-      : new Set(allTables.slice(0, 10).map(t => t.name));
+    return new Set(selectedTables.map(t => t.name));
   }, [focusTable, selectedTables, fks, allTables, mode, diagramTables]);
 
   const visibleTables = useMemo(() =>
@@ -172,19 +168,26 @@ function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable
   }, [fks]);
 
   const selectAll = () => {
+    if (!confirm('¿Seleccionar todas las tablas? Esto puede generar una query muy grande.')) return;
     for (const t of allTables) {
       if (!isSelected(t.name)) onToggleTable(t);
     }
   };
 
   const deselectAll = () => {
+    if (selectedTables.length === 0) return;
+    if (!confirm('¿Deseleccionar todas las tablas? Se perderá la selección actual de columnas y joins.')) return;
     for (const t of [...selectedTables]) {
       onToggleTable(t);
     }
+    setDiagramTables(new Set());
+    setFocusTable(null);
   };
 
   const clearDiagram = () => {
-    setDiagramTables(new Set());
+    if (mode === 'add') {
+      setDiagramTables(new Set());
+    }
     setFocusTable(null);
   };
 
@@ -282,7 +285,7 @@ function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable
         <div className="p-2 border-t border-line-soft text-[10px] text-ink-faint shrink-0 space-y-0.5">
           <div>{selectedTables.length} seleccionadas · {visibleTables.length} en diagrama</div>
           <div className="text-[9px] italic">
-            {mode === 'query' ? 'Click = agregar/quitar de query' : mode === 'focus' ? 'Click = ver relaciones' : 'Click = agregar + relaciones'}
+            {mode === 'query' ? 'Click = agregar/quitar de query' : mode === 'focus' ? 'Click = ver relaciones' : 'Click = explorar esquema'}
             {' · '}Doble-click nodo = seleccionar todo
           </div>
         </div>
