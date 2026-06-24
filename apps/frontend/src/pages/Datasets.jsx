@@ -1215,7 +1215,7 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
 
           {schema && (
             <div className="grid grid-cols-1 md:grid-cols-[2fr_3fr] gap-3">
-              <div className="border border-line-soft rounded-xl bg-paper-deep/50 p-2 max-h-80 flex flex-col">
+              <div className="border border-line-soft rounded-xl bg-paper-deep/50 p-2 max-h-[70vh] flex flex-col">
                 <SchemaExplorer
                   schema={schema}
                   selectedTables={selectedTables}

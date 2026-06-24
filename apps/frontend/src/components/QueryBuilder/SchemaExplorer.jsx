@@ -1,7 +1,10 @@
-import { useState } from 'react';
+import { useState, lazy, Suspense } from 'react';
 import { Icon } from '../ui';
 
+const ERDiagram = lazy(() => import('./ERDiagram'));
+
 export default function SchemaExplorer({ schema, selectedTables, selectedColumns, onToggleTable, onToggleColumn, onSelectAllColumns }) {
+  const [viewMode, setViewMode] = useState('list');
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState(new Set());
 
@@ -21,8 +24,45 @@ export default function SchemaExplorer({ schema, selectedTables, selectedColumns
   const isTableSelected = (t) => selectedTables.some(s => s.name === t.name);
   const isColSelected = (tableName, colName) => (selectedColumns[tableName] || []).includes(colName);
 
+  if (viewMode === 'diagram') {
+    return (
+      <div className="flex flex-col h-full">
+        <div className="flex gap-1 bg-paper-deep rounded-md p-0.5 mb-2 shrink-0">
+          <button type="button" onClick={() => setViewMode('list')}
+            className="flex-1 px-2 py-1 text-[10px] font-medium rounded transition text-ink-faint hover:text-ink">
+            <Icon name="grid" size={11} className="inline mr-1" />Lista
+          </button>
+          <button type="button" onClick={() => setViewMode('diagram')}
+            className="flex-1 px-2 py-1 text-[10px] font-medium rounded transition bg-surface text-ink shadow-sm">
+            <Icon name="layers" size={11} className="inline mr-1" />Diagrama
+          </button>
+        </div>
+        <Suspense fallback={<div className="flex-1 flex items-center justify-center text-xs text-ink-faint">Cargando diagrama…</div>}>
+          <ERDiagram
+            schema={schema}
+            selectedTables={selectedTables}
+            selectedColumns={selectedColumns}
+            onToggleTable={onToggleTable}
+            onToggleColumn={onToggleColumn}
+            onSelectAllColumns={onSelectAllColumns}
+          />
+        </Suspense>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full">
+      <div className="flex gap-1 bg-paper-deep rounded-md p-0.5 mb-2 shrink-0">
+        <button type="button" onClick={() => setViewMode('list')}
+          className="flex-1 px-2 py-1 text-[10px] font-medium rounded transition bg-surface text-ink shadow-sm">
+          <Icon name="grid" size={11} className="inline mr-1" />Lista
+        </button>
+        <button type="button" onClick={() => setViewMode('diagram')}
+          className="flex-1 px-2 py-1 text-[10px] font-medium rounded transition text-ink-faint hover:text-ink">
+          <Icon name="layers" size={11} className="inline mr-1" />Diagrama
+        </button>
+      </div>
       <input
         value={search}
         onChange={(e) => setSearch(e.target.value)}
