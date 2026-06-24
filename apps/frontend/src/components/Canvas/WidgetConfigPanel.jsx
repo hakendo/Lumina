@@ -542,6 +542,7 @@ function QueryEditorModal({ datasetId, dataset, onClose, onSaved }) {
   const [queryLimit, setQueryLimit] = useState(dataset?.config?.visualDefinition?.limit || null);
   const [query, setQuery] = useState(dataset?.config?.query || '');
   const [queryMode, setQueryMode] = useState(dataset?.config?.visualDefinition ? 'visual' : 'direct');
+  const originalStateRef = useRef(null);
   const [buildingQuery, setBuildingQuery] = useState(false);
   const [estimating, setEstimating] = useState(false);
   const [costWarnings, setCostWarnings] = useState([]);
@@ -592,6 +593,7 @@ function QueryEditorModal({ datasetId, dataset, onClose, onSaved }) {
                 }
                 if (Object.keys(colMap).length) setSelectedColumns(colMap);
               }
+              originalStateRef.current = { tables: found, columns: colMap || {}, joins: parsedJoins, query };
             }
           }
         })
@@ -648,6 +650,16 @@ function QueryEditorModal({ datasetId, dataset, onClose, onSaved }) {
       const cols = prev[tableName] || [];
       return { ...prev, [tableName]: cols.includes(colName) ? cols.filter(c => c !== colName) : [...cols, colName] };
     });
+  };
+
+  const resetToOriginal = () => {
+    const orig = originalStateRef.current;
+    if (orig) {
+      setSelectedTables(orig.tables);
+      setSelectedColumns(orig.columns);
+      setJoins(orig.joins);
+      setQuery(orig.query);
+    }
   };
 
   const selectAllColumns = (t) => {
@@ -721,6 +733,7 @@ function QueryEditorModal({ datasetId, dataset, onClose, onSaved }) {
                     onToggleTable={toggleTable}
                     onToggleColumn={toggleColumn}
                     onSelectAllColumns={selectAllColumns}
+                  onReset={resetToOriginal}
                     onViewModeChange={setSchemaViewMode}
                   />
                 </div>

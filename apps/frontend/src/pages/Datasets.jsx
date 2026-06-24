@@ -968,6 +968,7 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
   const [schemaViewMode, setSchemaViewMode] = useState('list');
   const [estimating, setEstimating] = useState(false);
   const [costWarnings, setCostWarnings] = useState([]);
+  const originalStateRef = useRef(null);
   const debounceRef = useRef(null);
 
   const handleDbTypeChange = (type) => {
@@ -1050,6 +1051,8 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
             }
             if (Object.keys(colMap).length) setSelectedColumns(colMap);
           }
+
+          originalStateRef.current = { tables: found, columns: colMap || {}, joins: parsedJoins, query };
         }
       }
 
@@ -1108,6 +1111,16 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
     debounceRef.current = setTimeout(buildQueryFromVisual, 500);
     return () => clearTimeout(debounceRef.current);
   }, [selectedTables, selectedColumns, joins, queryLimit, queryMode, buildQueryFromVisual]);
+
+  const resetToOriginal = () => {
+    const orig = originalStateRef.current;
+    if (orig) {
+      setSelectedTables(orig.tables);
+      setSelectedColumns(orig.columns);
+      setJoins(orig.joins);
+      setQuery(orig.query);
+    }
+  };
 
   const toggleTable = (t) => {
     setSelectedTables(prev => {
@@ -1279,6 +1292,7 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
                   onToggleColumn={toggleColumn}
                   onSelectAllColumns={selectAllColumns}
                   onViewModeChange={setSchemaViewMode}
+                  onReset={resetToOriginal}
                 />
               </div>
               <div className="space-y-3">

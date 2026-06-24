@@ -4,7 +4,7 @@ import { Icon } from '../ui';
 
 const ERDiagram = lazy(() => import('./ERDiagram'));
 
-export default function SchemaExplorer({ schema, selectedTables, selectedColumns, onToggleTable, onToggleColumn, onSelectAllColumns, onViewModeChange }) {
+export default function SchemaExplorer({ schema, selectedTables, selectedColumns, onToggleTable, onToggleColumn, onSelectAllColumns, onViewModeChange, onReset }) {
   const [viewMode, setViewMode] = useState('list');
   const changeView = (mode) => { setViewMode(mode); onViewModeChange?.(mode); };
   const [search, setSearch] = useState('');
@@ -65,6 +65,7 @@ export default function SchemaExplorer({ schema, selectedTables, selectedColumns
                   onToggleTable={onToggleTable}
                   onToggleColumn={onToggleColumn}
                   onSelectAllColumns={onSelectAllColumns}
+                  onReset={onReset}
                 />
               </Suspense>
             </div>

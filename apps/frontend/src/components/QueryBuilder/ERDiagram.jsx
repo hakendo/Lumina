@@ -38,7 +38,7 @@ const MODES = [
   { key: 'add', icon: 'layers', label: 'Esquema', hint: 'Click = explorar esquema completo' },
 ];
 
-function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable, onToggleColumn, onSelectAllColumns }) {
+function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable, onToggleColumn, onSelectAllColumns, onReset }) {
   const allTables = schema?.tables || [];
   const fks = schema?.foreignKeys || [];
   const [search, setSearch] = useState('');
@@ -185,7 +185,9 @@ function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable
   };
 
   const clearDiagram = () => {
-    if (mode === 'add') {
+    if (mode === 'query' && onReset) {
+      onReset();
+    } else if (mode === 'add') {
       setDiagramTables(new Set());
     }
     setFocusTable(null);
