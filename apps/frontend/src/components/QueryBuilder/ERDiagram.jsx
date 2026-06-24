@@ -206,13 +206,13 @@ function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable
     return counts;
   }, [allTables, fks]);
 
-  const onNodeDoubleClick = useCallback((_, node) => {
+  const onNodeDoubleClick = useCallback((e, node) => {
+    e.stopPropagation();
     const t = allTables.find(t => t.name === node.id);
     if (!t) return;
     if (!isSelected(t.name)) onToggleTable(t);
     onSelectAllColumns(t);
-    expandFromNode(t.name);
-  }, [allTables, isSelected, onToggleTable, onSelectAllColumns, expandFromNode]);
+  }, [allTables, isSelected, onToggleTable, onSelectAllColumns]);
 
   return (
     <div className="flex h-full">

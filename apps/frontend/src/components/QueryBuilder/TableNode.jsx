@@ -2,7 +2,8 @@ import { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { Icon } from '../ui';
 
-const MAX_VISIBLE_COLS = 15;
+const MAX_VISIBLE_COLS = 50;
+const INITIAL_VISIBLE = 20;
 
 function TableNode({ data }) {
   const { table, selected, selectedCols = [], onToggleTable, onToggleColumn, onSelectAll } = data;
@@ -17,8 +18,8 @@ function TableNode({ data }) {
       <div className={`flex items-center gap-1.5 px-2 py-1.5 rounded-t-lg cursor-pointer select-none ${
         table.type === 'view' ? 'bg-sea/10' : 'bg-lumen-soft/60'
       }`}
-        onClick={() => onToggleTable(table)}>
-        <input type="checkbox" checked={selected} readOnly className="accent-lumen pointer-events-none" />
+        onClick={(e) => e.stopPropagation()}>
+        <input type="checkbox" checked={selected} onChange={() => onToggleTable(table)} className="accent-lumen cursor-pointer" />
         <Icon name={table.type === 'view' ? 'eye' : 'table'} size={12} className="text-ink-faint shrink-0" />
         <span className="font-semibold text-ink truncate flex-1">{table.name}</span>
         <span className={`text-[9px] px-1 py-0.5 rounded uppercase font-mono ${
@@ -28,11 +29,11 @@ function TableNode({ data }) {
         </span>
       </div>
 
-      <div className="divide-y divide-line-soft/50">
+      <div className="divide-y divide-line-soft/50 max-h-64 overflow-y-auto">
         {selected && (
-          <button type="button" onClick={() => onSelectAll(table)}
-            className="w-full text-[10px] text-lumen-deep hover:bg-lumen-soft/20 px-2 py-0.5 text-left">
-            Seleccionar todas
+          <button type="button" onClick={(e) => { e.stopPropagation(); onSelectAll(table); }}
+            className="w-full text-[10px] text-lumen-deep hover:bg-lumen-soft/20 px-2 py-0.5 text-left sticky top-0 bg-surface z-10">
+            Seleccionar todas ({cols.length})
           </button>
         )}
         {visible.map((col, i) => {
