@@ -529,6 +529,7 @@ function ColSelect({ value, onChange, columns, placeholder = '— Columna —' }
 function QueryEditorModal({ datasetId, dataset, onClose, onSaved }) {
   const [schema, setSchema] = useState(null);
   const [schemaLoading, setSchemaLoading] = useState(false);
+  const [schemaViewMode, setSchemaViewMode] = useState('list');
   const [selectedTables, setSelectedTables] = useState(dataset?.config?.visualDefinition?.tables || []);
   const [selectedColumns, setSelectedColumns] = useState(() => {
     const vd = dataset?.config?.visualDefinition;
@@ -671,8 +672,8 @@ function QueryEditorModal({ datasetId, dataset, onClose, onSaved }) {
                 <Icon name="refresh" size={14} className="animate-spin" /> Cargando esquema…
               </div>
             ) : schema ? (
-              <div className="grid grid-cols-1 md:grid-cols-[2fr_3fr] gap-3 min-h-[400px]">
-                <div className="border border-line-soft rounded-xl bg-paper-deep/50 p-2 max-h-[60vh] flex flex-col">
+              <div className={schemaViewMode === 'diagram' ? 'space-y-3' : 'grid grid-cols-1 md:grid-cols-[2fr_3fr] gap-3 min-h-[400px]'}>
+                <div className={`border border-line-soft rounded-xl bg-paper-deep/50 p-2 flex flex-col ${schemaViewMode === 'diagram' ? 'min-h-[500px]' : 'max-h-[60vh]'}`}>
                   <SchemaExplorer
                     schema={schema}
                     selectedTables={selectedTables}
@@ -680,6 +681,7 @@ function QueryEditorModal({ datasetId, dataset, onClose, onSaved }) {
                     onToggleTable={toggleTable}
                     onToggleColumn={toggleColumn}
                     onSelectAllColumns={selectAllColumns}
+                    onViewModeChange={setSchemaViewMode}
                   />
                 </div>
                 <div className="space-y-3">

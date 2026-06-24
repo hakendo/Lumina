@@ -134,7 +134,7 @@ export default function ERDiagram({ schema, selectedTables, selectedColumns, onT
           {filtered.length > 8 && <span className="text-[10px] text-ink-faint">+{filtered.length - 8}</span>}
         </div>
       )}
-      <div className="flex-1 rounded-lg overflow-hidden border border-line-soft" style={{ minHeight: 300 }}>
+      <div className="flex-1 rounded-lg overflow-hidden border border-line-soft" style={{ minHeight: 450 }}>
         <ReactFlow
           nodes={nodes}
           edges={edges}

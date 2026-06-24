@@ -965,6 +965,7 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
   const [joins, setJoins] = useState(initial.config?.visualDefinition?.joins || []);
   const [queryLimit, setQueryLimit] = useState(initial.config?.visualDefinition?.limit || null);
   const [buildingQuery, setBuildingQuery] = useState(false);
+  const [schemaViewMode, setSchemaViewMode] = useState('list');
   const [estimating, setEstimating] = useState(false);
   const [costWarnings, setCostWarnings] = useState([]);
   const debounceRef = useRef(null);
@@ -1214,8 +1215,8 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
           </Button>
 
           {schema && (
-            <div className="grid grid-cols-1 md:grid-cols-[2fr_3fr] gap-3">
-              <div className="border border-line-soft rounded-xl bg-paper-deep/50 p-2 max-h-[70vh] flex flex-col">
+            <div className={schemaViewMode === 'diagram' ? 'space-y-3' : 'grid grid-cols-1 md:grid-cols-[2fr_3fr] gap-3'}>
+              <div className={`border border-line-soft rounded-xl bg-paper-deep/50 p-2 flex flex-col ${schemaViewMode === 'diagram' ? 'min-h-[500px]' : 'max-h-[70vh]'}`}>
                 <SchemaExplorer
                   schema={schema}
                   selectedTables={selectedTables}
@@ -1223,6 +1224,7 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
                   onToggleTable={toggleTable}
                   onToggleColumn={toggleColumn}
                   onSelectAllColumns={selectAllColumns}
+                  onViewModeChange={setSchemaViewMode}
                 />
               </div>
               <div className="space-y-3">
