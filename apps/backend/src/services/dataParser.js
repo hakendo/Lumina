@@ -58,11 +58,17 @@ async function getPooledMssql(connectionString) {
   const key = poolKey('mssql', connectionString);
   if (pools.has(key)) {
     const entry = pools.get(key);
-    entry.lastUsed = Date.now();
-    return entry.pool;
+    if (entry.pool.connected) {
+      entry.lastUsed = Date.now();
+      return entry.pool;
+    }
+    entry.close().catch(() => {});
+    pools.delete(key);
   }
   const sql = require('mssql');
-  const pool = await sql.connect(connectionString);
+  const pool = new sql.ConnectionPool(connectionString);
+  pool.on('error', () => { pools.delete(key); });
+  await pool.connect();
   pools.set(key, { pool, lastUsed: Date.now(), close: () => pool.close() });
   return pool;
 }
