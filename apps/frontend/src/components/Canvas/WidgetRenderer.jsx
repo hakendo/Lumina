@@ -91,6 +91,12 @@ const WidgetRenderer = memo(function WidgetRenderer({ widget, publicSlug }) {
 
   const dsId = widget.datasetId;
 
+  const loadingRows = !!dsId && !useAggregate && rawData === null;
+  const loadingAgg = useAggregate && !!aggField && aggResult === null;
+  if (loadingRows || loadingAgg) {
+    return <WidgetSkeleton />;
+  }
+
   if (widget.widgetType === 'kpi') {
     return <KPIWidget config={widget.config || {}} data={data} aggResult={aggResult} datasetId={dsId} />;
   }

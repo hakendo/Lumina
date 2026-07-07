@@ -333,6 +333,11 @@ export default function WidgetConfigPanel({ widget, onClose }) {
       )}
 
       {/* ── Table column chips ── */}
+      {widget.widgetType === 'table' && datasetId && columnsWithTypes.length === 0 && (
+        <div className="px-3 py-2.5 border-b border-line-soft shrink-0">
+          <p className="text-[11px] text-ink-faint/60 italic py-1">Cargando columnas…</p>
+        </div>
+      )}
       {widget.widgetType === 'table' && datasetId && columnsWithTypes.length > 0 && (
         <div className="px-3 py-2.5 border-b border-line-soft shrink-0">
           <p className="text-[10px] font-semibold text-ink-faint uppercase tracking-widest mb-2">Columnas visibles</p>
