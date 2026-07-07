@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import api from '../lib/api';
 import { invalidateDatasetCache } from '../lib/datasetCache';
 import { AppHeader, Button, ConfirmModal, EmptyState, Field, Icon, Modal, SkeletonCards } from '../components/ui';
@@ -156,6 +157,35 @@ export default function Datasets() {
       setSyncingAll(false);
     }
   };
+
+  if (editTarget) {
+    return (
+      <div className="min-h-screen paper-bg">
+        <AppHeader />
+        <main className="max-w-6xl mx-auto px-6 py-10">
+          <button type="button" onClick={() => setEditTarget(null)}
+            className="flex items-center gap-1.5 text-sm text-ink-faint hover:text-ink transition mb-4">
+            <Icon name="arrowLeft" size={14} /> Volver a datasets
+          </button>
+          <h2 className="font-display text-2xl text-ink mb-6">Editar · {editTarget.name}</h2>
+          <div className="bg-surface border border-line-soft rounded-xl shadow-card p-5">
+            {editTarget.sourceType === 'api' && (
+              <APIForm initial={editTarget} onCreated={() => {}} isSuperadmin={isSuperadmin}
+                onSaved={(updated) => { replaceDataset(updated); setEditTarget(null); }} />
+            )}
+            {editTarget.sourceType === 'db' && (
+              <DBForm initial={editTarget} onCreated={() => {}} isSuperadmin={isSuperadmin}
+                onSaved={(updated) => { replaceDataset(updated); setEditTarget(null); }} />
+            )}
+            {editTarget.sourceType === 'derived' && (
+              <DerivedDatasetEditor dataset={editTarget} areas={areas} availableDatasets={datasets}
+                onSaved={(updated) => { replaceDataset(updated); setEditTarget(null); }} />
+            )}
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen paper-bg">
@@ -338,23 +368,6 @@ export default function Datasets() {
             onConfirm={confirmDelete}
             onClose={() => setDeleteTarget(null)}
           />
-        )}
-
-        {editTarget && (
-          <Modal title={`Editar · ${editTarget.name}`} onClose={() => setEditTarget(null)} maxWidth="max-w-3xl">
-            {editTarget.sourceType === 'api' && (
-              <APIForm initial={editTarget} onCreated={() => {}} isSuperadmin={isSuperadmin}
-                onSaved={(updated) => { replaceDataset(updated); setEditTarget(null); }} />
-            )}
-            {editTarget.sourceType === 'db' && (
-              <DBForm initial={editTarget} onCreated={() => {}} isSuperadmin={isSuperadmin}
-                onSaved={(updated) => { replaceDataset(updated); setEditTarget(null); }} />
-            )}
-            {editTarget.sourceType === 'derived' && (
-              <DerivedDatasetEditor dataset={editTarget} areas={areas} availableDatasets={datasets}
-                onSaved={(updated) => { replaceDataset(updated); setEditTarget(null); }} />
-            )}
-          </Modal>
         )}
 
         {idFieldTarget && (
@@ -966,10 +979,13 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
   const [queryLimit, setQueryLimit] = useState(initial.config?.visualDefinition?.limit || null);
   const [buildingQuery, setBuildingQuery] = useState(false);
   const [schemaViewMode, setSchemaViewMode] = useState('list');
+  const [listFullscreen, setListFullscreen] = useState(false);
+  const [listWidth, setListWidth] = useState(320);
   const [estimating, setEstimating] = useState(false);
   const [costWarnings, setCostWarnings] = useState([]);
   const originalStateRef = useRef(null);
   const debounceRef = useRef(null);
+  const nextAliasIndexRef = useRef(selectedTables.length);
 
   const handleDbTypeChange = (type) => {
     setDbType(type);
@@ -1081,7 +1097,7 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
   ) || [];
 
   const buildQueryFromVisual = useCallback(async () => {
-    if (!selectedTables.length || (!hasConnFields && !isEdit)) return;
+    if (!selectedTables.length || (!hasConnFields && !isEdit)) return null;
     const completeJoins = joins.filter(j => j.leftTable && j.leftColumn && j.rightTable && j.rightColumn);
     setBuildingQuery(true);
     try {
@@ -1101,7 +1117,8 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
       const { data } = await api.post('/datasets/db-connector/build-query', reqBody);
       setQuery(data.query);
       setCostWarnings([]);
-    } catch (err) { setMsg(`Error SQL: ${err.response?.data?.error || err.message}`); }
+      return data.query;
+    } catch (err) { setMsg(`Error SQL: ${err.response?.data?.error || err.message}`); return null; }
     finally { setBuildingQuery(false); }
   }, [selectedTables, selectedColumns, joins, queryLimit, dbType, hasConnFields, currentConnString]);
 
@@ -1126,10 +1143,15 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
     setSelectedTables(prev => {
       const exists = prev.some(s => s.name === t.name);
       if (exists) {
+        const removed = prev.find(s => s.name === t.name);
         setSelectedColumns(cols => { const next = { ...cols }; delete next[t.name]; return next; });
+        if (removed?.alias) {
+          setJoins(js => js.filter(j => j.leftTable !== removed.alias && j.rightTable !== removed.alias));
+        }
         return prev.filter(s => s.name !== t.name);
       }
-      return [...prev, { name: t.name, schema: t.schema, type: t.type, alias: `t${prev.length}` }];
+      const alias = `t${nextAliasIndexRef.current++}`;
+      return [...prev, { name: t.name, schema: t.schema, type: t.type, alias }];
     });
   };
 
@@ -1150,6 +1172,13 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
     try {
       if (!isEdit && areas.length && !areaId) { setMsg('Selecciona un área'); setBusy(false); return; }
 
+      let finalQuery = query;
+      if (queryMode === 'visual' && selectedTables.length) {
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        const fresh = await buildQueryFromVisual();
+        if (fresh) finalQuery = fresh;
+      }
+
       const connStr = currentConnString();
       const visualDefinition = queryMode === 'visual' ? {
         tables: selectedTables,
@@ -1161,7 +1190,7 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
         limit: queryLimit,
       } : undefined;
 
-      const payload = { name, dbType, query, ...(!isEdit && { areaId }), ...(connStr && { connectionString: connStr }), ...(isSuperadmin && !isEdit && slotName.trim() && { slotName: slotName.trim() }), ...(visualDefinition && { visualDefinition }) };
+      const payload = { name, dbType, query: finalQuery, ...(!isEdit && { areaId }), ...(connStr && { connectionString: connStr }), ...(isSuperadmin && !isEdit && slotName.trim() && { slotName: slotName.trim() }), ...(visualDefinition && { visualDefinition }) };
       if (isEdit && !connStr) delete payload.connectionString;
 
       let data;
@@ -1170,7 +1199,7 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
         onSaved(data);
       } else {
         if (!connStr) { setMsg('Completa los datos de conexión'); setBusy(false); return; }
-        if (!query.trim()) { setMsg('Genera o escribe una query primero'); setBusy(false); return; }
+        if (!finalQuery.trim()) { setMsg('Genera o escribe una query primero'); setBusy(false); return; }
         ({ data } = await api.post('/datasets/db-connector', payload));
         const area = areas.find((a) => a.id === areaId);
         onCreated({ id: data.id, name: data.name, sourceType: 'db', slotName: data.slotName || null, config: data.config, _count: { rows: 0 }, area: area ? { id: area.id, name: area.name } : null });
@@ -1182,8 +1211,84 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
     finally { setBusy(false); }
   };
 
+  const requestFormSave = () => document.getElementById('db-connector-form')?.requestSubmit();
+
+  const startListResize = (e) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = listWidth;
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
+    const onMove = (ev) => {
+      setListWidth(Math.min(900, Math.max(200, startWidth + (ev.clientX - startX))));
+    };
+    const onUp = () => {
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
+
+  const renderListEditor = (full) => (
+    <div className={`flex ${full ? 'h-full' : ''}`}>
+      <div className={`min-w-0 shrink-0 border border-line-soft rounded-xl bg-paper-deep/50 p-2 flex flex-col ${full ? 'h-full' : 'max-h-[70vh]'}`}
+        style={{ width: listWidth }}>
+        <SchemaExplorer
+          schema={schema}
+          selectedTables={selectedTables}
+          selectedColumns={selectedColumns}
+          onToggleTable={toggleTable}
+          onToggleColumn={toggleColumn}
+          onSelectAllColumns={selectAllColumns}
+          viewMode={schemaViewMode}
+          onViewModeChange={setSchemaViewMode}
+          onReset={resetToOriginal}
+          query={query}
+          joins={joins}
+          onJoinsChange={setJoins}
+          suggestedJoins={suggestedJoins}
+        />
+      </div>
+      <div onMouseDown={startListResize} title="Arrastra para redimensionar"
+        className="w-2.5 shrink-0 mx-0.5 cursor-col-resize flex items-center justify-center group">
+        <div className="w-1 h-10 rounded-full bg-line-soft group-hover:bg-lumen transition" />
+      </div>
+      <div className={`min-w-0 flex-1 space-y-3 self-start ${full ? 'overflow-y-auto max-h-full' : ''}`}>
+        <JoinBuilder
+          selectedTables={selectedTables}
+          schema={schema}
+          joins={joins}
+          onJoinsChange={setJoins}
+          suggestedJoins={suggestedJoins}
+        />
+        <QueryPreview
+          query={query}
+          onQueryChange={setQuery}
+          warnings={costWarnings}
+          estimating={estimating}
+          onEstimate={estimateCost}
+          onApplyLimit={(n) => setQueryLimit(n)}
+          datasetId={initial.id}
+          dbType={dbType}
+          connectionString={currentConnString()}
+        />
+        {queryLimit && (
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-ink-faint">LIMIT:</span>
+            <input type="number" value={queryLimit} onChange={(e) => setQueryLimit(Number(e.target.value) || null)}
+              className="field field-sm field-mono w-24" />
+            <button type="button" onClick={() => setQueryLimit(null)} className="text-rust text-xs hover:underline">Quitar</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
   return (
-    <form onSubmit={submit} className="space-y-3">
+    <form id="db-connector-form" onSubmit={submit} className="space-y-3">
       {!isEdit && (
         <>
           <Field label="Nombre">
@@ -1281,9 +1386,9 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
             )}
           </Button>
 
-          {schema && (
-            <div className={schemaViewMode === 'diagram' ? 'space-y-3' : 'grid grid-cols-1 md:grid-cols-[2fr_3fr] gap-3'}>
-              <div className={`border border-line-soft rounded-xl bg-paper-deep/50 p-2 flex flex-col ${schemaViewMode === 'diagram' ? '' : 'max-h-[70vh]'}`} style={schemaViewMode === 'diagram' ? { height: '70vh', minHeight: 550 } : undefined}>
+          {schema && schemaViewMode === 'diagram' && (
+            <div className="space-y-3">
+              <div className="border border-line-soft rounded-xl bg-paper-deep/50 p-2 flex flex-col" style={{ height: '70vh', minHeight: 550 }}>
                 <SchemaExplorer
                   schema={schema}
                   selectedTables={selectedTables}
@@ -1291,39 +1396,59 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
                   onToggleTable={toggleTable}
                   onToggleColumn={toggleColumn}
                   onSelectAllColumns={selectAllColumns}
+                  viewMode={schemaViewMode}
                   onViewModeChange={setSchemaViewMode}
                   onReset={resetToOriginal}
                   query={query}
                   joins={joins}
                   onJoinsChange={setJoins}
                   suggestedJoins={suggestedJoins}
+                  onSave={requestFormSave}
+                  saving={busy}
+                  saveLabel={isEdit ? 'Guardar cambios' : 'Crear conector'}
+                  datasetId={initial.id}
+                  dbType={dbType}
+                  connectionString={currentConnString()}
                 />
-              </div>
-              <div className="space-y-3">
-                <JoinBuilder
-                  selectedTables={selectedTables}
-                  schema={schema}
-                  joins={joins}
-                  onJoinsChange={setJoins}
-                  suggestedJoins={suggestedJoins}
-                />
-                <QueryPreview
-                  query={query}
-                  warnings={costWarnings}
-                  estimating={estimating}
-                  onEstimate={estimateCost}
-                  onApplyLimit={(n) => setQueryLimit(n)}
-                />
-                {queryLimit && (
-                  <div className="flex items-center gap-2 text-xs">
-                    <span className="text-ink-faint">LIMIT:</span>
-                    <input type="number" value={queryLimit} onChange={(e) => setQueryLimit(Number(e.target.value) || null)}
-                      className="field field-sm field-mono w-24" />
-                    <button type="button" onClick={() => setQueryLimit(null)} className="text-rust text-xs hover:underline">Quitar</button>
-                  </div>
-                )}
               </div>
             </div>
+          )}
+
+          {schema && schemaViewMode === 'list' && (
+            <>
+              <div className="flex justify-end">
+                <button type="button" onClick={() => setListFullscreen(true)}
+                  className="flex items-center gap-1 text-xs text-lumen-deep hover:underline">
+                  <Icon name="layers" size={12} /> Pantalla completa
+                </button>
+              </div>
+              {renderListEditor(false)}
+            </>
+          )}
+
+          {listFullscreen && schemaViewMode === 'list' && createPortal(
+            <div className="fixed inset-0 z-[100] bg-surface flex flex-col">
+              <div className="flex items-center justify-between px-4 py-2 border-b border-line-soft bg-paper shrink-0">
+                <h3 className="text-sm font-semibold text-ink flex items-center gap-2">
+                  <Icon name="database" size={16} /> Editor de conexión
+                  <span className="text-ink-faint font-normal">— {schema?.tables?.length || 0} tablas</span>
+                </h3>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={requestFormSave} disabled={busy}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-ink text-paper rounded-lg hover:bg-ink/90 transition disabled:opacity-50">
+                    <Icon name="check" size={14} /> {busy ? 'Guardando…' : isEdit ? 'Guardar cambios' : 'Crear conector'}
+                  </button>
+                  <button type="button" onClick={() => setListFullscreen(false)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-paper-deep rounded-lg hover:bg-line-soft transition">
+                    <Icon name="x" size={14} /> Cerrar
+                  </button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-hidden p-4">
+                {renderListEditor(true)}
+              </div>
+            </div>,
+            document.body
           )}
         </div>
       )}

@@ -2,7 +2,8 @@ import { useMemo, useCallback, useState, useEffect } from 'react';
 import { ReactFlow, MiniMap, Controls, Background, useNodesState, useEdgesState, useReactFlow, ReactFlowProvider } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import TableNode from './TableNode';
-import { Icon } from '../ui';
+import { Icon, Button } from '../ui';
+import api from '../../lib/api';
 
 const nodeTypes = { table: TableNode };
 
@@ -38,8 +39,33 @@ const MODES = [
   { key: 'add', icon: 'layers', label: 'Esquema', hint: 'Click = explorar esquema completo' },
 ];
 
-function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable, onToggleColumn, onSelectAllColumns, onReset, query, joins: externalJoins, onJoinsChange, suggestedJoins: externalSuggested }) {
+function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable, onToggleColumn, onSelectAllColumns, onReset, query, joins: externalJoins, onJoinsChange, suggestedJoins: externalSuggested, datasetId, dbType, connectionString }) {
   const [bottomOpen, setBottomOpen] = useState(true);
+  const [topN, setTopN] = useState(50);
+  const [previewing, setPreviewing] = useState(false);
+  const [previewError, setPreviewError] = useState('');
+  const [previewResult, setPreviewResult] = useState(null);
+
+  useEffect(() => {
+    setPreviewResult(null);
+    setPreviewError('');
+  }, [query]);
+
+  const runPreview = async () => {
+    if (!query?.trim()) return;
+    setPreviewing(true); setPreviewError(''); setPreviewResult(null);
+    try {
+      const reqBody = connectionString
+        ? { dbType, connectionString, query, limit: topN }
+        : { datasetId, query, limit: topN };
+      const { data } = await api.post('/datasets/db-connector/preview-query', reqBody);
+      setPreviewResult(data);
+    } catch (err) {
+      setPreviewError(err.response?.data?.error || err.message);
+    } finally {
+      setPreviewing(false);
+    }
+  };
   const allTables = schema?.tables || [];
   const fks = schema?.foreignKeys || [];
   const [search, setSearch] = useState('');
@@ -214,6 +240,54 @@ function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable
     onSelectAllColumns(t);
   }, [allTables, isSelected, onToggleTable, onSelectAllColumns]);
 
+  const tableAliases = useMemo(() =>
+    selectedTables.map((t, i) => ({ ...t, alias: t.alias || `t${i}` })),
+    [selectedTables]
+  );
+
+  const joinExists = useCallback((fromTable, fromCol, toTable, toCol) =>
+    (externalJoins || []).some(j =>
+      (j.leftTable === fromTable && j.leftColumn === fromCol && j.rightTable === toTable && j.rightColumn === toCol) ||
+      (j.leftTable === toTable && j.leftColumn === toCol && j.rightTable === fromTable && j.rightColumn === fromCol)
+    ), [externalJoins]);
+
+  const applySuggestion = useCallback((s) => {
+    if (!onJoinsChange) return;
+    const leftAlias = tableAliases.find(t => t.name === s.fromTable)?.alias;
+    const rightAlias = tableAliases.find(t => t.name === s.toTable)?.alias;
+    if (!leftAlias || !rightAlias) return;
+    if (joinExists(leftAlias, s.fromColumn, rightAlias, s.toColumn)) return;
+    onJoinsChange([...(externalJoins || []), { type: 'INNER', leftTable: leftAlias, leftColumn: s.fromColumn, rightTable: rightAlias, rightColumn: s.toColumn }]);
+  }, [onJoinsChange, externalJoins, tableAliases, joinExists]);
+
+  const pendingSuggested = useMemo(() => (externalSuggested || []).filter(s => {
+    const leftAlias = tableAliases.find(t => t.name === s.fromTable)?.alias;
+    const rightAlias = tableAliases.find(t => t.name === s.toTable)?.alias;
+    if (!leftAlias || !rightAlias) return false;
+    return !joinExists(leftAlias, s.fromColumn, rightAlias, s.toColumn);
+  }), [externalSuggested, tableAliases, joinExists]);
+
+  const applyAllSuggestions = useCallback(() => {
+    if (!onJoinsChange) return;
+    const added = pendingSuggested.map(s => ({
+      type: 'INNER',
+      leftTable: tableAliases.find(t => t.name === s.fromTable)?.alias,
+      leftColumn: s.fromColumn,
+      rightTable: tableAliases.find(t => t.name === s.toTable)?.alias,
+      rightColumn: s.toColumn,
+    })).filter(j => j.leftTable && j.rightTable);
+    onJoinsChange([...(externalJoins || []), ...added]);
+  }, [onJoinsChange, externalJoins, tableAliases, pendingSuggested]);
+
+  const addEmptyJoin = useCallback(() => {
+    if (!onJoinsChange) return;
+    const usedAliases = new Set((externalJoins || []).flatMap(j => [j.leftTable, j.rightTable]));
+    const unused = tableAliases.filter(t => !usedAliases.has(t.alias));
+    const left = tableAliases[0]?.alias || '';
+    const right = unused[0]?.alias || tableAliases[1]?.alias || '';
+    onJoinsChange([...(externalJoins || []), { type: 'INNER', leftTable: left, leftColumn: '', rightTable: right, rightColumn: '' }]);
+  }, [onJoinsChange, externalJoins, tableAliases]);
+
   return (
     <div className="flex h-full">
       <div className="w-64 shrink-0 border-r border-line-soft flex flex-col bg-paper">
@@ -332,43 +406,86 @@ function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable
             {selectedTables.length > 1 && (!externalJoins?.length) && (
               <span className="bg-rust/10 text-rust px-1.5 py-0.5 rounded text-[9px]">Sin joins</span>
             )}
-            {externalSuggested?.length > 0 && (
-              <span className="bg-sea/10 text-sea px-1.5 py-0.5 rounded text-[9px]">{externalSuggested.length} sugerido{externalSuggested.length > 1 ? 's' : ''}</span>
+            {pendingSuggested.length > 0 && (
+              <span className="bg-sea/10 text-sea px-1.5 py-0.5 rounded text-[9px]">{pendingSuggested.length} sugerido{pendingSuggested.length > 1 ? 's' : ''}</span>
             )}
           </button>
           {bottomOpen && (
-            <div className="px-3 pb-3 space-y-2 max-h-48 overflow-y-auto">
+            <div className="px-3 pb-3 space-y-3 max-h-[45vh] overflow-y-auto">
+              {onJoinsChange && selectedTables.length > 1 && (
+                <button type="button" onClick={addEmptyJoin}
+                  className="flex items-center gap-1 text-[10px] font-medium text-lumen-deep hover:underline">
+                  <Icon name="plus" size={11} /> Agregar join
+                </button>
+              )}
               {externalJoins?.length > 0 && (
-                <div className="space-y-1">
-                  {externalJoins.map((j, i) => (
-                    <div key={i} className="flex items-center gap-1.5 text-[10px] font-mono bg-lumen-soft/20 rounded px-2 py-1">
-                      <span className="text-ink-faint">{j.type || 'INNER'}</span>
-                      <span className="font-semibold">{j.leftTable}.{j.leftColumn}</span>
-                      <span className="text-ink-faint">=</span>
-                      <span className="font-semibold">{j.rightTable}.{j.rightColumn}</span>
-                      {onJoinsChange && (
-                        <button type="button" onClick={() => onJoinsChange(externalJoins.filter((_, idx) => idx !== i))}
-                          className="ml-auto text-rust hover:text-rust/80">
-                          <Icon name="x" size={11} />
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                <div className="space-y-1.5">
+                  <p className="text-[10px] font-semibold text-ink-soft">Joins configurados ({externalJoins.length})</p>
+                  <div className="space-y-2 max-h-40 overflow-y-auto pr-0.5">
+                    {externalJoins.map((j, i) => {
+                      const incomplete = !j.leftTable || !j.leftColumn || !j.rightTable || !j.rightColumn;
+                      return (
+                        <div key={i} className={`relative flex items-center gap-1.5 text-[10px] font-mono rounded-lg pl-3 pr-2 py-2 flex-wrap border-l-4 border border-y-line-soft border-r-line-soft shadow-sm ${
+                          incomplete ? 'bg-rust/5 border-l-rust' : 'bg-surface border-l-lumen'
+                        }`}>
+                          <span className={`absolute -left-1.5 -top-1.5 w-4 h-4 rounded-full grid place-items-center text-[8px] font-sans font-bold text-paper ${incomplete ? 'bg-rust' : 'bg-lumen-deep'}`}>
+                            {i + 1}
+                          </span>
+                          {incomplete && (
+                            <span className="w-full text-[9px] font-sans font-semibold text-rust -mb-0.5">
+                              ⚠ Configura tabla y columna de esta relación
+                            </span>
+                          )}
+                          <select value={j.type || 'INNER'} onChange={(e) => onJoinsChange(externalJoins.map((jj, idx) => idx === i ? { ...jj, type: e.target.value } : jj))}
+                            className="field field-sm field-mono !text-[10px] !py-0.5">
+                            {['INNER', 'LEFT', 'RIGHT'].map(jt => <option key={jt} value={jt}>{jt}</option>)}
+                          </select>
+                          <select value={j.leftTable} onChange={(e) => onJoinsChange(externalJoins.map((jj, idx) => idx === i ? { ...jj, leftTable: e.target.value } : jj))}
+                            className="field field-sm field-mono !text-[10px] !py-0.5 min-w-[70px]">
+                            <option value="">Tabla</option>
+                            {tableAliases.map(t => <option key={t.alias} value={t.alias}>{t.name} ({t.alias})</option>)}
+                          </select>
+                          <select value={j.leftColumn} onChange={(e) => onJoinsChange(externalJoins.map((jj, idx) => idx === i ? { ...jj, leftColumn: e.target.value } : jj))}
+                            className="field field-sm field-mono !text-[10px] !py-0.5 min-w-[70px]">
+                            <option value="">Columna</option>
+                            {(allTables.find(t => t.name === tableAliases.find(ta => ta.alias === j.leftTable)?.name)?.columns || []).map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                          </select>
+                          <span className="text-ink-faint">=</span>
+                          <select value={j.rightTable} onChange={(e) => onJoinsChange(externalJoins.map((jj, idx) => idx === i ? { ...jj, rightTable: e.target.value } : jj))}
+                            className="field field-sm field-mono !text-[10px] !py-0.5 min-w-[70px]">
+                            <option value="">Tabla</option>
+                            {tableAliases.map(t => <option key={t.alias} value={t.alias}>{t.name} ({t.alias})</option>)}
+                          </select>
+                          <select value={j.rightColumn} onChange={(e) => onJoinsChange(externalJoins.map((jj, idx) => idx === i ? { ...jj, rightColumn: e.target.value } : jj))}
+                            className="field field-sm field-mono !text-[10px] !py-0.5 min-w-[70px]">
+                            <option value="">Columna</option>
+                            {(allTables.find(t => t.name === tableAliases.find(ta => ta.alias === j.rightTable)?.name)?.columns || []).map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                          </select>
+                          {onJoinsChange && (
+                            <button type="button" onClick={() => onJoinsChange(externalJoins.filter((_, idx) => idx !== i))}
+                              className="ml-auto text-rust hover:text-rust/80">
+                              <Icon name="x" size={11} />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
-              {externalSuggested?.length > 0 && externalJoins?.length === 0 && (
+              {pendingSuggested.length > 0 && (
                 <div className="text-[10px] text-sea space-y-0.5">
-                  <p className="font-semibold">Relaciones detectadas (click para agregar):</p>
-                  {externalSuggested.map((s, i) => (
-                    <button key={i} type="button"
-                      onClick={() => {
-                        if (!onJoinsChange) return;
-                        const leftAlias = selectedTables.find(t => t.name === s.fromTable)?.alias;
-                        const rightAlias = selectedTables.find(t => t.name === s.toTable)?.alias;
-                        if (leftAlias && rightAlias) {
-                          onJoinsChange([...(externalJoins || []), { type: 'INNER', leftTable: leftAlias, leftColumn: s.fromColumn, rightTable: rightAlias, rightColumn: s.toColumn }]);
-                        }
-                      }}
+                  <div className="flex items-center justify-between">
+                    <p className="font-semibold">Relaciones detectadas (click para agregar):</p>
+                    {onJoinsChange && (
+                      <button type="button" onClick={applyAllSuggestions}
+                        className="font-medium hover:underline shrink-0">
+                        Agregar todas
+                      </button>
+                    )}
+                  </div>
+                  {pendingSuggested.map((s, i) => (
+                    <button key={i} type="button" onClick={() => applySuggestion(s)}
                       className="flex items-center gap-1 hover:underline">
                       <Icon name="plus" size={10} />
                       {s.fromTable}.{s.fromColumn} → {s.toTable}.{s.toColumn}
@@ -376,10 +493,62 @@ function ERDiagramInner({ schema, selectedTables, selectedColumns, onToggleTable
                   ))}
                 </div>
               )}
-              {query ? (
-                <pre className="text-[10px] font-mono bg-paper-deep rounded-lg p-2 whitespace-pre-wrap overflow-x-auto">{query}</pre>
-              ) : (
-                <p className="text-[10px] text-ink-faint italic">Selecciona tablas y columnas para generar SQL</p>
+              <div>
+                <p className="text-[10px] font-semibold text-ink-soft mb-1">SQL generado</p>
+                {query ? (
+                  <pre className="text-[10px] font-mono bg-paper-deep rounded-lg p-2 whitespace-pre-wrap overflow-x-auto">{query}</pre>
+                ) : (
+                  <p className="text-[10px] text-ink-faint italic">Selecciona tablas y columnas para generar SQL</p>
+                )}
+              </div>
+
+              {query && (datasetId || connectionString) && (
+                <div className="border-t border-line-soft pt-3 space-y-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <label className="text-[10px] text-ink-faint whitespace-nowrap shrink-0">Top N</label>
+                    <input type="number" min={1} max={1000} value={topN}
+                      onChange={(e) => setTopN(Math.min(1000, Math.max(1, Number(e.target.value) || 1)))}
+                      className="field field-sm field-mono !text-[10px] !py-0.5 w-16 shrink-0" />
+                    <Button type="button" variant="soft" size="sm" onClick={runPreview} disabled={previewing || !query.trim()} className="shrink-0 !text-[10px] !py-1">
+                      {previewing ? (
+                        <><Icon name="refresh" size={11} className="animate-spin inline mr-1" />Ejecutando…</>
+                      ) : (
+                        <>Ejecutar preview</>
+                      )}
+                    </Button>
+                    {previewResult && (
+                      <span className="text-[9px] text-ink-faint shrink-0">{previewResult.count} fila{previewResult.count !== 1 ? 's' : ''}</span>
+                    )}
+                  </div>
+                  {previewError && (
+                    <div className="flex items-start gap-1.5 text-[10px] px-2 py-1.5 rounded-lg bg-rust/10 border border-rust/20 text-rust">
+                      <Icon name="alertTriangle" size={12} className="mt-0.5 shrink-0" />
+                      <span>{previewError}</span>
+                    </div>
+                  )}
+                  {previewResult && (
+                    <div className="border border-line-soft rounded-lg overflow-auto max-h-48">
+                      <table className="text-[9px] font-mono w-full border-collapse">
+                        <thead className="sticky top-0 bg-paper-deep">
+                          <tr>
+                            {previewResult.columns.map(c => (
+                              <th key={c} className="text-left px-1.5 py-1 border-b border-line-soft font-semibold whitespace-nowrap">{c}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {previewResult.rows.map((row, i) => (
+                            <tr key={i} className="odd:bg-paper-deep/30">
+                              {previewResult.columns.map(c => (
+                                <td key={c} className="px-1.5 py-1 border-b border-line-soft/50 whitespace-nowrap">{String(row[c] ?? '')}</td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           )}

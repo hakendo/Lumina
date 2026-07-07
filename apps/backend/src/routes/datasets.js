@@ -449,6 +449,42 @@ router.post('/db-connector/build-query', auth, async (req, res) => {
   }
 });
 
+function wrapQueryWithLimit(query, dbType, limit) {
+  const sub = query.trim().replace(/;\s*$/, '');
+  if (dbType === 'mssql') return `SELECT TOP ${limit} * FROM (${sub}) AS __preview_sub`;
+  if (dbType === 'oracle') return `SELECT * FROM (${sub}) __preview_sub WHERE ROWNUM <= ${limit}`;
+  return `SELECT * FROM (${sub}) AS __preview_sub LIMIT ${limit}`;
+}
+
+router.post('/db-connector/preview-query', auth, async (req, res) => {
+  try {
+    const { dbType, connectionString, datasetId, query } = req.body;
+    if (!query?.trim()) return res.status(400).json({ error: 'query requerida' });
+
+    let connStr = connectionString;
+    let engine = dbType;
+
+    if (datasetId) {
+      const dataset = await prisma.dataset.findUnique({ where: { id: datasetId } });
+      if (!dataset || dataset.sourceType !== 'db') return res.status(404).json({ error: 'Dataset no encontrado' });
+      if (!(await canWriteDataset(dataset, req.user.id))) return res.status(403).json({ error: 'Sin acceso' });
+      const resolved = resolveConfig(dataset.config);
+      connStr = resolved.connectionString;
+      engine = resolved.dbType || dataset.config.dbType;
+    }
+
+    if (!connStr) return res.status(400).json({ error: 'connectionString o datasetId requerido' });
+
+    const limit = Math.min(Math.max(parseInt(req.body.limit, 10) || 50, 1), 1000);
+    const wrapped = wrapQueryWithLimit(query, engine, limit);
+    const rows = await queryDB({ dbType: engine, connectionString: connStr, query: wrapped });
+    const columns = rows[0] ? Object.keys(rows[0]) : [];
+    res.json({ rows, columns, count: rows.length });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.post('/db-connector', auth, async (req, res) => {
   const { name, areaId, dbType = 'pg', connectionString, query, slotName, visualDefinition } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'name required' });

@@ -4,9 +4,10 @@ import { Icon } from '../ui';
 
 const ERDiagram = lazy(() => import('./ERDiagram'));
 
-export default function SchemaExplorer({ schema, selectedTables, selectedColumns, onToggleTable, onToggleColumn, onSelectAllColumns, onViewModeChange, onReset, query, joins, onJoinsChange, suggestedJoins }) {
-  const [viewMode, setViewMode] = useState('list');
-  const changeView = (mode) => { setViewMode(mode); onViewModeChange?.(mode); };
+export default function SchemaExplorer({ schema, selectedTables, selectedColumns, onToggleTable, onToggleColumn, onSelectAllColumns, viewMode: viewModeProp, onViewModeChange, onReset, query, joins, onJoinsChange, suggestedJoins, onSave, saving, saveLabel = 'Guardar', datasetId, dbType, connectionString }) {
+  const [internalViewMode, setInternalViewMode] = useState('list');
+  const viewMode = viewModeProp ?? internalViewMode;
+  const changeView = (mode) => { setInternalViewMode(mode); onViewModeChange?.(mode); };
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState(new Set());
 
@@ -51,10 +52,18 @@ export default function SchemaExplorer({ schema, selectedTables, selectedColumns
                 <Icon name="layers" size={16} /> Diagrama ER
                 <span className="text-ink-faint font-normal">— {schema?.tables?.length || 0} tablas</span>
               </h3>
-              <button onClick={() => changeView('list')}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-paper-deep rounded-lg hover:bg-line-soft transition">
-                <Icon name="x" size={14} /> Cerrar diagrama
-              </button>
+              <div className="flex items-center gap-2">
+                {onSave && (
+                  <button type="button" onClick={onSave} disabled={saving}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-ink text-paper rounded-lg hover:bg-ink/90 transition disabled:opacity-50">
+                    <Icon name="check" size={14} /> {saving ? 'Guardando…' : saveLabel}
+                  </button>
+                )}
+                <button onClick={() => changeView('list')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-paper-deep rounded-lg hover:bg-line-soft transition">
+                  <Icon name="x" size={14} /> Cerrar diagrama
+                </button>
+              </div>
             </div>
             <div style={{ flex: 1, overflow: 'hidden' }}>
               <Suspense fallback={<div className="flex items-center justify-center h-full text-sm text-ink-faint">Cargando diagrama…</div>}>
@@ -70,6 +79,9 @@ export default function SchemaExplorer({ schema, selectedTables, selectedColumns
                   joins={joins}
                   onJoinsChange={onJoinsChange}
                   suggestedJoins={suggestedJoins}
+                  datasetId={datasetId}
+                  dbType={dbType}
+                  connectionString={connectionString}
                 />
               </Suspense>
             </div>

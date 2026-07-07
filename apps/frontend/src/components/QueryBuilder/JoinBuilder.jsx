@@ -59,6 +59,17 @@ export default function JoinBuilder({ selectedTables, schema, joins, onJoinsChan
     return !joinExists(leftAlias, sug.fromColumn, rightAlias, sug.toColumn);
   });
 
+  const applyAllSuggestions = () => {
+    const added = pendingSuggestions.map(sug => ({
+      type: 'INNER',
+      leftTable: tableAliases.find(t => t.name === sug.fromTable)?.alias,
+      leftColumn: sug.fromColumn,
+      rightTable: tableAliases.find(t => t.name === sug.toTable)?.alias,
+      rightColumn: sug.toColumn,
+    })).filter(j => j.leftTable && j.rightTable);
+    onJoinsChange([...joins, ...added]);
+  };
+
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
@@ -73,7 +84,7 @@ export default function JoinBuilder({ selectedTables, schema, joins, onJoinsChan
         <div className="bg-lumen-soft/30 border border-lumen/20 rounded-lg p-2 space-y-1">
           <div className="flex items-center justify-between">
             <p className="text-[11px] text-ink-soft">Relaciones detectadas:</p>
-            <button type="button" onClick={() => pendingSuggestions.forEach(applySuggestion)}
+            <button type="button" onClick={applyAllSuggestions}
               className="text-[11px] text-lumen-deep font-medium hover:underline">
               Agregar todas
             </button>

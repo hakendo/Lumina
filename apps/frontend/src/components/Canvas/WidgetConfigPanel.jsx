@@ -549,6 +549,7 @@ function QueryEditorModal({ datasetId, dataset, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
   const debounceRef = useRef(null);
+  const nextAliasIndexRef = useRef(selectedTables.length);
 
   useEffect(() => {
     if (!schema) {
@@ -607,7 +608,7 @@ function QueryEditorModal({ datasetId, dataset, onClose, onSaved }) {
   ) || [];
 
   const buildQueryFromVisual = useCallback(async () => {
-    if (!selectedTables.length) return;
+    if (!selectedTables.length) return null;
     const completeJoins = joins.filter(j => j.leftTable && j.leftColumn && j.rightTable && j.rightColumn);
     setBuildingQuery(true);
     try {
@@ -623,7 +624,8 @@ function QueryEditorModal({ datasetId, dataset, onClose, onSaved }) {
       const { data } = await api.post('/datasets/db-connector/build-query', { datasetId, definition });
       setQuery(data.query);
       setCostWarnings([]);
-    } catch (err) { setMsg(`Error SQL: ${err.response?.data?.error || err.message}`); }
+      return data.query;
+    } catch (err) { setMsg(`Error SQL: ${err.response?.data?.error || err.message}`); return null; }
     finally { setBuildingQuery(false); }
   }, [selectedTables, selectedColumns, joins, queryLimit, datasetId]);
 
@@ -638,10 +640,15 @@ function QueryEditorModal({ datasetId, dataset, onClose, onSaved }) {
     setSelectedTables(prev => {
       const exists = prev.some(s => s.name === t.name);
       if (exists) {
+        const removed = prev.find(s => s.name === t.name);
         setSelectedColumns(cols => { const next = { ...cols }; delete next[t.name]; return next; });
+        if (removed?.alias) {
+          setJoins(js => js.filter(j => j.leftTable !== removed.alias && j.rightTable !== removed.alias));
+        }
         return prev.filter(s => s.name !== t.name);
       }
-      return [...prev, { name: t.name, schema: t.schema, type: t.type, alias: `t${prev.length}` }];
+      const alias = `t${nextAliasIndexRef.current++}`;
+      return [...prev, { name: t.name, schema: t.schema, type: t.type, alias }];
     });
   };
 
@@ -677,9 +684,15 @@ function QueryEditorModal({ datasetId, dataset, onClose, onSaved }) {
   };
 
   const saveQuery = async () => {
-    if (!query.trim()) { setMsg('Genera o escribe una query primero'); return; }
     setSaving(true); setMsg('');
     try {
+      let finalQuery = query;
+      if (queryMode === 'visual' && selectedTables.length) {
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        const fresh = await buildQueryFromVisual();
+        if (fresh) finalQuery = fresh;
+      }
+      if (!finalQuery.trim()) { setMsg('Genera o escribe una query primero'); setSaving(false); return; }
       const visualDefinition = queryMode === 'visual' ? {
         tables: selectedTables,
         columns: Object.entries(selectedColumns).flatMap(([table, cols]) => {
@@ -689,7 +702,7 @@ function QueryEditorModal({ datasetId, dataset, onClose, onSaved }) {
         joins,
         limit: queryLimit,
       } : undefined;
-      await api.put(`/datasets/${datasetId}/db-connector`, { query, visualDefinition });
+      await api.put(`/datasets/${datasetId}/db-connector`, { query: finalQuery, visualDefinition });
       await api.post(`/datasets/${datasetId}/fetch`, {});
       onSaved();
     } catch (err) { setMsg(`Error: ${err.response?.data?.error || err.message}`); }
@@ -734,11 +747,16 @@ function QueryEditorModal({ datasetId, dataset, onClose, onSaved }) {
                     onToggleColumn={toggleColumn}
                     onSelectAllColumns={selectAllColumns}
                     onReset={resetToOriginal}
+                    viewMode={schemaViewMode}
                     onViewModeChange={setSchemaViewMode}
                     query={query}
                     joins={joins}
                     onJoinsChange={setJoins}
                     suggestedJoins={suggestedJoins}
+                    onSave={saveQuery}
+                    saving={saving}
+                    saveLabel="Guardar y sincronizar"
+                    datasetId={dataset?.id || datasetId}
                   />
                 </div>
                 <div className="space-y-3">
@@ -751,10 +769,12 @@ function QueryEditorModal({ datasetId, dataset, onClose, onSaved }) {
                   />
                   <QueryPreview
                     query={query}
+                    onQueryChange={setQuery}
                     warnings={costWarnings}
                     estimating={estimating}
                     onEstimate={estimateCost}
                     onApplyLimit={(n) => setQueryLimit(n)}
+                    datasetId={dataset?.id || datasetId}
                   />
                 </div>
               </div>
