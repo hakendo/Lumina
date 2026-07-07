@@ -1307,16 +1307,18 @@ function TemplatesPanel({ orgs }) {
 
 function StoragePanel() {
   const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [cleaning, setCleaning] = useState(false);
   const [confirmTypes, setConfirmTypes] = useState(null);
   const [result, setResult] = useState(null);
 
   const load = useCallback(() => {
-    setError('');
+    setLoading(true); setError('');
     api.get('/admin/storage/stats')
       .then(({ data }) => setStats(data))
-      .catch(() => setError('No se pudo cargar estadísticas de almacenamiento'));
+      .catch(() => setError('No se pudo cargar estadísticas de almacenamiento'))
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -1335,8 +1337,6 @@ function StoragePanel() {
     }
   };
 
-  if (!stats) return <div className="skeleton h-48 rounded-2xl" />;
-
   const TYPE_LABELS = { db: 'conectores DB', orphan: 'huérfanas' };
 
   return (
@@ -1351,8 +1351,8 @@ function StoragePanel() {
             se pueden limpiar sin afectar el funcionamiento.
           </p>
         </div>
-        <Button variant="ghost" size="sm" onClick={load}>
-          <Icon name="refresh" size={13} /> Recargar
+        <Button variant="ghost" size="sm" onClick={load} disabled={loading}>
+          <Icon name="refresh" size={13} className={loading ? 'animate-spin' : ''} /> Recargar
         </Button>
       </div>
 
@@ -1364,43 +1364,51 @@ function StoragePanel() {
           </p>
         )}
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="bg-paper-deep/50 rounded-xl p-3 text-center">
-            <p className="text-2xl font-display text-ink">{stats.total.toLocaleString()}</p>
-            <p className="text-xs text-ink-faint">Total filas</p>
+        {loading && !stats ? (
+          <div className="flex items-center justify-center gap-2 text-sm text-ink-faint py-10">
+            <Icon name="refresh" size={15} className="animate-spin" /> Cargando estadísticas…
           </div>
-          <div className="bg-paper-deep/50 rounded-xl p-3 text-center">
-            <p className="text-2xl font-display text-ink">{stats.byType.db.toLocaleString()}</p>
-            <p className="text-xs text-ink-faint">Conectores DB</p>
-          </div>
-          <div className="bg-paper-deep/50 rounded-xl p-3 text-center">
-            <p className="text-2xl font-display text-ink">{stats.byType.api.toLocaleString()}</p>
-            <p className="text-xs text-ink-faint">API</p>
-          </div>
-          <div className="bg-paper-deep/50 rounded-xl p-3 text-center">
-            <p className="text-2xl font-display text-ink">{stats.byType.file.toLocaleString()}</p>
-            <p className="text-xs text-ink-faint">Archivos</p>
-          </div>
-        </div>
+        ) : !stats ? null : (
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="bg-paper-deep/50 rounded-xl p-3 text-center">
+                <p className="text-2xl font-display text-ink">{stats.total.toLocaleString()}</p>
+                <p className="text-xs text-ink-faint">Total filas</p>
+              </div>
+              <div className="bg-paper-deep/50 rounded-xl p-3 text-center">
+                <p className="text-2xl font-display text-ink">{stats.byType.db.toLocaleString()}</p>
+                <p className="text-xs text-ink-faint">Conectores DB</p>
+              </div>
+              <div className="bg-paper-deep/50 rounded-xl p-3 text-center">
+                <p className="text-2xl font-display text-ink">{stats.byType.api.toLocaleString()}</p>
+                <p className="text-xs text-ink-faint">API</p>
+              </div>
+              <div className="bg-paper-deep/50 rounded-xl p-3 text-center">
+                <p className="text-2xl font-display text-ink">{stats.byType.file.toLocaleString()}</p>
+                <p className="text-xs text-ink-faint">Archivos</p>
+              </div>
+            </div>
 
-        {stats.byType.orphan > 0 && (
-          <p className="text-xs text-rust bg-rust-soft px-3 py-2 rounded-lg">
-            {stats.byType.orphan.toLocaleString()} fila{stats.byType.orphan !== 1 ? 's' : ''} huérfana{stats.byType.orphan !== 1 ? 's' : ''} (sin dataset dueño).
-          </p>
+            {stats.byType.orphan > 0 && (
+              <p className="text-xs text-rust bg-rust-soft px-3 py-2 rounded-lg">
+                {stats.byType.orphan.toLocaleString()} fila{stats.byType.orphan !== 1 ? 's' : ''} huérfana{stats.byType.orphan !== 1 ? 's' : ''} (sin dataset dueño).
+              </p>
+            )}
+
+            <div className="flex flex-wrap gap-2 pt-2 border-t border-line-soft">
+              <Button variant="danger" size="sm" disabled={!stats.byType.db} onClick={() => setConfirmTypes(['db'])}>
+                <Icon name="trash" size={13} /> Limpiar conectores DB ({stats.byType.db.toLocaleString()})
+              </Button>
+              <Button variant="danger" size="sm" disabled={!stats.byType.orphan} onClick={() => setConfirmTypes(['orphan'])}>
+                <Icon name="trash" size={13} /> Limpiar huérfanas ({stats.byType.orphan.toLocaleString()})
+              </Button>
+              <Button variant="danger" size="sm" disabled={!stats.byType.db && !stats.byType.orphan}
+                onClick={() => setConfirmTypes(['db', 'orphan'])}>
+                <Icon name="trash" size={13} /> Limpiar todo
+              </Button>
+            </div>
+          </>
         )}
-
-        <div className="flex flex-wrap gap-2 pt-2 border-t border-line-soft">
-          <Button variant="danger" size="sm" disabled={!stats.byType.db} onClick={() => setConfirmTypes(['db'])}>
-            <Icon name="trash" size={13} /> Limpiar conectores DB ({stats.byType.db.toLocaleString()})
-          </Button>
-          <Button variant="danger" size="sm" disabled={!stats.byType.orphan} onClick={() => setConfirmTypes(['orphan'])}>
-            <Icon name="trash" size={13} /> Limpiar huérfanas ({stats.byType.orphan.toLocaleString()})
-          </Button>
-          <Button variant="danger" size="sm" disabled={!stats.byType.db && !stats.byType.orphan}
-            onClick={() => setConfirmTypes(['db', 'orphan'])}>
-            <Icon name="trash" size={13} /> Limpiar todo
-          </Button>
-        </div>
       </div>
 
       {confirmTypes && (

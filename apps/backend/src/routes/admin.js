@@ -623,13 +623,14 @@ router.get('/orgs/:id/audit', async (req, res) => {
 
 // GET /admin/storage/stats — filas almacenadas por sourceType
 router.get('/storage/stats', async (req, res) => {
-  const [dbRows, apiRows, fileRows, orphanRows] = await Promise.all([
+  const datasetIds = (await prisma.dataset.findMany({ select: { id: true } })).map(d => d.id);
+  const [dbRows, apiRows, fileRows, orphanRows, total] = await Promise.all([
     prisma.datasetRow.count({ where: { dataset: { sourceType: 'db' } } }),
     prisma.datasetRow.count({ where: { dataset: { sourceType: 'api' } } }),
     prisma.datasetRow.count({ where: { dataset: { sourceType: 'file' } } }),
-    prisma.datasetRow.count({ where: { datasetId: { notIn: (await prisma.dataset.findMany({ select: { id: true } })).map(d => d.id) } } }),
+    prisma.datasetRow.count({ where: { datasetId: { notIn: datasetIds } } }),
+    prisma.datasetRow.count(),
   ]);
-  const total = await prisma.datasetRow.count();
   res.json({ total, byType: { db: dbRows, api: apiRows, file: fileRows, orphan: orphanRows } });
 });
 
