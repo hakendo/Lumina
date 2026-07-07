@@ -1303,6 +1303,119 @@ function TemplatesPanel({ orgs }) {
   );
 }
 
+// ── Almacenamiento ────────────────────────────────────────────────
+
+function StoragePanel() {
+  const [stats, setStats] = useState(null);
+  const [error, setError] = useState('');
+  const [cleaning, setCleaning] = useState(false);
+  const [confirmTypes, setConfirmTypes] = useState(null);
+  const [result, setResult] = useState(null);
+
+  const load = useCallback(() => {
+    setError('');
+    api.get('/admin/storage/stats')
+      .then(({ data }) => setStats(data))
+      .catch(() => setError('No se pudo cargar estadísticas de almacenamiento'));
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const runCleanup = async (types) => {
+    setCleaning(true); setError('');
+    try {
+      const { data } = await api.delete('/admin/storage/cleanup', { data: { types } });
+      setResult(data.deleted);
+      load();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error al limpiar');
+    } finally {
+      setCleaning(false);
+      setConfirmTypes(null);
+    }
+  };
+
+  if (!stats) return <div className="skeleton h-48 rounded-2xl" />;
+
+  const TYPE_LABELS = { db: 'conectores DB', orphan: 'huérfanas' };
+
+  return (
+    <div className="bg-surface rounded-2xl border border-line-soft overflow-hidden animate-rise">
+      <div className="px-5 py-4 border-b border-line-soft flex items-center justify-between gap-4">
+        <div>
+          <h2 className="font-display text-lg text-ink flex items-center gap-2">
+            <Icon name="database" size={17} className="text-lumen-deep" /> Almacenamiento
+          </h2>
+          <p className="text-xs text-ink-faint mt-0.5">
+            Filas guardadas por tipo de fuente. Los conectores de base de datos ya no cachean filas —
+            se pueden limpiar sin afectar el funcionamiento.
+          </p>
+        </div>
+        <Button variant="ghost" size="sm" onClick={load}>
+          <Icon name="refresh" size={13} /> Recargar
+        </Button>
+      </div>
+
+      <div className="p-5 space-y-5">
+        {error && <p className="text-rust text-xs bg-rust-soft px-3 py-2 rounded-lg">{error}</p>}
+        {result && (
+          <p className="text-sea text-xs bg-sea-soft px-3 py-2 rounded-lg">
+            Limpieza completa — {Object.entries(result).map(([k, v]) => `${TYPE_LABELS[k] || k}: ${v.toLocaleString()}`).join(' · ')} filas eliminadas.
+          </p>
+        )}
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="bg-paper-deep/50 rounded-xl p-3 text-center">
+            <p className="text-2xl font-display text-ink">{stats.total.toLocaleString()}</p>
+            <p className="text-xs text-ink-faint">Total filas</p>
+          </div>
+          <div className="bg-paper-deep/50 rounded-xl p-3 text-center">
+            <p className="text-2xl font-display text-ink">{stats.byType.db.toLocaleString()}</p>
+            <p className="text-xs text-ink-faint">Conectores DB</p>
+          </div>
+          <div className="bg-paper-deep/50 rounded-xl p-3 text-center">
+            <p className="text-2xl font-display text-ink">{stats.byType.api.toLocaleString()}</p>
+            <p className="text-xs text-ink-faint">API</p>
+          </div>
+          <div className="bg-paper-deep/50 rounded-xl p-3 text-center">
+            <p className="text-2xl font-display text-ink">{stats.byType.file.toLocaleString()}</p>
+            <p className="text-xs text-ink-faint">Archivos</p>
+          </div>
+        </div>
+
+        {stats.byType.orphan > 0 && (
+          <p className="text-xs text-rust bg-rust-soft px-3 py-2 rounded-lg">
+            {stats.byType.orphan.toLocaleString()} fila{stats.byType.orphan !== 1 ? 's' : ''} huérfana{stats.byType.orphan !== 1 ? 's' : ''} (sin dataset dueño).
+          </p>
+        )}
+
+        <div className="flex flex-wrap gap-2 pt-2 border-t border-line-soft">
+          <Button variant="danger" size="sm" disabled={!stats.byType.db} onClick={() => setConfirmTypes(['db'])}>
+            <Icon name="trash" size={13} /> Limpiar conectores DB ({stats.byType.db.toLocaleString()})
+          </Button>
+          <Button variant="danger" size="sm" disabled={!stats.byType.orphan} onClick={() => setConfirmTypes(['orphan'])}>
+            <Icon name="trash" size={13} /> Limpiar huérfanas ({stats.byType.orphan.toLocaleString()})
+          </Button>
+          <Button variant="danger" size="sm" disabled={!stats.byType.db && !stats.byType.orphan}
+            onClick={() => setConfirmTypes(['db', 'orphan'])}>
+            <Icon name="trash" size={13} /> Limpiar todo
+          </Button>
+        </div>
+      </div>
+
+      {confirmTypes && (
+        <ConfirmModal
+          title="Limpiar almacenamiento"
+          message={`Se eliminarán permanentemente las filas de tipo: ${confirmTypes.map(t => TYPE_LABELS[t] || t).join(', ')}. Esta acción no se puede deshacer.`}
+          confirmLabel={cleaning ? 'Limpiando…' : 'Limpiar'}
+          onConfirm={() => runCleanup(confirmTypes)}
+          onClose={() => setConfirmTypes(null)}
+        />
+      )}
+    </div>
+  );
+}
+
 // ── Página principal Admin ─────────────────────────────────────────
 
 const ORG_TABS = [
@@ -1419,6 +1532,7 @@ export default function Admin() {
             { id: 'templates', label: 'Plantillas base', icon: 'copy' },
             { id: 'plans', label: 'Planes', icon: 'layers' },
             { id: 'superadmins', label: 'Super admins', icon: 'shield' },
+            { id: 'storage', label: 'Almacenamiento', icon: 'database' },
           ].map((v) => (
             <button key={v.id} onClick={() => setView(v.id)}
               className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition cursor-pointer ${
@@ -1437,6 +1551,7 @@ export default function Admin() {
         {view === 'templates' && !orgs && <div className="skeleton h-48 rounded-2xl" />}
         {view === 'plans' && <PlansPanel orgs={orgs} />}
         {view === 'superadmins' && <SuperAdminsPanel me={me} />}
+        {view === 'storage' && <StoragePanel />}
         {view === 'orgs' && (<>
 
         {!orgs ? (
