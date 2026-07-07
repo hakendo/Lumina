@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState, useMemo, memo } from 'react';
 import api from '../../lib/api';
 import { CACHE, PENDING } from '../../lib/datasetCache';
 import { useReportStore, applyFilters } from '../../store/reportStore';
+import { Icon } from '../ui';
 import KPIWidget   from '../widgets/KPIWidget';
 import TableWidget from '../widgets/TableWidget';
 import PivotWidget from '../widgets/PivotWidget';
@@ -10,7 +11,14 @@ const ChartWidget = lazy(() => import('../widgets/ChartWidget'));
 const MapWidget   = lazy(() => import('../widgets/MapWidget'));
 
 function WidgetSkeleton() {
-  return <div className="skeleton h-full rounded-lg" />;
+  return (
+    <div className="relative h-full">
+      <div className="skeleton absolute inset-0 rounded-lg" />
+      <div className="relative h-full flex items-center justify-center gap-1.5 text-ink-faint text-xs">
+        <Icon name="refresh" size={13} className="animate-spin" /> Cargando datos…
+      </div>
+    </div>
+  );
 }
 
 const AGGREGATE_TYPES = new Set(['kpi']);
