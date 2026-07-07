@@ -31,13 +31,7 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/auth': apiProxy(),
-      '/admin': apiProxy(),
-      '/org': apiProxy(),
-      '/areas': apiProxy(),
-      '/datasets': apiProxy(),
-      '/reports': apiProxy(),
-      '/notifications': apiProxy(),
+      '/api': apiProxy(),
     },
     allowedHosts: ['unmortified-corporally-eulalia.ngrok-free.dev'],
   },

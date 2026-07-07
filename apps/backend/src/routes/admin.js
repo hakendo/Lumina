@@ -619,4 +619,43 @@ router.get('/orgs/:id/audit', async (req, res) => {
   res.json(logs);
 });
 
+// ── Limpieza de DB interna ────────────────────────────────────────
+
+// GET /admin/storage/stats — filas almacenadas por sourceType
+router.get('/storage/stats', async (req, res) => {
+  const [dbRows, apiRows, fileRows, orphanRows] = await Promise.all([
+    prisma.datasetRow.count({ where: { dataset: { sourceType: 'db' } } }),
+    prisma.datasetRow.count({ where: { dataset: { sourceType: 'api' } } }),
+    prisma.datasetRow.count({ where: { dataset: { sourceType: 'file' } } }),
+    prisma.datasetRow.count({ where: { datasetId: { notIn: (await prisma.dataset.findMany({ select: { id: true } })).map(d => d.id) } } }),
+  ]);
+  const total = await prisma.datasetRow.count();
+  res.json({ total, byType: { db: dbRows, api: apiRows, file: fileRows, orphan: orphanRows } });
+});
+
+// DELETE /admin/storage/cleanup — borra filas de datasets tipo 'db' y huérfanas
+router.delete('/storage/cleanup', async (req, res) => {
+  const { types = ['db', 'orphan'] } = req.body;
+
+  const results = {};
+
+  if (types.includes('db')) {
+    const dbDatasetIds = (await prisma.dataset.findMany({ where: { sourceType: 'db' }, select: { id: true } })).map(d => d.id);
+    if (dbDatasetIds.length) {
+      const { count } = await prisma.datasetRow.deleteMany({ where: { datasetId: { in: dbDatasetIds } } });
+      results.db = count;
+    } else {
+      results.db = 0;
+    }
+  }
+
+  if (types.includes('orphan')) {
+    const validIds = (await prisma.dataset.findMany({ select: { id: true } })).map(d => d.id);
+    const { count } = await prisma.datasetRow.deleteMany({ where: { datasetId: { notIn: validIds } } });
+    results.orphan = count;
+  }
+
+  res.json({ deleted: results });
+});
+
 module.exports = router;

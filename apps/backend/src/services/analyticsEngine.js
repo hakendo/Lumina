@@ -1,4 +1,5 @@
 const { PrismaClient } = require('@prisma/client');
+const { queryDB } = require('./dataParser');
 
 const prisma = new PrismaClient();
 
@@ -23,12 +24,18 @@ async function loadRows(datasetId) {
   const cached = getCachedRows(datasetId);
   if (cached) return cached;
 
-  const dbRows = await prisma.datasetRow.findMany({
-    where: { datasetId },
-    orderBy: { rowIndex: 'asc' },
-    select: { rowData: true },
-  });
-  const rows = dbRows.map((r) => r.rowData);
+  const dataset = await prisma.dataset.findUnique({ where: { id: datasetId }, select: { sourceType: true, config: true } });
+  let rows;
+  if (dataset?.sourceType === 'db') {
+    rows = await queryDB(dataset.config);
+  } else {
+    const dbRows = await prisma.datasetRow.findMany({
+      where: { datasetId },
+      orderBy: { rowIndex: 'asc' },
+      select: { rowData: true },
+    });
+    rows = dbRows.map((r) => r.rowData);
+  }
   setCachedRows(datasetId, rows);
   return rows;
 }

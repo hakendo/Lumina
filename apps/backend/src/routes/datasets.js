@@ -473,8 +473,6 @@ router.post('/db-connector', auth, async (req, res) => {
   });
 
   res.json({ id: dataset.id, name: dataset.name, slotName: dataset.slotName, config: safeConfig(config) });
-
-  performSync(dataset).catch(() => {});
 });
 
 router.put('/:id/db-connector', auth, async (req, res) => {
@@ -551,12 +549,18 @@ async function computeDerived(dataset, userId) {
     if (!srcDs || !(await canReadDataset(srcDs, userId))) {
       return { rows: null, error: 'Sin acceso a un dataset fuente' };
     }
-    const dbRows = await prisma.datasetRow.findMany({
-      where: { datasetId: src.datasetId },
-      orderBy: { rowIndex: 'asc' },
-      select: { rowData: true },
-    });
-    sourceData[src.alias || src.datasetId] = dbRows.map((r) => r.rowData);
+    let srcRows;
+    if (srcDs.sourceType === 'db') {
+      srcRows = await queryDB(srcDs.config);
+    } else {
+      const rawRows = await prisma.datasetRow.findMany({
+        where: { datasetId: src.datasetId },
+        orderBy: { rowIndex: 'asc' },
+        select: { rowData: true },
+      });
+      srcRows = rawRows.map((r) => r.rowData);
+    }
+    sourceData[src.alias || src.datasetId] = srcRows;
   }
 
   let result = sourceData[sources[0]?.alias || sources[0]?.datasetId] || [];
@@ -643,8 +647,20 @@ async function performSync(dataset) {
     return { count: 0, unchanged: false, error: err.message, errorType };
   }
 
-  const newHash = hashRows(rows);
   const { _enc, ...pub } = dataset.config;
+  const columns = rows[0] ? Object.keys(rows[0]) : [];
+
+  // DB connectors are live-query: never cache rows locally, just record metadata.
+  if (dataset.sourceType === 'db') {
+    await prisma.dataset.update({
+      where: { id: dataset.id },
+      data: { config: { ...pub, _enc, lastSyncStatus: 'ok', lastSyncError: null, lastSyncAt: new Date().toISOString() } },
+    });
+    analytics.invalidateCache(dataset.id);
+    return { count: rows.length, unchanged: false, columns };
+  }
+
+  const newHash = hashRows(rows);
 
   if (pub.dataHash === newHash) {
     return { count: rows.length, unchanged: true };
@@ -713,7 +729,6 @@ async function performSync(dataset) {
 
   analytics.invalidateCache(dataset.id);
 
-  const columns = rows[0] ? Object.keys(rows[0]) : [];
   const needsIdConfig = !('idField' in pub);
   return { count: rows.length, unchanged: false, columns, needsIdConfig };
 }
@@ -740,6 +755,11 @@ router.get('/:id/rows', auth, async (req, res) => {
   if (dataset.sourceType === 'derived') {
     const { rows, error } = await computeDerived(dataset, req.user.id);
     if (error) return res.status(403).json({ error });
+    return res.json(rows);
+  }
+
+  if (dataset.sourceType === 'db') {
+    const rows = await queryDB(dataset.config);
     return res.json(rows);
   }
 
@@ -780,6 +800,10 @@ router.get('/:id/columns', auth, async (req, res) => {
   if (dataset.sourceType === 'derived') {
     const { rows, error } = await computeDerived(dataset, req.user.id);
     if (error) return res.status(403).json({ error });
+    return res.json(rows[0] ? Object.keys(rows[0]) : []);
+  }
+  if (dataset.sourceType === 'db') {
+    const rows = await queryDB(dataset.config);
     return res.json(rows[0] ? Object.keys(rows[0]) : []);
   }
   const first = await prisma.datasetRow.findFirst({ where: { datasetId: req.params.id }, orderBy: { rowIndex: 'asc' } });

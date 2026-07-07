@@ -6,9 +6,9 @@
     "apps/backend"
   ],
   "scripts": {
-    "dev:backend": "npm --workspace=apps/backend run dev",
-    "dev:frontend": "npm --workspace=apps/frontend run dev",
-    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\""
+    "dev:backend": "pnpm --filter lumina-backend run dev",
+    "dev:frontend": "pnpm --filter lumina-frontend run dev",
+    "dev": "concurrently \"pnpm run dev:backend\" \"pnpm run dev:frontend\""
   },
   "devDependencies": {
     "concurrently": "^9.1.0"
