@@ -795,7 +795,10 @@ router.get('/:id/rows', auth, async (req, res) => {
   }
 
   if (dataset.sourceType === 'db') {
-    const rows = await queryDB(dataset.config);
+    const resolved = resolveConfig(dataset.config);
+    const engine = resolved.dbType || dataset.config.dbType;
+    const wrapped = wrapQueryWithLimit(resolved.query, engine, 50000);
+    const rows = await queryDB({ ...resolved, query: wrapped });
     return res.json(rows);
   }
 
@@ -839,7 +842,10 @@ router.get('/:id/columns', auth, async (req, res) => {
     return res.json(rows[0] ? Object.keys(rows[0]) : []);
   }
   if (dataset.sourceType === 'db') {
-    const rows = await queryDB(dataset.config);
+    const resolved = resolveConfig(dataset.config);
+    const engine = resolved.dbType || dataset.config.dbType;
+    const wrapped = wrapQueryWithLimit(resolved.query, engine, 1);
+    const rows = await queryDB({ ...resolved, query: wrapped });
     return res.json(rows[0] ? Object.keys(rows[0]) : []);
   }
   const first = await prisma.datasetRow.findFirst({ where: { datasetId: req.params.id }, orderBy: { rowIndex: 'asc' } });
