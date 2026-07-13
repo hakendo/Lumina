@@ -61,12 +61,23 @@ function rowBytes(rowData) {
   return Buffer.byteLength(JSON.stringify(rowData), 'utf8');
 }
 
-async function updateOrgStorage(areaId, deltaBytes) {
-  if (!areaId || Math.abs(deltaBytes) < 1) return;
-  const area = await prisma.area.findUnique({ where: { id: areaId }, select: { orgId: true } });
-  if (!area?.orgId) return;
+async function updateOrgStorage(dataset, deltaBytes) {
+  if (Math.abs(deltaBytes) < 1) return;
+  let orgId = null;
+  if (dataset.areaId) {
+    const area = await prisma.area.findUnique({ where: { id: dataset.areaId }, select: { orgId: true } });
+    orgId = area?.orgId ?? null;
+  }
+  // Datasets without an area (private, not shared to a team) have no org link via
+  // Area — fall back to the uploader's org membership, otherwise storage silently
+  // never counts against the org's plan limit.
+  if (!orgId && dataset.uploadedById) {
+    const membership = await prisma.orgMembership.findFirst({ where: { userId: dataset.uploadedById }, select: { orgId: true } });
+    orgId = membership?.orgId ?? null;
+  }
+  if (!orgId) return;
   await prisma.organization.update({
-    where: { id: area.orgId },
+    where: { id: orgId },
     data: { storageUsedMB: { increment: deltaBytes / (1024 * 1024) } },
   });
 }
@@ -285,7 +296,7 @@ router.post('/upload', auth, upload.single('file'), async (req, res) => {
   await batchCreateRows(dataset.id, rows);
 
   const uploadedBytes = rows.reduce((acc, r) => acc + rowBytes(r), 0);
-  await updateOrgStorage(dataset.areaId, uploadedBytes);
+  await updateOrgStorage(dataset, uploadedBytes);
 
   res.json({ id: dataset.id, name: dataset.name, count: rows.length, columns: rows[0] ? Object.keys(rows[0]) : [] });
 });
@@ -756,7 +767,7 @@ async function performSync(dataset) {
     await batchCreateRows(dataset.id, rows);
   }
 
-  await updateOrgStorage(dataset.areaId, storageDeltaBytes);
+  await updateOrgStorage(dataset, storageDeltaBytes);
 
   await prisma.dataset.update({
     where: { id: dataset.id },
