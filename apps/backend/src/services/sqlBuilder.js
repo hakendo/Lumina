@@ -37,33 +37,11 @@ function buildSelectQuery(definition, dbType, schema) {
     aliasMap.set(alias, t);
   });
 
-  // Build SELECT clause
-  let selectClause;
-  if (!columns?.length) {
-    selectClause = '*';
-  } else {
-    const colParts = [];
-    for (const col of columns) {
-      const tableEntry = aliasMap.get(col.table);
-      if (!tableEntry) throw new Error(`Alias "${col.table}" no encontrado`);
-      const validCols = schemaColumnMap.get(tableEntry.name);
-      if (!validCols) throw new Error(`Tabla "${tableEntry.name}" no encontrada en esquema`);
-
-      if (col.column === '*') {
-        colParts.push(`${quoteIdent(col.table, dbType)}.*`);
-      } else {
-        validateIdentifier(col.column, validCols, `Columna en ${tableEntry.name}`);
-        const colRef = `${quoteIdent(col.table, dbType)}.${quoteIdent(col.column, dbType)}`;
-        colParts.push(col.alias ? `${colRef} AS ${quoteIdent(col.alias, dbType)}` : colRef);
-      }
-    }
-    selectClause = colParts.join(', ');
-  }
-
   // Build FROM clause
   const firstAlias = tables[0].alias || 't0';
   const firstTable = aliasMap.get(firstAlias);
   let fromClause = `${qualifiedTable(firstTable, dbType)} ${quoteIdent(firstAlias, dbType)}`;
+  const added = new Set([firstAlias]);
 
   if (joins?.length) {
     const declared = new Set([firstAlias]);
@@ -85,8 +63,6 @@ function buildSelectQuery(definition, dbType, schema) {
       declared.add(last.leftTable);
       declared.add(last.rightTable);
     }
-
-    const added = new Set([firstAlias]);
 
     for (const join of ordered) {
       const joinType = ['INNER', 'LEFT', 'RIGHT'].includes(join.type?.toUpperCase()) ? join.type.toUpperCase() : 'INNER';
@@ -134,6 +110,33 @@ function buildSelectQuery(definition, dbType, schema) {
 
       added.add(newAlias);
     }
+  }
+
+  // Build SELECT clause — only after FROM is known, so we can reject columns
+  // from tables that were selected but never actually joined into the query.
+  let selectClause;
+  if (!columns?.length) {
+    selectClause = '*';
+  } else {
+    const colParts = [];
+    for (const col of columns) {
+      const tableEntry = aliasMap.get(col.table);
+      if (!tableEntry) throw new Error(`Alias "${col.table}" no encontrado`);
+      if (!added.has(col.table)) {
+        throw new Error(`La tabla "${tableEntry.name}" (${col.table}) no está unida a la query — agrega un join o quita sus columnas`);
+      }
+      const validCols = schemaColumnMap.get(tableEntry.name);
+      if (!validCols) throw new Error(`Tabla "${tableEntry.name}" no encontrada en esquema`);
+
+      if (col.column === '*') {
+        colParts.push(`${quoteIdent(col.table, dbType)}.*`);
+      } else {
+        validateIdentifier(col.column, validCols, `Columna en ${tableEntry.name}`);
+        const colRef = `${quoteIdent(col.table, dbType)}.${quoteIdent(col.column, dbType)}`;
+        colParts.push(col.alias ? `${colRef} AS ${quoteIdent(col.alias, dbType)}` : colRef);
+      }
+    }
+    selectClause = colParts.join(', ');
   }
 
   let sql = `SELECT ${selectClause}\nFROM ${fromClause}`;
