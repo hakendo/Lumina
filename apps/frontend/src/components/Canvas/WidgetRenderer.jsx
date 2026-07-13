@@ -21,11 +21,22 @@ function WidgetSkeleton() {
   );
 }
 
+function WidgetError({ message }) {
+  return (
+    <div className="h-full flex flex-col items-center justify-center gap-1.5 text-center px-3 bg-rust/5 rounded-lg">
+      <Icon name="alertTriangle" size={18} className="text-rust" />
+      <p className="text-xs text-rust font-medium">Error al cargar datos</p>
+      {message && <p className="text-[10px] text-rust/70 line-clamp-2">{message}</p>}
+    </div>
+  );
+}
+
 const AGGREGATE_TYPES = new Set(['kpi']);
 
 const WidgetRenderer = memo(function WidgetRenderer({ widget, publicSlug }) {
   const [fetched, setFetched] = useState(null);
   const [aggResult, setAggResult] = useState(null);
+  const [error, setError] = useState(null);
 
   const filters      = useReportStore((s) => s.filters);
   const filterValues = useReportStore((s) => s.filterValues);
@@ -41,6 +52,7 @@ const WidgetRenderer = memo(function WidgetRenderer({ widget, publicSlug }) {
   useEffect(() => {
     if (!useAggregate || !aggField) return;
     let alive = true;
+    setError(null);
 
     const params = new URLSearchParams({ field: aggField, op: aggOp });
 
@@ -53,7 +65,8 @@ const WidgetRenderer = memo(function WidgetRenderer({ widget, publicSlug }) {
     if (activeFilters.length) params.set('filters', JSON.stringify(activeFilters));
 
     api.get(`/datasets/${widget.datasetId}/aggregate?${params}`)
-      .then(({ data }) => { if (alive) setAggResult(data); });
+      .then(({ data }) => { if (alive) setAggResult(data); })
+      .catch((err) => { if (alive) setError(err.response?.data?.error || 'No se pudo cargar el dato'); });
 
     return () => { alive = false; };
   }, [useAggregate, widget.datasetId, aggField, aggOp, crossFilters, drillFilters]);
@@ -65,6 +78,7 @@ const WidgetRenderer = memo(function WidgetRenderer({ widget, publicSlug }) {
     if (CACHE[dsId]) { setFetched(CACHE[dsId]); return; }
 
     let alive = true;
+    setError(null);
     const path = publicSlug
       ? `/reports/public/${publicSlug}/datasets/${dsId}/rows`
       : `/datasets/${dsId}/rows`;
@@ -75,7 +89,9 @@ const WidgetRenderer = memo(function WidgetRenderer({ widget, publicSlug }) {
         .finally(() => { delete PENDING[dsId]; });
     }
 
-    PENDING[dsId].then((rows) => { if (alive) setFetched(rows); });
+    PENDING[dsId]
+      .then((rows) => { if (alive) setFetched(rows); })
+      .catch((err) => { if (alive) setError(err.response?.data?.error || 'No se pudieron cargar las filas'); });
     return () => { alive = false; };
   }, [widget.datasetId, publicSlug, useAggregate]);
 
@@ -98,6 +114,10 @@ const WidgetRenderer = memo(function WidgetRenderer({ widget, publicSlug }) {
   );
 
   const dsId = widget.datasetId;
+
+  if (error) {
+    return <WidgetError message={error} />;
+  }
 
   const loadingRows = !!dsId && !useAggregate && rawData === null;
   const loadingAgg = useAggregate && !!aggField && aggResult === null;
