@@ -303,6 +303,66 @@ curl -X POST http://localhost:3001/auth/login `
 
 ---
 
+## Checklist de servicios y auto-arranque
+
+**Correr esto SIEMPRE en un deploy nuevo, y despues de cualquier reinicio del servidor.**
+`nssm status` / `Get-Service ... Status` solo dicen si esta corriendo *ahora* — no dicen si
+va a volver a levantar solo despues de un reboot o un crash. Eso lo dice `StartType`, y
+es un paso que se salta facil si se instalo todo a mano en vez de con `instalar.ps1`.
+
+### Validar (cualquier servidor, cambiar el hostname si se corre remoto)
+
+```powershell
+# Local, en el servidor:
+Get-Service -Name 'postgresql-x64-17' | Select-Object Name, Status, StartType
+Get-Service -Name 'lumina-backend'    | Select-Object Name, Status, StartType
+
+# Remoto via WinRM:
+Invoke-Command -ComputerName <IP-o-hostname> -ScriptBlock {
+    Get-Service -Name 'postgresql-x64-17', 'lumina-backend' | Select-Object Name, Status, StartType
+}
+```
+
+Ambos servicios deben mostrar `Status: Running` **y** `StartType: Automatic`.
+Si `StartType` es `Manual` (a veces aparece como `SERVICE_DEMAND_START` en `nssm get ... Start`),
+el servicio no se va a levantar solo despues de un reinicio o si alguien lo detiene —
+va a quedar caido hasta que alguien lo note y lo arranque a mano.
+
+### Configurar auto-arranque (si falta)
+
+```powershell
+# PostgreSQL — el instalador normalmente ya lo deja en Automatic, pero verificar:
+Set-Service -Name 'postgresql-x64-17' -StartupType Automatic
+Start-Service -Name 'postgresql-x64-17'
+
+# Backend Node (NSSM) — el `instalar.ps1` / paso 2.6 ya lo configura, pero si el
+# servicio se creo a mano o quedo en Manual:
+nssm set lumina-backend Start SERVICE_AUTO_START
+Set-Service -Name 'lumina-backend' -StartupType Automatic
+Start-Service -Name 'lumina-backend'
+```
+
+### Por que importa (incidente real, 2026-07-13)
+
+En el servidor QA (192.168.180.80) el servicio `lumina-backend` existia y estaba bien
+configurado en NSSM (mismos paths que este doc), pero su `Start` quedo en
+`SERVICE_DEMAND_START` (Manual) — probablemente de una instalacion manual que se salteo
+`nssm set lumina-backend Start SERVICE_AUTO_START`. El servicio se detuvo en algun momento
+(reboot o crash) y **nadie lo noto** hasta que fallo el login. Mientras tanto, se intento
+"arreglar" arrancando `node.exe src\index.js` a mano por fuera del servicio (via WinRM
+`Start-Process` o WMI `Win32_Process.Create`) — eso funciona para levantar el backend
+momentaneamente, pero NO reemplaza al servicio: sigue sin auto-arrancar, y si el proceso
+manual y el servicio arrancan a la vez pueden pelearse por el puerto 3001.
+`postgresql-x64-17` tenia el mismo problema (Manual en vez de Automatic) y fue la causa
+raiz real del error `Can't reach database server at localhost:5432`.
+
+**Leccion:** si un servicio esta caido, antes de arrancarlo a mano revisar si existe como
+servicio Windows (`Get-Service`, `nssm list` / `Get-Service *lumina*`) y arrancarlo asi
+(`Start-Service` / `nssm start`), no con `Start-Process` suelto. Y siempre confirmar
+`StartType: Automatic` en el mismo momento, no solo `Status: Running`.
+
+---
+
 ## Estructura de archivos en servidor
 
 ```
