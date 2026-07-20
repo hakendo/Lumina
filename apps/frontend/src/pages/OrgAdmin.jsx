@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppHeader, Icon, Button, Modal, Field } from '../components/ui';
 import { useAuthStore } from '../store/authStore';
+import { applyOrgTheme, FONT_DISPLAY_OPTIONS, FONT_SANS_OPTIONS } from '../lib/theme';
 import api from '../lib/api';
 
 /* ── Helpers ──────────────────────────────────────────────────────────── */
@@ -459,13 +460,175 @@ function StorageTab() {
   );
 }
 
+/* ── Tab: Apariencia ──────────────────────────────────────────────────── */
+// Override de tokens visuales (color/tipografía) por organización, aplicado
+// en runtime como CSS custom properties sobre :root (ver src/lib/theme.js).
+// El form guarda siempre las 7 claves como string ('' = usar el default de
+// la app); así "Guardar" determina el estado completo sin ambigüedad.
+
+const THEME_COLOR_FIELDS = [
+  { key: 'lumen',     label: 'Acento primario', hint: 'Botones, links, foco' },
+  { key: 'lumenDeep', label: 'Acento oscuro',    hint: 'Hover, texto sobre fondo suave' },
+  { key: 'lumenGlow', label: 'Acento brillo',    hint: 'Detalles, mascota, marcadores de mapa' },
+  { key: 'sea',       label: 'Éxito / público',  hint: 'Reportes públicos, confirmaciones' },
+  { key: 'rust',      label: 'Peligro',          hint: 'Errores, acciones destructivas' },
+];
+
+// Solo para mostrar un swatch válido en el <input type="color"> cuando el
+// campo está vacío (= sin override) — coincide con los defaults de index.css.
+const APP_DEFAULTS = {
+  lumen: '#133896', lumenDeep: '#031560', lumenGlow: '#08cdff',
+  sea: '#157a52', rust: '#b3222f',
+};
+
+const EMPTY_THEME_FORM = {
+  lumen: '', lumenDeep: '', lumenGlow: '', sea: '', rust: '', fontDisplay: '', fontSans: '',
+};
+
+function normalizeTheme(data) {
+  return { ...EMPTY_THEME_FORM, ...Object.fromEntries(
+    Object.entries(data ?? {}).filter(([k]) => k in EMPTY_THEME_FORM)
+  ) };
+}
+
+function ThemeTab() {
+  const setOrgTheme = useAuthStore((s) => s.setOrgTheme);
+  const [form, setForm] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const { data } = await api.get('/org/theme');
+      setForm(normalizeTheme(data));
+    } catch (err) {
+      setError(err.response?.data?.error ?? 'Error al cargar el tema');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  // Vista previa en vivo mientras se edita — no persiste hasta Guardar.
+  useEffect(() => { if (form) applyOrgTheme(form); }, [form]);
+
+  // Al salir de la pestaña sin guardar, vuelve a aplicar el tema real de la sesión.
+  useEffect(() => () => { applyOrgTheme(useAuthStore.getState().user?.orgTheme); }, []);
+
+  const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    setError('');
+    setSaved(false);
+    try {
+      const { data } = await api.put('/org/theme', form);
+      const next = normalizeTheme(data);
+      setForm(next);
+      setOrgTheme(data);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (err) {
+      setError(err.response?.data?.error ?? 'Error al guardar el tema');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading || !form) return <p className="text-ink-faint text-sm">Cargando…</p>;
+
+  return (
+    <form onSubmit={handleSave}>
+      <div className="flex items-start justify-between gap-4 mb-4">
+        <p className="text-sm text-ink-faint max-w-md">
+          Personaliza los colores y la tipografía de esta organización. La vista previa
+          se aplica al instante; los demás usuarios la ven al recargar tras Guardar.
+        </p>
+        <button type="button" onClick={() => setForm(EMPTY_THEME_FORM)}
+          className="text-xs text-ink-faint hover:text-rust transition cursor-pointer shrink-0">
+          Restablecer todo
+        </button>
+      </div>
+
+      <div className="border border-line rounded-xl p-4 mb-4 bg-surface">
+        <h3 className="text-sm font-semibold text-ink mb-3">Colores</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {THEME_COLOR_FIELDS.map(({ key, label, hint }) => (
+            <div key={key} className="flex items-center gap-3">
+              <input type="color" value={form[key] || APP_DEFAULTS[key]}
+                onChange={(e) => set(key, e.target.value)}
+                className="h-9 w-12 rounded-lg cursor-pointer border border-line bg-surface shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm text-ink font-medium">{label}</p>
+                <p className="text-xs text-ink-faint truncate">{hint}</p>
+              </div>
+              {form[key] && (
+                <button type="button" onClick={() => set(key, '')}
+                  className="text-[11px] text-ink-faint hover:text-lumen-deep transition cursor-pointer underline underline-offset-2 shrink-0">
+                  Predeterminado
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="border border-line rounded-xl p-4 mb-4 bg-surface">
+        <h3 className="text-sm font-semibold text-ink mb-3">Tipografía</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Field label="Fuente de títulos">
+            <select className="field" value={form.fontDisplay} onChange={(e) => set('fontDisplay', e.target.value)}>
+              <option value="">Predeterminada (Barlow)</option>
+              {FONT_DISPLAY_OPTIONS.map((f) => <option key={f} value={f}>{f}</option>)}
+            </select>
+          </Field>
+          <Field label="Fuente de texto">
+            <select className="field" value={form.fontSans} onChange={(e) => set('fontSans', e.target.value)}>
+              <option value="">Predeterminada (Nunito Sans)</option>
+              {FONT_SANS_OPTIONS.map((f) => <option key={f} value={f}>{f}</option>)}
+            </select>
+          </Field>
+        </div>
+      </div>
+
+      <div className="border border-line-soft rounded-xl p-5 bg-paper-deep">
+        <p className="text-xs font-semibold text-ink-faint uppercase tracking-wide mb-3">Vista previa</p>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="font-display text-xl font-semibold text-ink">Lúmina</span>
+          <Button type="button" variant="accent" size="sm">Acción primaria</Button>
+          <span className="text-xs px-2 py-1 rounded-full bg-lumen-soft text-lumen-deep font-medium">Etiqueta</span>
+          <span className="text-xs px-2 py-1 rounded-full bg-sea-soft text-sea font-medium">Éxito</span>
+          <span className="text-xs px-2 py-1 rounded-full bg-rust-soft text-rust font-medium">Error</span>
+        </div>
+      </div>
+
+      {error && <p className="text-xs text-rust mt-3">{error}</p>}
+      <div className="mt-4 flex items-center justify-end gap-3">
+        {saved && (
+          <span className="text-xs text-sea font-medium flex items-center gap-1">
+            <Icon name="check" size={13} /> Guardado
+          </span>
+        )}
+        <Button type="submit" disabled={saving}>{saving ? 'Guardando…' : 'Guardar'}</Button>
+      </div>
+    </form>
+  );
+}
+
 /* ── Página principal ─────────────────────────────────────────────────── */
 
 const TABS = [
-  { id: 'users',    label: 'Usuarios',  icon: 'users' },
-  { id: 'trash',    label: 'Papelera',  icon: 'trash' },
-  { id: 'policies', label: 'Políticas', icon: 'shield' },
-  { id: 'storage',  label: 'Storage',   icon: 'database' },
+  { id: 'users',    label: 'Usuarios',   icon: 'users' },
+  { id: 'trash',    label: 'Papelera',   icon: 'trash' },
+  { id: 'policies', label: 'Políticas',  icon: 'shield' },
+  { id: 'storage',  label: 'Storage',    icon: 'database' },
+  { id: 'theme',    label: 'Apariencia', icon: 'sliders' },
 ];
 
 export default function OrgAdmin() {
@@ -541,6 +704,7 @@ export default function OrgAdmin() {
           {tab === 'trash'    && <TrashTab />}
           {tab === 'policies' && <PoliciesTab />}
           {tab === 'storage'  && <StorageTab />}
+          {tab === 'theme'    && <ThemeTab />}
         </div>
       </main>
     </div>

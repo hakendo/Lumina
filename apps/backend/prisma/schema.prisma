@@ -39,6 +39,10 @@ model Organization {
   policyAllowExternalShare Boolean @default(true)
   policyAllowPublishToArea Boolean @default(true)
   policyAllowCreateReport  Boolean @default(true)
+  // Tema visual de la org (colores/tipografía override de los tokens base).
+  // Claves soportadas: lumen, lumenDeep, lumenGlow, sea, rust, fontDisplay, fontSans.
+  // Claves ausentes = usar el default de la app (ver src/index.css).
+  themeConfig  Json            @default("{}")
   // Relations
   memberships  OrgMembership[]
   areas        Area[]
@@ -133,6 +137,7 @@ model Dataset {
   rows         DatasetRow[]
   widgets      ReportWidget[]
   slotBindings DatasetSlotBinding[]
+  reportShareSources ReportShare[]
 }
 
 model DatasetRow {
@@ -188,6 +193,13 @@ model ReportShare {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   role      String   @default("viewer") // viewer | editor
   createdAt DateTime @default(now())
+
+  // Dataset (DB connector con conexión propia) cuya connectionString se usa
+  // en vez de la del dataset original al resolver este widget para este
+  // usuario — misma query, distinta conexión, por cliente. Ver
+  // GET /reports/:reportId/widgets/:widgetId/rows.
+  sourceDatasetId String?
+  sourceDataset   Dataset? @relation(fields: [sourceDatasetId], references: [id], onDelete: SetNull)
 
   @@unique([reportId, userId])
 }

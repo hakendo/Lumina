@@ -7,6 +7,8 @@ const { parse } = require('csv-parse/sync');
 const ExcelJS = require('exceljs');
 const crypto = require('crypto');
 const { decrypt } = require('./encryption');
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
 
 // ── Connection pool manager ─────────────────────────────────────────
 const POOL_TTL = 10 * 60 * 1000;
@@ -100,7 +102,19 @@ async function parseExcel(filePath) {
   return rows;
 }
 
-function resolveConfig(storedConfig) {
+async function resolveConfig(storedConfig) {
+  if (storedConfig.connectionRef) {
+    const source = await prisma.dataset.findUnique({ where: { id: storedConfig.connectionRef } });
+    if (!source || source.sourceType !== 'db' || !source.config._enc) {
+      throw Object.assign(
+        new Error('La conexion de referencia no existe o ya no es valida'),
+        { errorType: 'connection_error' }
+      );
+    }
+    const sensitive = decrypt(source.config._enc);
+    const { connectionRef, ...pub } = storedConfig;
+    return { ...pub, dbType: pub.dbType || source.config.dbType, ...sensitive };
+  }
   if (!storedConfig._enc) return storedConfig;
   const sensitive = decrypt(storedConfig._enc);
   const { _enc, ...pub } = storedConfig;
@@ -212,7 +226,7 @@ function httpRequest(finalUrl, { method, headers, body, allowInsecureSsl }) {
 }
 
 async function fetchAPI(storedConfig) {
-  const config = resolveConfig(storedConfig);
+  const config = await resolveConfig(storedConfig);
   const { url, method = 'GET', headers = {}, queryParams = {}, body, dataPath, allowInsecureSsl } = config;
 
   if (!url) throw new Error('API connector is missing a URL');
@@ -299,7 +313,7 @@ function normalizeRedisReply(command, reply) {
 }
 
 async function queryDB(storedConfig) {
-  const config = resolveConfig(storedConfig);
+  const config = await resolveConfig(storedConfig);
   const { dbType = 'pg', connectionString, query } = config;
 
   if (!connectionString) throw new Error('DB connector is missing a connection string');

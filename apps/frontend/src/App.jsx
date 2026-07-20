@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
 import { Wordmark } from './components/ui';
 import Mascot from './components/Mascot';
+import { applyOrgTheme } from './lib/theme';
 
 const Login = lazy(() => import('./pages/Login'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -31,11 +32,18 @@ function PageLoader() {
 }
 
 export default function App() {
-  const { token, loadUser } = useAuthStore();
+  const { token, loadUser, user } = useAuthStore();
 
   useEffect(() => {
     if (token) loadUser();
   }, [token]);
+
+  // Repinta los tokens visuales (color/tipografía) apenas cambie el tema de
+  // la org activa: primer load, cambio de org (switchOrg recarga la página,
+  // pero esto también cubre la sesión ya montada) o guardado en Apariencia.
+  useEffect(() => {
+    applyOrgTheme(user?.orgTheme);
+  }, [user?.orgTheme]);
 
   return (
     <BrowserRouter>

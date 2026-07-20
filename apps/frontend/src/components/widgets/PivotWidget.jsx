@@ -1,5 +1,6 @@
 import { useMemo, useState, useRef, useCallback } from 'react';
 import { useDatasetMeta, WidgetFooter } from './useDatasetMeta';
+import { formatDateValue } from '../../lib/dateFormat';
 
 const AGG = {
   sum: (arr) => arr.reduce((a, b) => a + b, 0),
@@ -21,7 +22,8 @@ const DEFAULT_COL = 120;
 const PAGE_SIZES = [25, 50, 100, 500];
 
 export default function PivotWidget({ config, data, datasetId }) {
-  const { rowField, colField, valueField, aggregation = 'sum', title } = config;
+  const { rowField, colField, valueField, aggregation = 'sum', title, dateFormat } = config;
+  const displayRowKey = (rk) => (dateFormat ? formatDateValue(rk, dateFormat) : rk);
   const meta = useDatasetMeta(datasetId);
   const [sortCol, setSortCol] = useState(null);
   const [sortDir, setSortDir] = useState('desc');
@@ -183,7 +185,7 @@ export default function PivotWidget({ config, data, datasetId }) {
             {pageRows.map((rk, i) => (
               <tr key={rk} className={i % 2 === 0 ? '' : 'bg-paper/60'}>
                 <td className="px-3 py-1.5 text-ink-soft border-b border-r border-line-soft font-medium whitespace-nowrap truncate" style={{ maxWidth: colWidths['__row__'] || DEFAULT_COL }}>
-                  {rk}
+                  {displayRowKey(rk)}
                 </td>
                 {showCols && colKeys.map((ck) => (
                   <td key={ck} className="px-3 py-1.5 text-ink-soft border-b border-line-soft text-right font-mono">

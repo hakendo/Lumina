@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useDatasetMeta, formatRelativeTime } from './useDatasetMeta';
+import { formatDateValue } from '../../lib/dateFormat';
 
 const ROW_HEIGHT = 32;
 const PAGE_SIZES = [25, 50, 100, 500];
@@ -8,7 +9,7 @@ const MIN_COL_WIDTH = 60;
 const DEFAULT_COL_WIDTH = 150;
 
 export default function TableWidget({ config, data, onCrossFilter, datasetId }) {
-  const { title, columns, crossFilterField, pageSize: configPageSize } = config;
+  const { title, columns, crossFilterField, pageSize: configPageSize, dateFormat } = config;
   const [selectedRow, setSelectedRow] = useState(null);
   const [sortCol, setSortCol] = useState(null);
   const [sortDir, setSortDir] = useState('asc');
@@ -111,6 +112,7 @@ export default function TableWidget({ config, data, onCrossFilter, datasetId }) 
 
   const clickable = onCrossFilter && effectiveCrossFilterField;
   const relTime = meta ? formatRelativeTime(meta.lastSyncAt) : null;
+  const displayValue = (v) => (v !== null && v !== undefined ? String(dateFormat ? formatDateValue(v, dateFormat) : v) : '');
 
   return (
     <div className="h-full flex flex-col overflow-hidden drag-cancel">
@@ -199,9 +201,9 @@ export default function TableWidget({ config, data, onCrossFilter, datasetId }) 
                       key={c}
                       className="px-3 py-1.5 text-ink-soft border-b border-line-soft whitespace-nowrap truncate font-mono"
                       style={{ width: colWidths[c] || DEFAULT_COL_WIDTH, maxWidth: colWidths[c] || DEFAULT_COL_WIDTH }}
-                      title={row[c] !== null && row[c] !== undefined ? String(row[c]) : ''}
+                      title={displayValue(row[c])}
                     >
-                      {row[c] !== null && row[c] !== undefined ? String(row[c]) : ''}
+                      {displayValue(row[c])}
                     </td>
                   ))}
                 </tr>

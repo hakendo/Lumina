@@ -174,7 +174,7 @@ export default function Datasets() {
                 onSaved={(updated) => { replaceDataset(updated); setEditTarget(null); }} />
             )}
             {editTarget.sourceType === 'db' && (
-              <DBForm initial={editTarget} onCreated={() => {}} isSuperadmin={isSuperadmin}
+              <DBForm initial={editTarget} onCreated={() => {}} isSuperadmin={isSuperadmin} availableDatasets={datasets}
                 onSaved={(updated) => { replaceDataset(updated); setEditTarget(null); }} />
             )}
             {editTarget.sourceType === 'derived' && (
@@ -264,7 +264,7 @@ export default function Datasets() {
           <div className="p-5">
             {tab === 'csv' && <CSVForm onCreated={addDataset} areas={areas} isSuperadmin={isSuperadmin} />}
             {tab === 'api' && <APIForm onCreated={addDataset} areas={areas} isSuperadmin={isSuperadmin} />}
-            {tab === 'db' && <DBForm onCreated={addDataset} areas={areas} isSuperadmin={isSuperadmin} />}
+            {tab === 'db' && <DBForm onCreated={addDataset} areas={areas} availableDatasets={datasets} isSuperadmin={isSuperadmin} />}
             {tab === 'derived' && <DerivedDatasetForm onCreated={addDataset} areas={areas} availableDatasets={datasets} isSuperadmin={isSuperadmin} />}
           </div>
         </div>
@@ -948,7 +948,7 @@ function buildConnectionString(dbType, { host, port, user, password, database })
   return `${proto}://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host}:${port}/${database}`;
 }
 
-function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = false }) {
+function DBForm({ onCreated, initial = {}, onSaved, areas = [], availableDatasets = [], isSuperadmin = false }) {
   const isEdit = !!onSaved;
   const [name, setName] = useState(initial.name || '');
   const [areaId, setAreaId] = useState(initial.areaId || '');
@@ -960,6 +960,14 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
   const [dbPass, setDbPass] = useState('');
   const [dbName, setDbName] = useState('');
   const [showPass, setShowPass] = useState(false);
+
+  // Datasets DB-connector que tienen conexión propia (no otra referencia) y no son este mismo:
+  // opciones válidas para "heredar conexión de".
+  const connectionSources = availableDatasets.filter(
+    (d) => d.sourceType === 'db' && d.id !== initial.id && !d.config?.connectionRef
+  );
+  const [connectionMode, setConnectionMode] = useState(initial.config?.connectionRef ? 'inherit' : 'own');
+  const [connectionRef, setConnectionRef] = useState(initial.config?.connectionRef || '');
   const [query, setQuery] = useState(initial.config?.query || '');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
@@ -992,12 +1000,16 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
     setDbPort(DB_DEFAULTS[type]?.port || '');
   };
 
-  const hasConnFields = dbHost.trim() && dbUser.trim() && dbPass.trim() && (dbType === 'redis' || dbName.trim());
+  const hasOwnConnFields = dbHost.trim() && dbUser.trim() && dbPass.trim() && (dbType === 'redis' || dbName.trim());
+  const hasConnFields = connectionMode === 'inherit' ? !!connectionRef : hasOwnConnFields;
+  // Al crear (no isEdit) con conexión heredada, usamos el dataset origen para
+  // introspección/preview: ya tiene conexión real resuelta por el backend.
+  const introspectionDatasetId = isEdit ? initial.id : (connectionMode === 'inherit' && connectionRef ? connectionRef : null);
 
   const currentConnString = useCallback(() => {
-    if (!hasConnFields) return '';
+    if (connectionMode === 'inherit' || !hasOwnConnFields) return '';
     return buildConnectionString(dbType, { host: dbHost, port: dbPort || DB_DEFAULTS[dbType]?.port, user: dbUser, password: dbPass, database: dbName });
-  }, [dbType, dbHost, dbPort, dbUser, dbPass, dbName, hasConnFields]);
+  }, [dbType, dbHost, dbPort, dbUser, dbPass, dbName, hasOwnConnFields, connectionMode]);
 
   const canLoadSchema = hasConnFields || isEdit;
 
@@ -1008,8 +1020,8 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
       let payload;
       if (connStr) {
         payload = { dbType, connectionString: connStr };
-      } else if (isEdit && initial.id) {
-        payload = { datasetId: initial.id };
+      } else if (introspectionDatasetId) {
+        payload = { datasetId: introspectionDatasetId };
       } else {
         setMsg('Completa los datos de conexión primero'); setSchemaLoading(false); return;
       }
@@ -1085,7 +1097,7 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
       const connStr = currentConnString();
       const reqBody = connStr
         ? { dbType, connectionString: connStr, query }
-        : { datasetId: initial.id, query };
+        : { datasetId: introspectionDatasetId, query };
       const { data } = await api.post('/datasets/db-connector/estimate', reqBody);
       setCostWarnings(data.warnings || []);
     } catch { /* silently fail */ }
@@ -1113,14 +1125,14 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
       const connStr = currentConnString();
       const reqBody = connStr
         ? { dbType, connectionString: connStr, definition }
-        : { datasetId: initial.id, definition };
+        : { datasetId: introspectionDatasetId, definition };
       const { data } = await api.post('/datasets/db-connector/build-query', reqBody);
       setQuery(data.query);
       setCostWarnings([]);
       return data.query;
     } catch (err) { setMsg(`Error SQL: ${err.response?.data?.error || err.message}`); return null; }
     finally { setBuildingQuery(false); }
-  }, [selectedTables, selectedColumns, joins, queryLimit, dbType, hasConnFields, currentConnString]);
+  }, [selectedTables, selectedColumns, joins, queryLimit, dbType, hasConnFields, currentConnString, introspectionDatasetId]);
 
   useEffect(() => {
     if (queryMode !== 'visual' || !selectedTables.length) return;
@@ -1190,15 +1202,23 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
         limit: queryLimit,
       } : undefined;
 
-      const payload = { name, dbType, query: finalQuery, ...(!isEdit && { areaId }), ...(connStr && { connectionString: connStr }), ...(isSuperadmin && !isEdit && slotName.trim() && { slotName: slotName.trim() }), ...(visualDefinition && { visualDefinition }) };
-      if (isEdit && !connStr) delete payload.connectionString;
+      const inheriting = connectionMode === 'inherit' && connectionRef;
+      const payload = {
+        name, dbType, query: finalQuery,
+        ...(!isEdit && { areaId }),
+        ...(connStr && { connectionString: connStr }),
+        ...(inheriting && { connectionRef }),
+        ...(isSuperadmin && !isEdit && slotName.trim() && { slotName: slotName.trim() }),
+        ...(visualDefinition && { visualDefinition }),
+      };
+      if (isEdit && !connStr && !inheriting) delete payload.connectionString;
 
       let data;
       if (isEdit) {
         ({ data } = await api.put(`/datasets/${initial.id}/db-connector`, payload));
         onSaved(data);
       } else {
-        if (!connStr) { setMsg('Completa los datos de conexión'); setBusy(false); return; }
+        if (!connStr && !inheriting) { setMsg('Completa los datos de conexión o elegí una para heredar'); setBusy(false); return; }
         if (!finalQuery.trim()) { setMsg('Genera o escribe una query primero'); setBusy(false); return; }
         ({ data } = await api.post('/datasets/db-connector', payload));
         const area = areas.find((a) => a.id === areaId);
@@ -1271,7 +1291,7 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
           estimating={estimating}
           onEstimate={estimateCost}
           onApplyLimit={(n) => setQueryLimit(n)}
-          datasetId={initial.id}
+          datasetId={introspectionDatasetId}
           dbType={dbType}
           connectionString={currentConnString()}
         />
@@ -1304,54 +1324,84 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
           )}
         </>
       )}
-      <Field label="Motor">
-        <select value={dbType} onChange={(e) => handleDbTypeChange(e.target.value)} className="field">
-          <option value="pg">PostgreSQL</option>
-          <option value="mysql">MySQL</option>
-          <option value="mssql">SQL Server</option>
-          <option value="oracle">Oracle</option>
-          <option value="redis">Redis</option>
-        </select>
-      </Field>
+      {connectionSources.length > 0 && (
+        <div className="flex gap-1 bg-paper-deep rounded-lg p-1">
+          <button type="button" onClick={() => setConnectionMode('own')}
+            className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition ${connectionMode === 'own' ? 'bg-surface text-ink shadow-sm' : 'text-ink-faint hover:text-ink'}`}>
+            Nueva conexión
+          </button>
+          <button type="button" onClick={() => setConnectionMode('inherit')}
+            className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition ${connectionMode === 'inherit' ? 'bg-surface text-ink shadow-sm' : 'text-ink-faint hover:text-ink'}`}>
+            Heredar conexión
+          </button>
+        </div>
+      )}
 
-      <fieldset className="border border-line rounded-lg p-3 space-y-3">
-        <legend className="text-xs font-semibold text-ink-soft px-1">
-          {isEdit ? 'Conexión (dejar vacío para no cambiar)' : 'Datos de conexión'}
-        </legend>
-        <div className="grid grid-cols-[1fr_auto] gap-2">
-          <Field label="Servidor / IP">
-            <input value={dbHost} onChange={(e) => setDbHost(e.target.value)}
-              placeholder="ej. 192.168.1.100" className="field field-mono" />
+      {connectionMode === 'inherit' ? (
+        <Field label="Heredar conexión de" hint="Reusa usuario/contraseña de otro conector DB ya configurado. No hace falta reingresarlos.">
+          <select value={connectionRef} onChange={(e) => {
+            setConnectionRef(e.target.value);
+            const source = connectionSources.find((d) => d.id === e.target.value);
+            if (source?.config?.dbType) handleDbTypeChange(source.config.dbType);
+          }} className="field">
+            <option value="">Selecciona un dataset...</option>
+            {connectionSources.map((d) => (
+              <option key={d.id} value={d.id}>{d.name} ({d.config?.dbType})</option>
+            ))}
+          </select>
+        </Field>
+      ) : (
+        <>
+          <Field label="Motor">
+            <select value={dbType} onChange={(e) => handleDbTypeChange(e.target.value)} className="field">
+              <option value="pg">PostgreSQL</option>
+              <option value="mysql">MySQL</option>
+              <option value="mssql">SQL Server</option>
+              <option value="oracle">Oracle</option>
+              <option value="redis">Redis</option>
+            </select>
           </Field>
-          <Field label="Puerto">
-            <input value={dbPort} onChange={(e) => setDbPort(e.target.value)}
-              placeholder={DB_DEFAULTS[dbType]?.port} className="field field-mono w-24" />
-          </Field>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <Field label="Usuario">
-            <input value={dbUser} onChange={(e) => setDbUser(e.target.value)}
-              placeholder="ej. lumina_user" className="field field-mono" autoComplete="off" />
-          </Field>
-          <Field label="Contraseña">
-            <div className="relative">
-              <input type={showPass ? 'text' : 'password'} value={dbPass} onChange={(e) => setDbPass(e.target.value)}
-                placeholder="••••••••" className="field field-mono pr-10" autoComplete="new-password" />
-              <button type="button" onClick={() => setShowPass(!showPass)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-ink text-xs select-none">
-                {showPass ? 'Ocultar' : 'Ver'}
-              </button>
+
+          <fieldset className="border border-line rounded-lg p-3 space-y-3">
+            <legend className="text-xs font-semibold text-ink-soft px-1">
+              {isEdit ? 'Conexión (dejar vacío para no cambiar)' : 'Datos de conexión'}
+            </legend>
+            <div className="grid grid-cols-[1fr_auto] gap-2">
+              <Field label="Servidor / IP">
+                <input value={dbHost} onChange={(e) => setDbHost(e.target.value)}
+                  placeholder="ej. 192.168.1.100" className="field field-mono" />
+              </Field>
+              <Field label="Puerto">
+                <input value={dbPort} onChange={(e) => setDbPort(e.target.value)}
+                  placeholder={DB_DEFAULTS[dbType]?.port} className="field field-mono w-24" />
+              </Field>
             </div>
-          </Field>
-        </div>
-        {dbType !== 'redis' && (
-          <Field label="Base de datos">
-            <input value={dbName} onChange={(e) => setDbName(e.target.value)}
-              placeholder={dbType === 'oracle' ? 'ej. ORCLPDB' : 'ej. lumina'} className="field field-mono" />
-          </Field>
-        )}
-        <p className="text-[11px] text-ink-faint">Credenciales almacenadas cifradas con AES-256-GCM. Nunca visibles en texto plano.</p>
-      </fieldset>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Usuario">
+                <input value={dbUser} onChange={(e) => setDbUser(e.target.value)}
+                  placeholder="ej. lumina_user" className="field field-mono" autoComplete="off" />
+              </Field>
+              <Field label="Contraseña">
+                <div className="relative">
+                  <input type={showPass ? 'text' : 'password'} value={dbPass} onChange={(e) => setDbPass(e.target.value)}
+                    placeholder="••••••••" className="field field-mono pr-10" autoComplete="new-password" />
+                  <button type="button" onClick={() => setShowPass(!showPass)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint hover:text-ink text-xs select-none">
+                    {showPass ? 'Ocultar' : 'Ver'}
+                  </button>
+                </div>
+              </Field>
+            </div>
+            {dbType !== 'redis' && (
+              <Field label="Base de datos">
+                <input value={dbName} onChange={(e) => setDbName(e.target.value)}
+                  placeholder={dbType === 'oracle' ? 'ej. ORCLPDB' : 'ej. lumina'} className="field field-mono" />
+              </Field>
+            )}
+            <p className="text-[11px] text-ink-faint">Credenciales almacenadas cifradas con AES-256-GCM. Nunca visibles en texto plano.</p>
+          </fieldset>
+        </>
+      )}
 
       {dbType !== 'redis' && (
         <div className="flex gap-1 bg-paper-deep rounded-lg p-1">
@@ -1406,7 +1456,7 @@ function DBForm({ onCreated, initial = {}, onSaved, areas = [], isSuperadmin = f
                   onSave={requestFormSave}
                   saving={busy}
                   saveLabel={isEdit ? 'Guardar cambios' : 'Crear conector'}
-                  datasetId={initial.id}
+                  datasetId={introspectionDatasetId}
                   dbType={dbType}
                   connectionString={currentConnString()}
                 />

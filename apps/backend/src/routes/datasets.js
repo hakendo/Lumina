@@ -390,7 +390,7 @@ router.post('/db-connector/introspect', auth, async (req, res) => {
       const dataset = await prisma.dataset.findUnique({ where: { id: datasetId } });
       if (!dataset || dataset.sourceType !== 'db') return res.status(404).json({ error: 'Dataset no encontrado' });
       if (!(await canWriteDataset(dataset, req.user.id))) return res.status(403).json({ error: 'Sin acceso' });
-      const resolved = resolveConfig(dataset.config);
+      const resolved = await resolveConfig(dataset.config);
       connStr = resolved.connectionString;
       engine = resolved.dbType || dataset.config.dbType;
     }
@@ -417,7 +417,7 @@ router.post('/db-connector/estimate', auth, async (req, res) => {
       const dataset = await prisma.dataset.findUnique({ where: { id: datasetId } });
       if (!dataset || dataset.sourceType !== 'db') return res.status(404).json({ error: 'Dataset no encontrado' });
       if (!(await canWriteDataset(dataset, req.user.id))) return res.status(403).json({ error: 'Sin acceso' });
-      const resolved = resolveConfig(dataset.config);
+      const resolved = await resolveConfig(dataset.config);
       connStr = resolved.connectionString;
       engine = resolved.dbType || dataset.config.dbType;
     }
@@ -443,7 +443,7 @@ router.post('/db-connector/build-query', auth, async (req, res) => {
       const dataset = await prisma.dataset.findUnique({ where: { id: datasetId } });
       if (!dataset || dataset.sourceType !== 'db') return res.status(404).json({ error: 'Dataset no encontrado' });
       if (!(await canWriteDataset(dataset, req.user.id))) return res.status(403).json({ error: 'Sin acceso' });
-      const resolved = resolveConfig(dataset.config);
+      const resolved = await resolveConfig(dataset.config);
       connStr = resolved.connectionString;
       engine = resolved.dbType || dataset.config.dbType;
     }
@@ -479,7 +479,7 @@ router.post('/db-connector/preview-query', auth, async (req, res) => {
       const dataset = await prisma.dataset.findUnique({ where: { id: datasetId } });
       if (!dataset || dataset.sourceType !== 'db') return res.status(404).json({ error: 'Dataset no encontrado' });
       if (!(await canWriteDataset(dataset, req.user.id))) return res.status(403).json({ error: 'Sin acceso' });
-      const resolved = resolveConfig(dataset.config);
+      const resolved = await resolveConfig(dataset.config);
       connStr = resolved.connectionString;
       engine = resolved.dbType || dataset.config.dbType;
     }
@@ -496,12 +496,33 @@ router.post('/db-connector/preview-query', auth, async (req, res) => {
   }
 });
 
+// Un dataset db-connector puede traer su propia conexión (_enc) o heredarla de
+// otro dataset db-connector ya existente vía connectionRef, para no reingresar
+// usuario/password cuando el origen de datos es el mismo. Solo puede apuntar a
+// un dataset que tenga conexión propia (no otra referencia), para evitar cadenas.
+async function resolveConnectionRefDbType(connectionRef) {
+  const source = await prisma.dataset.findUnique({ where: { id: connectionRef } });
+  if (!source || source.sourceType !== 'db' || !source.config._enc) return null;
+  return source.config.dbType;
+}
+
 router.post('/db-connector', auth, async (req, res) => {
-  const { name, areaId, dbType = 'pg', connectionString, query, slotName, visualDefinition } = req.body;
+  const { name, areaId, dbType = 'pg', connectionString, connectionRef, query, slotName, visualDefinition } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'name required' });
-  if (!connectionString?.trim()) return res.status(400).json({ error: 'connectionString required' });
+  if (!connectionString?.trim() && !connectionRef) {
+    return res.status(400).json({ error: 'connectionString o connectionRef required' });
+  }
   if (!query?.trim()) return res.status(400).json({ error: 'query required' });
-  if (!VALID_DB_TYPES.has(dbType)) return res.status(400).json({ error: `Tipo de BD no soportado: ${dbType}` });
+
+  let finalDbType = dbType;
+  if (connectionRef) {
+    finalDbType = await resolveConnectionRefDbType(connectionRef);
+    if (!finalDbType) {
+      return res.status(400).json({ error: 'connectionRef inválida: debe apuntar a un conector DB con conexión propia' });
+    }
+  } else if (!VALID_DB_TYPES.has(dbType)) {
+    return res.status(400).json({ error: `Tipo de BD no soportado: ${dbType}` });
+  }
 
   const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { role: true } });
   const isSuperadmin = user?.role === 'superadmin';
@@ -514,7 +535,9 @@ router.post('/db-connector', auth, async (req, res) => {
     if (!canAccess && !isSuperadmin) return res.status(403).json({ error: 'Sin acceso a esa área' });
   }
 
-  const config = { dbType, query, _enc: encrypt({ connectionString }), ...(visualDefinition && { visualDefinition }) };
+  const config = connectionRef
+    ? { dbType: finalDbType, query, connectionRef, ...(visualDefinition && { visualDefinition }) }
+    : { dbType: finalDbType, query, _enc: encrypt({ connectionString }), ...(visualDefinition && { visualDefinition }) };
   const dataset = await prisma.dataset.create({
     data: { areaId: areaId || null, uploadedById: req.user.id, name, sourceType: 'db', config, slotName: slotName?.trim() || null },
   });
@@ -527,16 +550,42 @@ router.put('/:id/db-connector', auth, async (req, res) => {
   if (!dataset || !(await canWriteDataset(dataset, req.user.id))) return res.status(404).json({ error: 'Dataset not found' });
   if (dataset.sourceType !== 'db') return res.status(400).json({ error: 'Dataset is not a DB connector' });
 
-  const { name, dbType, connectionString, query, visualDefinition } = req.body;
+  const { name, dbType, connectionString, connectionRef, query, visualDefinition } = req.body;
   const existingPublic = safeConfig(dataset.config);
+
+  let finalDbType = dbType ?? existingPublic.dbType;
+  if (connectionRef) {
+    if (connectionRef === dataset.id) {
+      return res.status(400).json({ error: 'Un dataset no puede referenciar su propia conexión' });
+    }
+    const refDbType = await resolveConnectionRefDbType(connectionRef);
+    if (!refDbType) {
+      return res.status(400).json({ error: 'connectionRef inválida: debe apuntar a un conector DB con conexión propia' });
+    }
+    finalDbType = refDbType;
+
+    const others = await prisma.dataset.findMany({ where: { sourceType: 'db', id: { not: dataset.id } }, select: { config: true } });
+    if (others.some((d) => d.config?.connectionRef === dataset.id)) {
+      return res.status(400).json({ error: 'Otros datasets heredan la conexión de este; no se puede convertir en referencia' });
+    }
+  }
+
   const publicConfig = {
-    dbType: dbType ?? existingPublic.dbType,
+    dbType: finalDbType,
     query: query ?? existingPublic.query,
     ...(visualDefinition !== undefined ? { visualDefinition } : (existingPublic.visualDefinition ? { visualDefinition: existingPublic.visualDefinition } : {})),
   };
-  const config = connectionString
-    ? { ...publicConfig, _enc: encrypt({ connectionString }) }
-    : { ...publicConfig, _enc: dataset.config._enc };
+
+  let config;
+  if (connectionRef) {
+    config = { ...publicConfig, connectionRef };
+  } else if (connectionString) {
+    config = { ...publicConfig, _enc: encrypt({ connectionString }) };
+  } else if (dataset.config.connectionRef) {
+    config = { ...publicConfig, connectionRef: dataset.config.connectionRef };
+  } else {
+    config = { ...publicConfig, _enc: dataset.config._enc };
+  }
 
   const updated = await prisma.dataset.update({ where: { id: dataset.id }, data: { ...(name && { name }), config } });
   res.json({ ...updated, config: safeConfig(updated.config) });
@@ -806,7 +855,7 @@ router.get('/:id/rows', auth, async (req, res) => {
   }
 
   if (dataset.sourceType === 'db') {
-    const resolved = resolveConfig(dataset.config);
+    const resolved = await resolveConfig(dataset.config);
     const engine = resolved.dbType || dataset.config.dbType;
     const wrapped = wrapQueryWithLimit(resolved.query, engine, 50000);
     const rows = await queryDB({ ...resolved, query: wrapped });
@@ -853,7 +902,7 @@ router.get('/:id/columns', auth, async (req, res) => {
     return res.json(rows[0] ? Object.keys(rows[0]) : []);
   }
   if (dataset.sourceType === 'db') {
-    const resolved = resolveConfig(dataset.config);
+    const resolved = await resolveConfig(dataset.config);
     const engine = resolved.dbType || dataset.config.dbType;
     const wrapped = wrapQueryWithLimit(resolved.query, engine, 1);
     const rows = await queryDB({ ...resolved, query: wrapped });

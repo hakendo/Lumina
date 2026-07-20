@@ -51,6 +51,12 @@ export const useAuthStore = create((set, get) => ({
     set((s) => ({ user: s.user ? { ...s.user, mfaEnabled: false } : null }));
   },
 
+  // Refleja en la sesión actual el themeConfig recién guardado desde
+  // Mi Org → Apariencia, sin esperar al próximo /auth/me.
+  setOrgTheme: (orgTheme) => {
+    set((s) => ({ user: s.user ? { ...s.user, orgTheme } : null }));
+  },
+
   cancelMfa: () => set({ pendingMfa: null }),
 
   loadUser: async () => {

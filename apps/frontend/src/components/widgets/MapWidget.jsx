@@ -56,7 +56,7 @@ export default function MapWidget({ config, data, datasetId }) {
         <MapContainer center={center} zoom={5} style={{ height: '100%', width: '100%' }} key={`${latField}-${lonField}`}>
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
           {points.map((p, i) => (
-            <CircleMarker key={i} center={[p.lat, p.lon]} radius={6} fillColor="#e9a23b" color="#8f5808" fillOpacity={0.85}>
+            <CircleMarker key={i} center={[p.lat, p.lon]} radius={6} fillColor="#08cdff" color="#031560" fillOpacity={0.85}>
               {p.label && <Popup>{p.label}</Popup>}
             </CircleMarker>
           ))}

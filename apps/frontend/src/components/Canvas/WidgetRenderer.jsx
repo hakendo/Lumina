@@ -33,7 +33,7 @@ function WidgetError({ message }) {
 
 const AGGREGATE_TYPES = new Set(['kpi']);
 
-const WidgetRenderer = memo(function WidgetRenderer({ widget, publicSlug }) {
+const WidgetRenderer = memo(function WidgetRenderer({ widget, publicSlug, refreshKey }) {
   const [fetched, setFetched] = useState(null);
   const [aggResult, setAggResult] = useState(null);
   const [error, setError] = useState(null);
@@ -69,7 +69,7 @@ const WidgetRenderer = memo(function WidgetRenderer({ widget, publicSlug }) {
       .catch((err) => { if (alive) setError(err.response?.data?.error || 'No se pudo cargar el dato'); });
 
     return () => { alive = false; };
-  }, [useAggregate, widget.datasetId, aggField, aggOp, crossFilters, drillFilters]);
+  }, [useAggregate, widget.datasetId, aggField, aggOp, crossFilters, drillFilters, refreshKey]);
 
   useEffect(() => {
     const dsId = widget.datasetId;
@@ -79,9 +79,14 @@ const WidgetRenderer = memo(function WidgetRenderer({ widget, publicSlug }) {
 
     let alive = true;
     setError(null);
+    // DB datasets go through the report-scoped endpoint so a per-client
+    // ReportShare.sourceDatasetId override can swap the connection (same
+    // query) for whoever is viewing this report.
     const path = publicSlug
       ? `/reports/public/${publicSlug}/datasets/${dsId}/rows`
-      : `/datasets/${dsId}/rows`;
+      : (widget.dataset?.sourceType === 'db' && widget.reportId)
+        ? `/reports/${widget.reportId}/widgets/${widget.id}/rows`
+        : `/datasets/${dsId}/rows`;
 
     if (!PENDING[dsId]) {
       PENDING[dsId] = api.get(path)
@@ -93,7 +98,7 @@ const WidgetRenderer = memo(function WidgetRenderer({ widget, publicSlug }) {
       .then((rows) => { if (alive) setFetched(rows); })
       .catch((err) => { if (alive) setError(err.response?.data?.error || 'No se pudieron cargar las filas'); });
     return () => { alive = false; };
-  }, [widget.datasetId, publicSlug, useAggregate]);
+  }, [widget.datasetId, widget.id, widget.reportId, widget.dataset?.sourceType, publicSlug, useAggregate, refreshKey]);
 
   const rawData = widget.datasetId ? (CACHE[widget.datasetId] ?? fetched) : null;
 

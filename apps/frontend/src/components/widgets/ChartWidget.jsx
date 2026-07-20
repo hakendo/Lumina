@@ -5,18 +5,20 @@ import { GridComponent, TooltipComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 import { useMemo } from 'react';
 import { useDatasetMeta, WidgetFooter } from './useDatasetMeta';
+import { formatDateValue } from '../../lib/dateFormat';
 
 echarts.use([BarChart, LineChart, PieChart, ScatterChart, GridComponent, TooltipComponent, CanvasRenderer]);
 
-const COLORS = ['#b8730f', '#16695f', '#b3401f', '#3f6493', '#7d8030', '#8a4d76', '#d9a441', '#5c7d9a'];
-const INK_SOFT = '#5c5547';
-const INK_FAINT = '#968d7b';
-const LINE = '#e9e3d5';
+const COLORS = ['#133896', '#08cdff', '#031560', '#157a52', '#b3222f', '#5c6b84', '#7a9cc6', '#0a5c8a'];
+const INK_SOFT = '#444444';
+const INK_FAINT = '#838da0';
+const LINE = '#cfd3d9';
 const MONO = '"Spline Sans Mono", monospace';
-const SANS = '"Hanken Grotesk", sans-serif';
+const SANS = '"Nunito Sans", sans-serif';
 
 export default function ChartWidget({ config, data, onCrossFilter, datasetId }) {
-  const { chartType = 'bar', xField, yField, sizeField, labelField, title } = config;
+  const { chartType = 'bar', xField, yField, sizeField, labelField, title, dateFormat } = config;
+  const displayX = (v) => (dateFormat ? formatDateValue(v, dateFormat) : v);
   const meta = useDatasetMeta(datasetId);
 
   const option = useMemo(() => {
@@ -34,7 +36,7 @@ export default function ChartWidget({ config, data, onCrossFilter, datasetId }) 
       textStyle: { fontFamily: SANS },
       tooltip: {
         trigger: chartType === 'scatter' ? 'item' : 'axis',
-        backgroundColor: '#fdfbf6',
+        backgroundColor: '#ffffff',
         borderColor: LINE,
         textStyle: { color: INK_SOFT, fontSize: 12, fontFamily: MONO },
       },
@@ -59,9 +61,9 @@ export default function ChartWidget({ config, data, onCrossFilter, datasetId }) 
         series: [{
           type: 'pie',
           radius: ['40%', '70%'],
-          data: data.map((r) => ({ name: r[xField], value: Number(r[yField]) || 0 })),
+          data: data.map((r) => ({ name: displayX(r[xField]), value: Number(r[yField]) || 0 })),
           label: { show: true, formatter: '{b}\n{d}%', fontSize: 11, color: INK_SOFT, fontFamily: SANS },
-          itemStyle: { borderColor: '#fdfbf6', borderWidth: 2 },
+          itemStyle: { borderColor: '#ffffff', borderWidth: 2 },
         }],
       };
     }
@@ -90,7 +92,7 @@ export default function ChartWidget({ config, data, onCrossFilter, datasetId }) 
     }
 
     if (!xField || !yField) return empty;
-    const xData = data.map((r) => r[xField]);
+    const xData = data.map((r) => displayX(r[xField]));
     const yData = data.map((r) => Number(r[yField]) || 0);
 
     return {
@@ -116,7 +118,10 @@ export default function ChartWidget({ config, data, onCrossFilter, datasetId }) 
   const onEvents = onCrossFilter && xField
     ? {
         click: (params) => {
-          const value = params.name ?? params.data?.name ?? params.value;
+          // Use the raw row value (not the possibly date-formatted display label)
+          // so cross-filtering still matches the underlying data.
+          const raw = data?.[params.dataIndex]?.[xField];
+          const value = raw ?? params.name ?? params.data?.name ?? params.value;
           if (value !== undefined) onCrossFilter(xField, value);
         },
       }

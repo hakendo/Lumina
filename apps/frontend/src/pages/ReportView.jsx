@@ -3,6 +3,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { GridLayout, useContainerWidth } from 'react-grid-layout';
 import api, { setMemoryToken } from '../lib/api';
 import { exportReportCsv } from '../lib/exportCsv';
+import { invalidateDatasetCache } from '../lib/datasetCache';
 import { useAuthStore } from '../store/authStore';
 import WidgetRenderer from '../components/Canvas/WidgetRenderer';
 import { Icon, ReportSkeleton, Wordmark } from '../components/ui';
@@ -19,6 +20,8 @@ export default function ReportView() {
     drillFilters, drillStack, drillBack,
   } = useReportStore();
   const [error, setError] = useState('');
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
   const { width, containerRef } = useContainerWidth({ initialWidth: 1200 });
 
   const printMode = params.get('print') === '1';
@@ -64,6 +67,17 @@ export default function ReportView() {
   const isOwner = report.ownerId === user?.id;
   const canEdit = isOwner || report.myRole === 'editor';
 
+  const refreshData = () => {
+    setRefreshing(true);
+    for (const p of report.pages || []) {
+      for (const w of p.widgets || []) {
+        if (w.datasetId) invalidateDatasetCache(w.datasetId);
+      }
+    }
+    setRefreshKey((k) => k + 1);
+    setTimeout(() => setRefreshing(false), 600);
+  };
+
   const exportPDF = async () => {
     const res = await api.get(`/reports/${id}/export/pdf`, { responseType: 'blob' });
     const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
@@ -92,6 +106,10 @@ export default function ReportView() {
               <Icon name="layers" size={10} /> {report.area.name}
             </span>
           )}
+          <button onClick={refreshData} disabled={refreshing} title="Actualizar datos"
+            className="inline-flex items-center gap-1.5 text-xs bg-paper-deep text-ink-soft hover:bg-line-soft px-3 py-1.5 rounded-lg transition shrink-0 cursor-pointer disabled:opacity-50">
+            <Icon name="refresh" size={13} className={refreshing ? 'animate-spin' : ''} /> Actualizar
+          </button>
           <button onClick={exportPDF}
             className="inline-flex items-center gap-1.5 text-xs bg-paper-deep text-ink-soft hover:bg-line-soft px-3 py-1.5 rounded-lg transition shrink-0 cursor-pointer">
             <Icon name="download" size={13} /> PDF
@@ -164,7 +182,7 @@ export default function ReportView() {
           {pageWidgets.map((w) => (
             <div key={w.id} className="bg-surface border border-line-soft rounded-xl overflow-hidden flex flex-col shadow-card">
               <div className="flex-1 p-2 overflow-hidden">
-                <WidgetRenderer widget={w} />
+                <WidgetRenderer widget={w} refreshKey={refreshKey} />
               </div>
             </div>
           ))}

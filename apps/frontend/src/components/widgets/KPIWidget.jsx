@@ -20,7 +20,7 @@ function formatValue(v) {
 }
 
 export default function KPIWidget({ config, data, aggResult, datasetId }) {
-  const { title = 'KPI', valueField, aggregation = 'sum', prefix = '', suffix = '', color = '#b8730f', thresholds = [] } = config;
+  const { title = 'KPI', valueField, aggregation = 'sum', prefix = '', suffix = '', color = '#133896', thresholds = [] } = config;
   const meta = useDatasetMeta(datasetId);
 
   const { display, numericValue } = useMemo(() => {

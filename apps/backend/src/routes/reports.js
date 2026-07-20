@@ -4,6 +4,7 @@ const { nanoid } = require('nanoid');
 const jwt = require('jsonwebtoken');
 const auth = require('../middleware/auth');
 const { exportReportToPDF } = require('../services/pdfExport');
+const { resolveConfig, queryDB } = require('../services/dataParser');
 
 const prisma = new PrismaClient();
 
@@ -585,7 +586,7 @@ router.get('/:id/shares', auth, async (req, res) => {
   if (!report || !(await isOwnerOrSuperadmin(report, req.user.id))) return res.status(404).json({ error: 'Not found' });
   const shares = await prisma.reportShare.findMany({
     where: { reportId: report.id },
-    include: { user: { select: { id: true, name: true, email: true } } },
+    include: { user: { select: { id: true, name: true, email: true } }, sourceDataset: { select: { id: true, name: true } } },
     orderBy: { createdAt: 'asc' },
   });
   res.json(shares);
@@ -598,7 +599,7 @@ router.post('/:id/shares', auth, async (req, res) => {
   const policy = await getEffectivePolicy(report, req.user.orgId);
   if (!policy.allowExternalShare) return res.status(403).json({ error: 'Compartir externo deshabilitado por la política de la organización' });
 
-  const { email, role = 'viewer' } = req.body;
+  const { email, role = 'viewer', sourceDatasetId } = req.body;
   if (!email?.trim()) return res.status(400).json({ error: 'email requerido' });
   if (!['viewer', 'editor'].includes(role)) return res.status(400).json({ error: 'rol inválido' });
 
@@ -606,15 +607,22 @@ router.post('/:id/shares', auth, async (req, res) => {
   if (!target) return res.status(404).json({ error: 'No existe un usuario con ese email' });
   if (target.id === req.user.id) return res.status(400).json({ error: 'No puedes compartirte un reporte a ti mismo' });
 
+  if (sourceDatasetId) {
+    const src = await prisma.dataset.findUnique({ where: { id: sourceDatasetId } });
+    if (!src || src.sourceType !== 'db' || !src.config._enc) {
+      return res.status(400).json({ error: 'sourceDatasetId inválido: debe ser un DB connector con conexión propia' });
+    }
+  }
+
   const isNew = !(await prisma.reportShare.findUnique({
     where: { reportId_userId: { reportId: report.id, userId: target.id } },
   }));
 
   const share = await prisma.reportShare.upsert({
     where: { reportId_userId: { reportId: report.id, userId: target.id } },
-    create: { reportId: report.id, userId: target.id, role },
-    update: { role },
-    include: { user: { select: { id: true, name: true, email: true } } },
+    create: { reportId: report.id, userId: target.id, role, sourceDatasetId: sourceDatasetId || null },
+    update: { role, ...(sourceDatasetId !== undefined && { sourceDatasetId: sourceDatasetId || null }) },
+    include: { user: { select: { id: true, name: true, email: true } }, sourceDataset: { select: { id: true, name: true } } },
   });
 
   // Notify the invited user (only on new share, not role updates)
@@ -743,6 +751,58 @@ router.get('/public/:slug', async (req, res) => {
   });
   if (!report || !report.isPublic) return res.status(404).json({ error: 'Not found' });
   res.json(report);
+});
+
+// ── Resolución de datos por-cliente (ReportShare.sourceDatasetId) ─────
+// Un mismo widget/dataset puede resolver a distinta conexión según qué
+// usuario lo mira: si su ReportShare tiene sourceDatasetId, se usa la
+// connectionString de ESE dataset (debe ser un DB connector con conexión
+// propia) en vez de la del dataset original, manteniendo la misma query.
+
+function wrapQueryWithLimit(query, dbType, limit) {
+  const sub = query.trim().replace(/;\s*$/, '');
+  if (dbType === 'mssql') return `SELECT TOP ${limit} * FROM (${sub}) AS __preview_sub`;
+  if (dbType === 'oracle') return `SELECT * FROM (${sub}) __preview_sub WHERE ROWNUM <= ${limit}`;
+  return `SELECT * FROM (${sub}) AS __preview_sub LIMIT ${limit}`;
+}
+
+router.get('/:reportId/widgets/:widgetId/rows', auth, async (req, res) => {
+  const report = await prisma.report.findUnique({ where: { id: req.params.reportId } });
+  const myRole = await getRole(report, req.user.id);
+  if (!report || !myRole) return res.status(404).json({ error: 'Not found' });
+
+  const widget = await prisma.reportWidget.findUnique({
+    where: { id: req.params.widgetId },
+    include: { dataset: true },
+  });
+  if (!widget || widget.reportId !== report.id || !widget.dataset) {
+    return res.status(404).json({ error: 'Widget o dataset no encontrado' });
+  }
+  const dataset = widget.dataset;
+  if (dataset.sourceType !== 'db') {
+    return res.status(400).json({ error: 'Este endpoint solo aplica a datasets db-connector' });
+  }
+
+  let effectiveConfig = dataset.config;
+  const share = await prisma.reportShare.findUnique({
+    where: { reportId_userId: { reportId: report.id, userId: req.user.id } },
+    select: { sourceDatasetId: true },
+  });
+  if (share?.sourceDatasetId) {
+    const override = await prisma.dataset.findUnique({ where: { id: share.sourceDatasetId } });
+    if (override?.sourceType === 'db') {
+      effectiveConfig = { ...override.config, query: dataset.config.query };
+    }
+  }
+
+  try {
+    const resolved = await resolveConfig(effectiveConfig);
+    const wrapped = wrapQueryWithLimit(resolved.query, resolved.dbType, 50000);
+    const rows = await queryDB({ ...resolved, query: wrapped });
+    res.json(rows);
+  } catch (err) {
+    res.status(502).json({ error: err.message, errorType: err.errorType });
+  }
 });
 
 module.exports = router;

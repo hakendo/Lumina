@@ -493,4 +493,56 @@ router.get('/storage', async (req, res) => {
   });
 });
 
+// ── Tema visual de la org ───────────────────────────────────────────────────
+// themeConfig sobreescribe, en runtime, los tokens base de src/index.css
+// (ver ThemeProvider en el frontend). Todas las claves son opcionales —
+// las ausentes usan el default de la app. Los colores se validan como hex
+// de 6 dígitos y las fuentes contra una lista cerrada (ya cargadas en
+// index.html) para evitar inyectar CSS arbitrario vía font-family.
+
+const THEME_COLOR_KEYS = ['lumen', 'lumenDeep', 'lumenGlow', 'sea', 'rust'];
+const THEME_FONT_DISPLAY_OPTIONS = ['Barlow', 'Fraunces', 'Nunito Sans'];
+const THEME_FONT_SANS_OPTIONS = ['Nunito Sans', 'Hanken Grotesk', 'Barlow'];
+const HEX_COLOR_RE = /^#[0-9a-f]{6}$/i;
+
+router.get('/theme', async (req, res) => {
+  const { orgId } = req.orgUser;
+  const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { themeConfig: true } });
+  res.json(org?.themeConfig ?? {});
+});
+
+router.put('/theme', async (req, res) => {
+  const { orgId } = req.orgUser;
+  const body = req.body ?? {};
+  const patch = {};
+
+  for (const key of THEME_COLOR_KEYS) {
+    if (body[key] === undefined) continue;
+    if (body[key] === null || body[key] === '') { patch[key] = null; continue; }
+    if (!HEX_COLOR_RE.test(body[key])) return res.status(400).json({ error: `Color inválido: ${key}` });
+    patch[key] = body[key].toLowerCase();
+  }
+  if (body.fontDisplay !== undefined) {
+    if (body.fontDisplay && !THEME_FONT_DISPLAY_OPTIONS.includes(body.fontDisplay))
+      return res.status(400).json({ error: 'Fuente de títulos inválida' });
+    patch.fontDisplay = body.fontDisplay || null;
+  }
+  if (body.fontSans !== undefined) {
+    if (body.fontSans && !THEME_FONT_SANS_OPTIONS.includes(body.fontSans))
+      return res.status(400).json({ error: 'Fuente de texto inválida' });
+    patch.fontSans = body.fontSans || null;
+  }
+
+  const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { themeConfig: true } });
+  const merged = { ...(org?.themeConfig ?? {}), ...patch };
+  Object.keys(merged).forEach((k) => { if (merged[k] == null) delete merged[k]; });
+
+  const updated = await prisma.organization.update({
+    where: { id: orgId },
+    data: { themeConfig: merged },
+    select: { themeConfig: true },
+  });
+  res.json(updated.themeConfig);
+});
+
 module.exports = router;

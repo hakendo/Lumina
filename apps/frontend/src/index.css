@@ -4,39 +4,43 @@
 /* leaflet/dist/leaflet.css is imported inside MapWidget.jsx (code-split chunk) */
 
 /* ── Lúmina design tokens ─────────────────────────────────────────────────
-   "Mesa de luz": papel cálido, tinta profunda, ámbar como única luz.       */
+   Paleta corporativa inspirada en STG Latam: superficies frías (blanco/azul
+   muy pálido), tinta neutra, azul profundo como acento primario y cian como
+   brillo secundario. Todos los tokens son overrideables en runtime por
+   Organization.themeConfig (ver ThemeProvider) — se mantienen los mismos
+   nombres de variable para que ninguna className deba cambiar.             */
 @theme {
-  --font-display: "Fraunces", Georgia, "Times New Roman", serif;
-  --font-sans: "Hanken Grotesk", system-ui, sans-serif;
+  --font-display: "Barlow", system-ui, sans-serif;
+  --font-sans: "Nunito Sans", system-ui, sans-serif;
   --font-mono: "Spline Sans Mono", ui-monospace, "SF Mono", monospace;
 
   /* Papel y superficies */
-  --color-paper: #f5f1e8;
-  --color-paper-deep: #ece6d8;
-  --color-surface: #fdfbf6;
+  --color-paper: #eef2f8;
+  --color-paper-deep: #e1e8f2;
+  --color-surface: #ffffff;
 
   /* Tinta */
-  --color-ink: #221d14;
-  --color-ink-soft: #5c5547;
-  --color-ink-faint: #968d7b;
-  --color-line: #ddd5c4;
-  --color-line-soft: #e9e3d5;
+  --color-ink: #17223a;
+  --color-ink-soft: #444444;
+  --color-ink-faint: #838da0;
+  --color-line: #cfd3d9;
+  --color-line-soft: #e3e7ee;
 
-  /* Lúmina — ámbar */
-  --color-lumen: #b8730f;
-  --color-lumen-deep: #8f5808;
-  --color-lumen-soft: #f3e5c8;
-  --color-lumen-line: #e3cfa3;
-  --color-lumen-glow: #e9a23b;
+  /* Lúmina — azul corporativo */
+  --color-lumen: #133896;
+  --color-lumen-deep: #031560;
+  --color-lumen-soft: #e6edf7;
+  --color-lumen-line: #c3d3ea;
+  --color-lumen-glow: #08cdff;
 
   /* Acentos secundarios */
-  --color-sea: #16695f;
-  --color-sea-soft: #ddeae3;
-  --color-rust: #b3401f;
-  --color-rust-soft: #f4e0d6;
+  --color-sea: #157a52;
+  --color-sea-soft: #dcf3e8;
+  --color-rust: #b3222f;
+  --color-rust-soft: #f7e2e2;
 
-  --shadow-card: 0 1px 2px rgb(34 29 20 / 0.05), 0 4px 16px -6px rgb(34 29 20 / 0.1);
-  --shadow-lift: 0 2px 4px rgb(34 29 20 / 0.06), 0 12px 28px -10px rgb(34 29 20 / 0.18);
+  --shadow-card: 0 1px 2px rgb(23 34 58 / 0.05), 0 4px 16px -6px rgb(23 34 58 / 0.1);
+  --shadow-lift: 0 2px 4px rgb(23 34 58 / 0.06), 0 12px 28px -10px rgb(23 34 58 / 0.18);
 
   --animate-rise: rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
   --animate-shimmer: shimmer 1.6s linear infinite;
@@ -71,14 +75,14 @@ body {
 .paper-bg {
   background-color: var(--color-paper);
   background-image:
-    radial-gradient(1100px 480px at 50% -120px, rgb(233 162 59 / 0.14), transparent 70%),
+    radial-gradient(1100px 480px at 50% -120px, rgb(19 56 150 / 0.10), transparent 70%),
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
 }
 
 /* Lienzo del builder: papel punteado tipo mesa de dibujo */
 .canvas-bg {
   background-color: var(--color-paper-deep);
-  background-image: radial-gradient(rgb(34 29 20 / 0.09) 1px, transparent 1px);
+  background-image: radial-gradient(rgb(23 34 58 / 0.09) 1px, transparent 1px);
   background-size: 22px 22px;
 }
 
@@ -118,7 +122,7 @@ body {
 .field:focus {
   outline: none;
   border-color: var(--color-lumen);
-  box-shadow: 0 0 0 3px rgb(184 115 15 / 0.15);
+  box-shadow: 0 0 0 3px rgb(19 56 150 / 0.15);
 }
 .field-sm { padding: 0.375rem 0.625rem; font-size: 0.8rem; }
 .field-mono { font-family: var(--font-mono); font-size: 0.8rem; }

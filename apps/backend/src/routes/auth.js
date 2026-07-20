@@ -215,7 +215,7 @@ router.get('/me', authMiddleware, async (req, res) => {
       memberships: {
         select: {
           role: true,
-          org: { select: { id: true, name: true, slug: true, isActive: true } },
+          org: { select: { id: true, name: true, slug: true, isActive: true, themeConfig: true } },
         },
       },
     },
@@ -231,7 +231,7 @@ router.get('/me', authMiddleware, async (req, res) => {
   if (!activeOrg && activeOrgId && user.role === 'superadmin') {
     activeOrg = await prisma.organization.findUnique({
       where: { id: activeOrgId },
-      select: { id: true, name: true, slug: true, isActive: true },
+      select: { id: true, name: true, slug: true, isActive: true, themeConfig: true },
     });
   }
 
@@ -243,6 +243,9 @@ router.get('/me', authMiddleware, async (req, res) => {
     orgId: activeOrgId,
     orgName: activeOrg?.name ?? null,
     orgSlug: activeOrg?.slug ?? null,
+    // Overrides de tokens visuales de la org activa (ver ThemeProvider en el frontend).
+    // Objeto vacío = usar los defaults de la app.
+    orgTheme: activeOrg?.themeConfig ?? {},
     mfaEnabled: user.mfaEnabled,
     mfaEnforced: user.mfaEnforced,
     createdAt: user.createdAt,

@@ -283,6 +283,16 @@ export default function WidgetConfigPanel({ widget, onClose }) {
               </button>
             ))}
           </div>
+          <div className="mt-2">
+            <Field label="Formato de fecha/hora del eje X (opcional)" hint="Tokens: YYYY MM DD HH mm ss. Ej: DD/MM/YYYY. Solo cambia cómo se ve, no modifica el dataset.">
+              <input
+                value={cfg.dateFormat || ''}
+                onChange={(e) => set('dateFormat', e.target.value)}
+                placeholder="DD/MM/YYYY"
+                className="field field-sm field-mono"
+              />
+            </Field>
+          </div>
         </div>
       )}
 
@@ -366,9 +376,17 @@ export default function WidgetConfigPanel({ widget, onClose }) {
               );
             })}
           </div>
-          <div className="mt-2">
+          <div className="mt-2 space-y-2">
             <Field label="Cross-filter al hacer clic">
               <ColSelect value={cfg.crossFilterField} onChange={(v) => set('crossFilterField', v)} columns={columns} placeholder="— Sin cross-filter —" />
+            </Field>
+            <Field label="Formato de fecha/hora (opcional)" hint="Tokens: YYYY MM DD HH mm ss. Ej: DD/MM/YYYY HH:mm. Solo cambia cómo se ve, no modifica el dataset.">
+              <input
+                value={cfg.dateFormat || ''}
+                onChange={(e) => set('dateFormat', e.target.value)}
+                placeholder="DD/MM/YYYY HH:mm"
+                className="field field-sm field-mono"
+              />
             </Field>
           </div>
         </div>
@@ -443,6 +461,16 @@ export default function WidgetConfigPanel({ widget, onClose }) {
                 </select>
               </Field>
             )}
+            {widget.widgetType === 'pivot' && (
+              <Field label="Formato de fecha/hora (opcional)" hint="Tokens: YYYY MM DD HH mm ss. Ej: DD/MM/YYYY. Solo cambia cómo se ve, no modifica el dataset.">
+                <input
+                  value={cfg.dateFormat || ''}
+                  onChange={(e) => set('dateFormat', e.target.value)}
+                  placeholder="DD/MM/YYYY"
+                  className="field field-sm field-mono"
+                />
+              </Field>
+            )}
             {widget.widgetType === 'kpi' && (
               <>
                 <div className="grid grid-cols-2 gap-2">
@@ -454,7 +482,7 @@ export default function WidgetConfigPanel({ widget, onClose }) {
                   </Field>
                 </div>
                 <Field label="Color base">
-                  <input type="color" value={cfg.color || '#b8730f'} onChange={(e) => set('color', e.target.value)}
+                  <input type="color" value={cfg.color || '#133896'} onChange={(e) => set('color', e.target.value)}
                     className="h-8 w-full rounded-lg cursor-pointer border border-line bg-surface" />
                 </Field>
                 <KpiThresholds thresholds={cfg.thresholds || []} onChange={(t) => set('thresholds', t)} />
@@ -1000,7 +1028,7 @@ function FormulaEditor({ datasetId, datasetName, cachedRows, sourceColumns, onCl
 }
 
 function KpiThresholds({ thresholds, onChange }) {
-  const add    = () => onChange([...thresholds, { op: 'gt', value: '', color: '#16695f' }]);
+  const add    = () => onChange([...thresholds, { op: 'gt', value: '', color: '#157a52' }]);
   const remove = (i) => onChange(thresholds.filter((_, j) => j !== i));
   const update = (i, field, val) => onChange(thresholds.map((t, j) => j === i ? { ...t, [field]: val } : t));
 
@@ -1019,7 +1047,7 @@ function KpiThresholds({ thresholds, onChange }) {
           </select>
           <input type="number" value={t.value} onChange={(e) => update(i, 'value', e.target.value)}
             className="field field-sm field-mono flex-1 min-w-0" placeholder="valor" />
-          <input type="color" value={t.color || '#16695f'} onChange={(e) => update(i, 'color', e.target.value)}
+          <input type="color" value={t.color || '#157a52'} onChange={(e) => update(i, 'color', e.target.value)}
             className="h-8 w-10 rounded-md cursor-pointer border border-line bg-surface shrink-0" />
           <button type="button" onClick={() => remove(i)} className="text-ink-faint hover:text-rust transition cursor-pointer shrink-0">
             <Icon name="x" size={13} />
