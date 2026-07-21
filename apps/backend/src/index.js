@@ -22,6 +22,7 @@ const routes = [
   ['/datasets', require('./routes/datasets')],
   ['/reports', require('./routes/reports')],
   ['/notifications', require('./routes/notifications')],
+  ['/worker', require('./routes/worker')],
 ];
 for (const [path, router] of routes) {
   app.use(path, router);

@@ -1,6 +1,9 @@
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const { PrismaClient } = require('@prisma/client');
+const { CronExpressionParser } = require('cron-parser');
+const { hashToken } = require('../middleware/workerAuth');
 
 const prisma = new PrismaClient();
 
@@ -756,6 +759,111 @@ router.delete('/reports/shares/:shareId', async (req, res) => {
   const existing = await prisma.reportShare.findUnique({ where: { id: req.params.shareId } });
   if (!existing) return res.status(404).json({ error: 'Share no encontrado' });
   await prisma.reportShare.delete({ where: { id: req.params.shareId } });
+  res.json({ ok: true });
+});
+
+// ── Trabajos programados (cron + worker externo) ───────────────────────────
+
+function validCron(expr) {
+  try {
+    CronExpressionParser.parse(expr);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+router.get('/jobs', async (req, res) => {
+  const jobs = await prisma.scheduledJob.findMany({
+    include: { dataset: { select: { id: true, name: true } } },
+    orderBy: { createdAt: 'desc' },
+  });
+  res.json(jobs);
+});
+
+router.post('/jobs', async (req, res) => {
+  const { name, datasetId, cronExpression, config } = req.body;
+  if (!name?.trim()) return res.status(400).json({ error: 'name requerido' });
+  if (!datasetId) return res.status(400).json({ error: 'datasetId requerido' });
+  if (!validCron(cronExpression)) return res.status(400).json({ error: 'Expresión cron inválida' });
+
+  const dataset = await prisma.dataset.findUnique({ where: { id: datasetId } });
+  if (!dataset) return res.status(404).json({ error: 'Dataset no encontrado' });
+
+  const job = await prisma.scheduledJob.create({
+    data: { name: name.trim(), datasetId, cronExpression, config: config || {}, createdById: req.user.id },
+    include: { dataset: { select: { id: true, name: true } } },
+  });
+  res.status(201).json(job);
+});
+
+router.patch('/jobs/:id', async (req, res) => {
+  const existing = await prisma.scheduledJob.findUnique({ where: { id: req.params.id } });
+  if (!existing) return res.status(404).json({ error: 'Job no encontrado' });
+
+  const { name, datasetId, cronExpression, config, isActive } = req.body;
+  if (cronExpression !== undefined && !validCron(cronExpression)) {
+    return res.status(400).json({ error: 'Expresión cron inválida' });
+  }
+  if (datasetId !== undefined) {
+    const dataset = await prisma.dataset.findUnique({ where: { id: datasetId } });
+    if (!dataset) return res.status(404).json({ error: 'Dataset no encontrado' });
+  }
+
+  const job = await prisma.scheduledJob.update({
+    where: { id: req.params.id },
+    data: {
+      ...(name !== undefined && { name: name.trim() }),
+      ...(datasetId !== undefined && { datasetId }),
+      ...(cronExpression !== undefined && { cronExpression }),
+      ...(config !== undefined && { config }),
+      ...(isActive !== undefined && { isActive }),
+    },
+    include: { dataset: { select: { id: true, name: true } } },
+  });
+  res.json(job);
+});
+
+router.delete('/jobs/:id', async (req, res) => {
+  const existing = await prisma.scheduledJob.findUnique({ where: { id: req.params.id } });
+  if (!existing) return res.status(404).json({ error: 'Job no encontrado' });
+  await prisma.scheduledJob.delete({ where: { id: req.params.id } });
+  res.json({ ok: true });
+});
+
+router.get('/jobs/:id/runs', async (req, res) => {
+  const runs = await prisma.jobRun.findMany({
+    where: { jobId: req.params.id },
+    orderBy: { startedAt: 'desc' },
+    take: 50,
+  });
+  res.json(runs);
+});
+
+router.get('/worker-tokens', async (req, res) => {
+  const tokens = await prisma.workerToken.findMany({
+    select: { id: true, name: true, createdAt: true, lastUsedAt: true, revokedAt: true },
+    orderBy: { createdAt: 'desc' },
+  });
+  res.json(tokens);
+});
+
+router.post('/worker-tokens', async (req, res) => {
+  const { name } = req.body;
+  if (!name?.trim()) return res.status(400).json({ error: 'name requerido' });
+
+  const token = crypto.randomBytes(32).toString('hex');
+  const record = await prisma.workerToken.create({
+    data: { name: name.trim(), tokenHash: hashToken(token), createdById: req.user.id },
+  });
+  // El valor en claro se devuelve una única vez aquí — no se puede recuperar después.
+  res.status(201).json({ id: record.id, name: record.name, createdAt: record.createdAt, token });
+});
+
+router.delete('/worker-tokens/:id', async (req, res) => {
+  const existing = await prisma.workerToken.findUnique({ where: { id: req.params.id } });
+  if (!existing) return res.status(404).json({ error: 'Token no encontrado' });
+  await prisma.workerToken.update({ where: { id: req.params.id }, data: { revokedAt: new Date() } });
   res.json({ ok: true });
 });
 

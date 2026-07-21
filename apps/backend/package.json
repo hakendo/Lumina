@@ -18,6 +18,7 @@
     "@prisma/client": "^5.22.0",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
+    "cron-parser": "^5.6.2",
     "csv-parse": "^6.2.1",
     "dotenv": "^17.4.2",
     "exceljs": "^4.4.0",

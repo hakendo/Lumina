@@ -117,6 +117,8 @@ model User {
   areaMemberships  AreaMember[]
   notifications    Notification[]
   orgAuditLogs     OrgAuditLog[]   @relation("AdminAuditLogs")
+  scheduledJobs    ScheduledJob[]
+  workerTokens     WorkerToken[]
 }
 
 // ── Datos ─────────────────────────────────────────────────────────────────────
@@ -140,6 +142,61 @@ model Dataset {
   reportShareSources ReportShare[]
   shareDatasetSourceTargets ReportShareDatasetSource[] @relation("DatasetSourceOverrideTarget")
   shareDatasetSourceOverrides ReportShareDatasetSource[] @relation("DatasetSourceOverrideSource")
+  scheduledJobs ScheduledJob[]
+}
+
+// ── Trabajos programados (cron + worker externo) ───────────────────────────
+// Lúmina hace de coordinador (sabe qué está "due" según cronExpression) — la
+// ejecución real (conectarse a la fuente, traer filas) corre en un worker
+// externo que hace polling de GET /worker/jobs/due y reporta el resultado.
+// Pensado para fuentes que el backend de Lúmina no puede alcanzar por red.
+model ScheduledJob {
+  id             String    @id @default(cuid())
+  name           String
+  datasetId      String
+  dataset        Dataset   @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  cronExpression String
+  // Metadata NO secreta para que el worker sepa qué origen usar (dbType, host,
+  // puerto, base, query, credentialRef). Las credenciales reales nunca viven
+  // aquí — quedan en un archivo local del worker, referenciadas por
+  // credentialRef (mismo patrón que ya usa kanban_daily.py con config.xlsx).
+  config         Json      @default("{}")
+  isActive       Boolean   @default(true)
+  status         String    @default("idle") // idle | claimed
+  claimedAt      DateTime?
+  lastRunAt      DateTime?
+  lastStatus     String?   // ok | error
+  lastError      String?
+  lastRowCount   Int?
+  createdById    String
+  createdBy      User      @relation(fields: [createdById], references: [id])
+  createdAt      DateTime  @default(now())
+  runs           JobRun[]
+}
+
+model JobRun {
+  id           String       @id @default(cuid())
+  jobId        String
+  job          ScheduledJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  startedAt    DateTime     @default(now())
+  finishedAt   DateTime?
+  status       String       // running | ok | error
+  rowCount     Int?
+  errorMessage String?
+}
+
+// Token de servicio para que el worker externo se autentique — separado del
+// JWT humano (auth.js). Solo se guarda el hash; el valor en claro se muestra
+// una única vez al crearlo.
+model WorkerToken {
+  id          String    @id @default(cuid())
+  name        String
+  tokenHash   String    @unique
+  createdById String
+  createdBy   User      @relation(fields: [createdById], references: [id])
+  createdAt   DateTime  @default(now())
+  lastUsedAt  DateTime?
+  revokedAt   DateTime?
 }
 
 model DatasetRow {

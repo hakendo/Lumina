@@ -978,3 +978,5 @@ router.get('/:id/distinct', auth, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.updateOrgStorage = updateOrgStorage;
+module.exports.rowBytes = rowBytes;

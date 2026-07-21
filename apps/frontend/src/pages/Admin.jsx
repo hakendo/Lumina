@@ -1093,6 +1093,365 @@ function PlansPanel({ orgs }) {
   );
 }
 
+function JobModal({ job, datasets, onSaved, onClose }) {
+  const isNew = !job;
+  const cfg = job?.config || {};
+  const [form, setForm] = useState({
+    name: job?.name ?? '',
+    datasetId: job?.datasetId ?? (datasets[0]?.id ?? ''),
+    cronExpression: job?.cronExpression ?? '0 6 * * *',
+  });
+  const [config, setConfig] = useState({
+    dbType: cfg.dbType ?? '',
+    host: cfg.host ?? '',
+    port: cfg.port ?? '',
+    database: cfg.database ?? '',
+    query: cfg.query ?? '',
+    credentialRef: cfg.credentialRef ?? '',
+  });
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const setCfg = (k) => (e) => setConfig((c) => ({ ...c, [k]: e.target.value }));
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSaving(true);
+    try {
+      const payload = { ...form, config };
+      const { data } = isNew
+        ? await api.post('/admin/jobs', payload)
+        : await api.patch(`/admin/jobs/${job.id}`, payload);
+      onSaved(data);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error al guardar');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal title={isNew ? 'Nuevo trabajo programado' : `Editar: ${job.name}`} onClose={onClose}>
+      <form onSubmit={submit} className="space-y-4">
+        <Field label="Nombre">
+          <input className="field" value={form.name} onChange={set('name')} required placeholder="Mesa de Ayuda - refresh diario" />
+        </Field>
+        <Field label="Dataset destino" hint="Sus filas se reemplazan por completo con lo que mande el worker.">
+          <select className="field" value={form.datasetId} onChange={set('datasetId')} required>
+            {datasets.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Expresión cron" hint="Ej: '0 6 * * *' = todos los días a las 6am. '*/15 * * * *' = cada 15 min.">
+          <input className="field field-mono" value={form.cronExpression} onChange={set('cronExpression')} required placeholder="0 6 * * *" />
+        </Field>
+
+        <div className="border-t border-line-soft pt-3">
+          <p className="text-[10px] font-semibold text-ink-faint uppercase tracking-widest mb-2">
+            Origen (opcional — solo datos no sensibles, sin credenciales)
+          </p>
+          <p className="text-xs text-ink-faint mb-3">
+            Las credenciales reales quedan en un archivo local del worker, referenciadas por <code className="font-mono">credentialRef</code>. Esto solo describe qué correr, no cómo autenticarse.
+          </p>
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <Field label="Tipo de BD">
+              <input className="field field-sm" value={config.dbType} onChange={setCfg('dbType')} placeholder="mysql" />
+            </Field>
+            <Field label="credentialRef">
+              <input className="field field-sm field-mono" value={config.credentialRef} onChange={setCfg('credentialRef')} placeholder="mesa-de-ayuda" />
+            </Field>
+            <Field label="Host">
+              <input className="field field-sm" value={config.host} onChange={setCfg('host')} placeholder="srv813.hstgr.io" />
+            </Field>
+            <Field label="Puerto">
+              <input className="field field-sm" value={config.port} onChange={setCfg('port')} placeholder="3306" />
+            </Field>
+          </div>
+          <Field label="Base de datos">
+            <input className="field field-sm" value={config.database} onChange={setCfg('database')} />
+          </Field>
+          <Field label="Query" hint="La query que el worker corre contra la fuente.">
+            <textarea className="field field-sm field-mono" rows={3} value={config.query} onChange={setCfg('query')} />
+          </Field>
+        </div>
+
+        {error && <p className="text-xs text-rust">{error}</p>}
+        <div className="flex justify-end gap-2 pt-2">
+          <Button variant="ghost" type="button" onClick={onClose}>Cancelar</Button>
+          <Button type="submit" disabled={saving}>{saving ? 'Guardando…' : isNew ? 'Crear' : 'Guardar'}</Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function JobRunsModal({ job, onClose }) {
+  const [runs, setRuns] = useState(null);
+
+  useEffect(() => {
+    api.get(`/admin/jobs/${job.id}/runs`).then(({ data }) => setRuns(data)).catch(() => setRuns([]));
+  }, [job.id]);
+
+  return (
+    <Modal title={`Historial: ${job.name}`} onClose={onClose}>
+      {!runs ? (
+        <div className="skeleton h-32" />
+      ) : runs.length === 0 ? (
+        <p className="text-sm text-ink-faint">Sin ejecuciones todavía.</p>
+      ) : (
+        <div className="space-y-2 max-h-96 overflow-y-auto">
+          {runs.map((r) => (
+            <div key={r.id} className="flex items-center justify-between gap-3 border border-line-soft rounded-lg px-3 py-2 text-xs">
+              <span className="text-ink-faint font-mono">{new Date(r.startedAt).toLocaleString()}</span>
+              <span className={r.status === 'ok' ? 'text-sea font-semibold' : r.status === 'error' ? 'text-rust font-semibold' : 'text-ink-faint'}>
+                {r.status}
+              </span>
+              <span className="text-ink-faint">{r.rowCount != null ? `${r.rowCount} filas` : '—'}</span>
+              <span className="text-rust truncate flex-1 text-right">{r.errorMessage || ''}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function TokenCreatedModal({ token, onClose }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard.writeText(token.token);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+  return (
+    <Modal title="Token creado" onClose={onClose}>
+      <p className="text-sm text-ink-faint mb-3">
+        Copia este token ahora — no volverá a mostrarse. Úsalo en el worker con el header <code className="font-mono text-ink">X-Worker-Token</code>.
+      </p>
+      <div className="flex gap-2">
+        <input readOnly value={token.token} className="field field-sm field-mono flex-1" onFocus={(e) => e.target.select()} />
+        <Button size="sm" variant="soft" onClick={copy}>
+          <Icon name={copied ? 'check' : 'copy'} size={13} /> {copied ? 'Copiado' : 'Copiar'}
+        </Button>
+      </div>
+      <div className="flex justify-end pt-4">
+        <Button variant="ghost" onClick={onClose}>Cerrar</Button>
+      </div>
+    </Modal>
+  );
+}
+
+function WorkerTokensPanel() {
+  const [tokens, setTokens] = useState(null);
+  const [newName, setNewName] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [createdToken, setCreatedToken] = useState(null);
+  const [error, setError] = useState('');
+
+  const load = () => api.get('/admin/worker-tokens').then(({ data }) => setTokens(data)).catch(() => setError('No se pudieron cargar los tokens'));
+  useEffect(() => { load(); }, []);
+
+  const createToken = async (e) => {
+    e.preventDefault();
+    if (!newName.trim()) return;
+    setCreating(true);
+    setError('');
+    try {
+      const { data } = await api.post('/admin/worker-tokens', { name: newName.trim() });
+      setCreatedToken(data);
+      setNewName('');
+      load();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error al crear el token');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const revoke = async (t) => {
+    await api.delete(`/admin/worker-tokens/${t.id}`);
+    load();
+  };
+
+  if (!tokens) return <div className="skeleton h-32 rounded-2xl" />;
+
+  return (
+    <div>
+      {error && <p className="text-rust text-sm mb-3 bg-rust-soft px-3 py-2.5 rounded-lg">{error}</p>}
+      <form onSubmit={createToken} className="flex gap-2 mb-4">
+        <input value={newName} onChange={(e) => setNewName(e.target.value)}
+          placeholder="Nombre (ej. Worker Mesa de Ayuda)" className="field flex-1" />
+        <Button type="submit" disabled={creating || !newName.trim()}>
+          <Icon name="plus" size={14} /> Crear token
+        </Button>
+      </form>
+
+      {tokens.length === 0 ? (
+        <p className="text-sm text-ink-faint">Sin tokens de worker todavía.</p>
+      ) : (
+        <div className="space-y-2">
+          {tokens.map((t) => (
+            <div key={t.id} className="flex items-center justify-between gap-3 bg-surface border border-line rounded-lg px-3 py-2 text-sm">
+              <div className="flex-1 min-w-0">
+                <p className="text-ink font-medium truncate">{t.name}</p>
+                <p className="text-xs text-ink-faint font-mono">
+                  Creado {new Date(t.createdAt).toLocaleDateString()}
+                  {t.lastUsedAt && ` · Último uso ${new Date(t.lastUsedAt).toLocaleString()}`}
+                  {t.revokedAt && ' · Revocado'}
+                </p>
+              </div>
+              {!t.revokedAt && (
+                <Button variant="danger" size="sm" onClick={() => revoke(t)}>Revocar</Button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {createdToken && <TokenCreatedModal token={createdToken} onClose={() => setCreatedToken(null)} />}
+    </div>
+  );
+}
+
+function JobsPanel() {
+  const [jobs, setJobs] = useState(null);
+  const [datasets, setDatasets] = useState([]);
+  const [editJob, setEditJob] = useState(null);
+  const [deletingJob, setDeletingJob] = useState(null);
+  const [viewingRuns, setViewingRuns] = useState(null);
+  const [sub, setSub] = useState('jobs'); // 'jobs' | 'tokens'
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    api.get('/admin/jobs').then(({ data }) => setJobs(data)).catch(() => setError('No se pudieron cargar los trabajos'));
+    api.get('/datasets').then(({ data }) => setDatasets(Array.isArray(data) ? data : [])).catch(() => {});
+  }, []);
+
+  const deleteJob = async (job) => {
+    try {
+      await api.delete(`/admin/jobs/${job.id}`);
+      setJobs((list) => list.filter((j) => j.id !== job.id));
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error al eliminar');
+    } finally {
+      setDeletingJob(null);
+    }
+  };
+
+  const toggleActive = async (job) => {
+    const { data } = await api.patch(`/admin/jobs/${job.id}`, { isActive: !job.isActive });
+    setJobs((list) => list.map((j) => (j.id === job.id ? data : j)));
+  };
+
+  const STATUS_LABEL = { ok: 'OK', error: 'Error' };
+
+  return (
+    <div>
+      <p className="text-xs text-ink-faint bg-paper-deep/60 border border-line-soft rounded-lg px-3 py-2 mb-4">
+        Lúmina coordina el schedule (cron) — la ejecución real corre en un worker externo que hace polling de{' '}
+        <code className="font-mono">GET /worker/jobs/due</code> con un token y reporta el resultado. Útil cuando la fuente de datos no es
+        alcanzable directamente desde el servidor de Lúmina.
+      </p>
+
+      <div className="flex gap-1 p-1 bg-paper-deep rounded-xl border border-line-soft mb-4 w-fit">
+        {[{ id: 'jobs', label: 'Trabajos' }, { id: 'tokens', label: 'Tokens de worker' }].map((t) => (
+          <button key={t.id} onClick={() => setSub(t.id)}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition cursor-pointer ${
+              sub === t.id ? 'bg-surface text-ink shadow-sm border border-line-soft' : 'text-ink-soft hover:text-ink'
+            }`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {error && <p className="text-rust text-sm mb-4 bg-rust-soft px-3 py-2.5 rounded-lg">{error}</p>}
+
+      {sub === 'tokens' ? (
+        <WorkerTokensPanel />
+      ) : !jobs ? (
+        <div className="skeleton h-48 rounded-2xl" />
+      ) : (
+        <div>
+          <div className="flex justify-end mb-4">
+            <Button onClick={() => setEditJob(true)} disabled={datasets.length === 0}>
+              <Icon name="plus" size={15} /> Nuevo trabajo
+            </Button>
+          </div>
+
+          {jobs.length === 0 ? (
+            <EmptyState icon="refresh" title="Sin trabajos programados"
+              hint="Crea uno para que un worker externo actualice un dataset en un horario definido." />
+          ) : (
+            <div className="space-y-3">
+              {jobs.map((job) => (
+                <div key={job.id} className="bg-surface border border-line rounded-xl p-4 flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-semibold text-ink">{job.name}</span>
+                      {!job.isActive && <span className="text-xs px-2 py-0.5 rounded-full bg-paper-deep text-ink-faint">Pausado</span>}
+                      {job.status === 'claimed' && <span className="text-xs px-2 py-0.5 rounded-full bg-lumen-soft text-lumen-deep">En ejecución</span>}
+                    </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-faint">
+                      <span>Dataset: <span className="text-ink">{job.dataset?.name}</span></span>
+                      <span className="font-mono">{job.cronExpression}</span>
+                      {job.config?.host && (
+                        <span className="font-mono">{job.config.dbType || 'db'}://{job.config.host}{job.config.database ? `/${job.config.database}` : ''}</span>
+                      )}
+                      {job.lastRunAt && (
+                        <span>
+                          Última ejecución: <span className={job.lastStatus === 'error' ? 'text-rust' : 'text-sea'}>{STATUS_LABEL[job.lastStatus] || job.lastStatus}</span>
+                          {' '}({new Date(job.lastRunAt).toLocaleString()}{job.lastRowCount != null && `, ${job.lastRowCount} filas`})
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button variant="ghost" size="sm" onClick={() => setViewingRuns(job)} title="Historial">
+                      <Icon name="table" size={13} />
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => toggleActive(job)} title={job.isActive ? 'Pausar' : 'Reactivar'}>
+                      <Icon name={job.isActive ? 'eye-off' : 'eye'} size={13} />
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setEditJob(job)}>
+                      <Icon name="pencil" size={13} />
+                    </Button>
+                    <Button variant="danger" size="sm" onClick={() => setDeletingJob(job)}>
+                      <Icon name="trash" size={13} />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {editJob && (
+        <JobModal
+          job={editJob === true ? null : editJob}
+          datasets={datasets}
+          onClose={() => setEditJob(null)}
+          onSaved={(saved) => {
+            if (editJob === true) setJobs((list) => [saved, ...(list || [])]);
+            else setJobs((list) => list.map((j) => (j.id === saved.id ? saved : j)));
+            setEditJob(null);
+          }}
+        />
+      )}
+      {deletingJob && (
+        <ConfirmModal
+          title="Eliminar trabajo"
+          message={`¿Eliminar "${deletingJob.name}"? No se puede deshacer.`}
+          confirmLabel="Eliminar"
+          onConfirm={() => deleteJob(deletingJob)}
+          onCancel={() => setDeletingJob(null)}
+        />
+      )}
+      {viewingRuns && <JobRunsModal job={viewingRuns} onClose={() => setViewingRuns(null)} />}
+    </div>
+  );
+}
+
 function SharesPanel({ orgId } = {}) {
   const [shares, setShares] = useState(null);
   const [dbDatasets, setDbDatasets] = useState([]);
@@ -1744,6 +2103,7 @@ export default function Admin() {
             { id: 'plans', label: 'Planes', icon: 'layers' },
             { id: 'superadmins', label: 'Super admins', icon: 'shield' },
             { id: 'storage', label: 'Almacenamiento', icon: 'database' },
+            { id: 'jobs', label: 'Trabajos programados', icon: 'refresh' },
           ].map((v) => (
             <button key={v.id} onClick={() => setView(v.id)}
               className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition cursor-pointer ${
@@ -1764,6 +2124,7 @@ export default function Admin() {
         {view === 'plans' && <PlansPanel orgs={orgs} />}
         {view === 'superadmins' && <SuperAdminsPanel me={me} />}
         {view === 'storage' && <StoragePanel />}
+        {view === 'jobs' && <JobsPanel />}
         {view === 'orgs' && (<>
 
         {!orgs ? (
