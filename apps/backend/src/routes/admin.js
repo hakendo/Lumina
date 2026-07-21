@@ -659,4 +659,104 @@ router.delete('/storage/cleanup', async (req, res) => {
   res.json({ deleted: results });
 });
 
+// ── Reportes compartidos (vista global superadmin) ────────────────────
+router.get('/reports/shares', async (req, res) => {
+  const { orgId } = req.query;
+  let userIdFilter;
+  if (orgId) {
+    const members = await prisma.orgMembership.findMany({ where: { orgId }, select: { userId: true } });
+    userIdFilter = { in: members.map((m) => m.userId) };
+  }
+  const shares = await prisma.reportShare.findMany({
+    where: userIdFilter ? { userId: userIdFilter } : undefined,
+    include: {
+      report: { select: { id: true, title: true, isTemplate: true } },
+      user: { select: { id: true, name: true, email: true } },
+      sourceDataset: { select: { id: true, name: true } },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+  res.json(shares);
+});
+
+// Lista los datasets DB-connector distintos referenciados por los widgets de
+// un reporte, con su conexión actual (propia u heredada de qué dataset).
+router.get('/reports/:reportId/datasets', async (req, res) => {
+  const widgets = await prisma.reportWidget.findMany({
+    where: { reportId: req.params.reportId },
+    include: { dataset: true },
+  });
+  const distinct = [...new Map(
+    widgets.filter((w) => w.dataset?.sourceType === 'db').map((w) => [w.dataset.id, w.dataset])
+  ).values()];
+  res.json(distinct.map((d) => ({ id: d.id, name: d.name, connectionRef: d.config.connectionRef || null })));
+});
+
+// Setea connectionRef en los datasets DB-connector indicados (o todos los del
+// reporte si no se especifica), apuntando a un mismo dataset base — para no
+// editar uno por uno cuando un reporte usa muchos datasets con la misma DB.
+router.post('/reports/:reportId/datasets/bulk-connection', async (req, res) => {
+  const { baseDatasetId, datasetIds } = req.body;
+  if (!baseDatasetId) return res.status(400).json({ error: 'baseDatasetId requerido' });
+
+  const base = await prisma.dataset.findUnique({ where: { id: baseDatasetId } });
+  if (!base || base.sourceType !== 'db' || !base.config._enc) {
+    return res.status(400).json({ error: 'baseDatasetId inválido: debe ser un DB connector con conexión propia' });
+  }
+
+  const widgets = await prisma.reportWidget.findMany({
+    where: { reportId: req.params.reportId },
+    include: { dataset: true },
+  });
+  const allowed = datasetIds ? new Set(datasetIds) : null;
+  const targets = [...new Map(
+    widgets
+      .filter((w) => w.dataset?.sourceType === 'db' && w.dataset.id !== baseDatasetId)
+      .filter((w) => !allowed || allowed.has(w.dataset.id))
+      .map((w) => [w.dataset.id, w.dataset])
+  ).values()];
+
+  for (const ds of targets) {
+    await prisma.dataset.update({
+      where: { id: ds.id },
+      data: { config: { dbType: base.config.dbType, query: ds.config.query, connectionRef: baseDatasetId } },
+    });
+  }
+  res.json({ updated: targets.length });
+});
+
+router.put('/reports/shares/:shareId', async (req, res) => {
+  const { role, sourceDatasetId } = req.body;
+  const existing = await prisma.reportShare.findUnique({ where: { id: req.params.shareId } });
+  if (!existing) return res.status(404).json({ error: 'Share no encontrado' });
+
+  if (sourceDatasetId) {
+    const src = await prisma.dataset.findUnique({ where: { id: sourceDatasetId } });
+    if (!src || src.sourceType !== 'db' || !src.config._enc) {
+      return res.status(400).json({ error: 'sourceDatasetId inválido: debe ser un DB connector con conexión propia' });
+    }
+  }
+
+  const updated = await prisma.reportShare.update({
+    where: { id: req.params.shareId },
+    data: {
+      ...(role && { role }),
+      ...(sourceDatasetId !== undefined && { sourceDatasetId: sourceDatasetId || null }),
+    },
+    include: {
+      report: { select: { id: true, title: true } },
+      user: { select: { id: true, name: true, email: true } },
+      sourceDataset: { select: { id: true, name: true } },
+    },
+  });
+  res.json(updated);
+});
+
+router.delete('/reports/shares/:shareId', async (req, res) => {
+  const existing = await prisma.reportShare.findUnique({ where: { id: req.params.shareId } });
+  if (!existing) return res.status(404).json({ error: 'Share no encontrado' });
+  await prisma.reportShare.delete({ where: { id: req.params.shareId } });
+  res.json({ ok: true });
+});
+
 module.exports = router;

@@ -11,6 +11,7 @@ const ROLES = [
 export default function ShareModal({ report, onChange, onClose }) {
   const [shares, setShares] = useState(null);
   const [areas, setAreas] = useState([]);
+  const [dbDatasets, setDbDatasets] = useState([]);
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('viewer');
   const [busy, setBusy] = useState(false);
@@ -28,6 +29,9 @@ export default function ShareModal({ report, onChange, onClose }) {
     api.get('/areas/mine')
       .then(({ data }) => setAreas(Array.isArray(data) ? data : []))
       .catch(() => {});
+    api.get('/datasets')
+      .then(({ data }) => setDbDatasets((Array.isArray(data) ? data : []).filter((d) => d.sourceType === 'db')))
+      .catch(() => {});
 
     // Load effective policy — area-specific if report has an area, else org-level
     const policyUrl = report.areaId
@@ -38,8 +42,11 @@ export default function ShareModal({ report, onChange, onClose }) {
       .catch(() => {});
   }, [report.id, report.areaId]);
 
-  const upsertShare = async (targetEmail, targetRole) => {
-    const { data } = await api.post(`/reports/${report.id}/shares`, { email: targetEmail, role: targetRole });
+  const upsertShare = async (targetEmail, targetRole, sourceDatasetId) => {
+    const { data } = await api.post(`/reports/${report.id}/shares`, {
+      email: targetEmail, role: targetRole,
+      ...(sourceDatasetId !== undefined && { sourceDatasetId: sourceDatasetId || null }),
+    });
     setShares((prev) => {
       const rest = prev.filter((s) => s.user.id !== data.user.id);
       return [...rest, data].sort((a, b) => a.createdAt < b.createdAt ? -1 : 1);
@@ -140,7 +147,7 @@ export default function ShareModal({ report, onChange, onClose }) {
       ) : (
         <ul className="mb-4 divide-y divide-line-soft border border-line-soft rounded-lg overflow-hidden">
           {shares.map((s) => (
-            <li key={s.id} className="flex items-center gap-2 px-3 py-2 bg-surface">
+            <li key={s.id} className="flex items-center gap-2 px-3 py-2 bg-surface flex-wrap">
               <span className="grid place-items-center w-7 h-7 rounded-full bg-lumen-soft text-lumen-deep text-xs font-semibold shrink-0">
                 {s.user.name?.[0]?.toUpperCase() || '?'}
               </span>
@@ -149,10 +156,19 @@ export default function ShareModal({ report, onChange, onClose }) {
                 <p className="text-xs text-ink-faint font-mono truncate">{s.user.email}</p>
               </div>
               <select value={s.role}
-                onChange={(e) => upsertShare(s.user.email, e.target.value)}
+                onChange={(e) => upsertShare(s.user.email, e.target.value, s.sourceDatasetId)}
                 className="field field-sm w-30 shrink-0">
                 {ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
               </select>
+              {dbDatasets.length > 0 && (
+                <select value={s.sourceDatasetId || ''}
+                  title="Conexión de origen para este cliente (misma query, distinta base)"
+                  onChange={(e) => upsertShare(s.user.email, s.role, e.target.value)}
+                  className="field field-sm w-full sm:w-44 shrink-0">
+                  <option value="">— Dataset original —</option>
+                  {dbDatasets.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              )}
               <button onClick={() => removeShare(s)} title="Quitar acceso"
                 className="text-ink-faint hover:text-rust transition cursor-pointer p-1">
                 <Icon name="x" size={14} />

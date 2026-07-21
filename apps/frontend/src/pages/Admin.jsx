@@ -1093,6 +1093,207 @@ function PlansPanel({ orgs }) {
   );
 }
 
+function SharesPanel({ orgId } = {}) {
+  const [shares, setShares] = useState(null);
+  const [dbDatasets, setDbDatasets] = useState([]);
+  const [error, setError] = useState('');
+
+  const load = () => {
+    const qs = orgId ? `?orgId=${orgId}` : '';
+    api.get(`/admin/reports/shares${qs}`).then(({ data }) => setShares(data)).catch(() => setError('No se pudieron cargar los shares'));
+  };
+
+  useEffect(() => {
+    load();
+    api.get('/datasets').then(({ data }) => setDbDatasets((Array.isArray(data) ? data : []).filter((d) => d.sourceType === 'db'))).catch(() => {});
+  }, [orgId]);
+
+  const updateSource = async (share, sourceDatasetId) => {
+    try {
+      const { data } = await api.put(`/admin/reports/shares/${share.id}`, { sourceDatasetId: sourceDatasetId || null });
+      setShares((prev) => prev.map((s) => (s.id === share.id ? { ...s, sourceDatasetId: data.sourceDatasetId, sourceDataset: data.sourceDataset } : s)));
+    } catch {
+      setError('No se pudo actualizar el dataset de origen');
+    }
+  };
+
+  const [confirmingId, setConfirmingId] = useState(null);
+  const [bulkPick, setBulkPick] = useState({});
+  const [bulkMsg, setBulkMsg] = useState({});
+  const [reportDatasets, setReportDatasets] = useState({}); // reportId -> [{id,name,connectionRef}]
+  const [pickedDatasets, setPickedDatasets] = useState({}); // reportId -> Set(datasetId)
+  const [expandedReport, setExpandedReport] = useState(null);
+
+  const toggleExpand = async (reportId) => {
+    if (expandedReport === reportId) { setExpandedReport(null); return; }
+    setExpandedReport(reportId);
+    if (!reportDatasets[reportId]) {
+      const { data } = await api.get(`/admin/reports/${reportId}/datasets`);
+      setReportDatasets((m) => ({ ...m, [reportId]: data }));
+      setPickedDatasets((m) => ({ ...m, [reportId]: new Set(data.map((d) => d.id)) })); // todos marcados por defecto
+    }
+  };
+
+  const toggleDataset = (reportId, datasetId) => {
+    setPickedDatasets((m) => {
+      const set = new Set(m[reportId]);
+      set.has(datasetId) ? set.delete(datasetId) : set.add(datasetId);
+      return { ...m, [reportId]: set };
+    });
+  };
+
+  const applyBulk = async (reportId) => {
+    const baseDatasetId = bulkPick[reportId];
+    const datasetIds = [...(pickedDatasets[reportId] || [])];
+    if (!baseDatasetId || datasetIds.length === 0) return;
+    setBulkMsg((m) => ({ ...m, [reportId]: 'Aplicando…' }));
+    try {
+      const { data } = await api.post(`/admin/reports/${reportId}/datasets/bulk-connection`, { baseDatasetId, datasetIds });
+      setBulkMsg((m) => ({ ...m, [reportId]: `${data.updated} dataset(s) actualizados.` }));
+      setReportDatasets((m) => ({ ...m })); // fuerza refetch la próxima vez que se expanda
+      delete reportDatasets[reportId];
+    } catch (err) {
+      setBulkMsg((m) => ({ ...m, [reportId]: err.response?.data?.error || 'Error al aplicar' }));
+    }
+  };
+  const removeShare = async (share) => {
+    if (confirmingId !== share.id) { setConfirmingId(share.id); return; }
+    setConfirmingId(null);
+    await api.delete(`/admin/reports/shares/${share.id}`);
+    setShares((prev) => prev.filter((s) => s.id !== share.id));
+  };
+
+  const grouped = shares ? Object.values(
+    shares.reduce((acc, s) => {
+      (acc[s.reportId] ||= { report: s.report, items: [] }).items.push(s);
+      return acc;
+    }, {})
+  ) : null;
+  const ROLE_LABEL = { viewer: 'Solo ver', editor: 'Puede editar' };
+
+  return (
+    <div className="bg-surface rounded-2xl border border-line-soft overflow-hidden animate-rise">
+      <div className="px-5 py-4 border-b border-line-soft">
+        <h2 className="font-display text-lg text-ink flex items-center gap-2">
+          <Icon name="users" size={17} className="text-lumen-deep" /> Reportes compartidos
+        </h2>
+        <p className="text-xs text-ink-faint mt-0.5">
+          Cada reporte compartido, con quién lo ve y de qué base de datos saca la información.
+        </p>
+      </div>
+      <div className="p-5">
+        {error && <p className="text-rust text-xs mb-3 bg-rust-soft px-3 py-2 rounded-lg">{error}</p>}
+
+        {dbDatasets.length > 0 && (
+          <p className="text-xs text-ink-faint bg-paper-deep/60 border border-line-soft rounded-lg px-3 py-2 mb-4">
+            "Origen de datos" define de qué conexión saca la información ESE cliente puntual, sin tocar a los demás.
+            Dejalo en <span className="font-medium text-ink">Dataset original</span> si el cliente usa la misma base que el resto.
+          </p>
+        )}
+
+        {!grouped ? (
+          <div className="space-y-2">{[1, 2, 3].map((i) => <div key={i} className="skeleton h-16" />)}</div>
+        ) : grouped.length === 0 ? (
+          <EmptyState icon="users" title="Sin reportes compartidos" hint="Compartí un reporte desde el editor (botón Compartir) para verlo acá." />
+        ) : (
+          <div className="space-y-4">
+            {grouped.map((g) => (
+              <div key={g.report.id} className="border border-line-soft rounded-xl overflow-hidden">
+                <div className="px-4 py-2.5 bg-paper-deep/60 border-b border-line-soft">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-ink">{g.report.title}</p>
+                    <p className="text-xs text-ink-faint">{g.items.length} {g.items.length === 1 ? 'cliente' : 'clientes'}</p>
+                  </div>
+                  {dbDatasets.length > 0 && (
+                    <div className="mt-2">
+                      <Button size="sm" variant="soft" onClick={() => toggleExpand(g.report.id)}>
+                        {expandedReport === g.report.id ? 'Ocultar datasets' : 'Elegir datasets'}
+                      </Button>
+                      {expandedReport === g.report.id && (
+                        <div className="mt-2 flex flex-col gap-2">
+                          {!reportDatasets[g.report.id] ? (
+                            <p className="text-xs text-ink-faint">Cargando datasets…</p>
+                          ) : reportDatasets[g.report.id].length === 0 ? (
+                            <p className="text-xs text-ink-faint">Este reporte no usa datasets de base de datos.</p>
+                          ) : (
+                            <div className="flex flex-col gap-1.5">
+                              {reportDatasets[g.report.id].map((d) => (
+                                <label key={d.id} className="flex items-center gap-2 text-xs text-ink">
+                                  <input
+                                    type="checkbox"
+                                    checked={pickedDatasets[g.report.id]?.has(d.id) || false}
+                                    onChange={() => toggleDataset(g.report.id, d.id)}
+                                  />
+                                  <span>{d.name}</span>
+                                  {d.connectionRef && <span className="text-ink-faint">(ya con conexión propia)</span>}
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <select value={bulkPick[g.report.id] || ''} onChange={(e) => setBulkPick((p) => ({ ...p, [g.report.id]: e.target.value }))}
+                              className="field field-sm w-full sm:w-56">
+                              <option value="">Base para los datasets seleccionados…</option>
+                              {dbDatasets.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                            </select>
+                            <Button size="sm" variant="soft" disabled={!bulkPick[g.report.id] || !pickedDatasets[g.report.id]?.size} onClick={() => applyBulk(g.report.id)}>
+                              Aplicar a seleccionados
+                            </Button>
+                            {bulkMsg[g.report.id] && <span className="text-xs text-ink-faint">{bulkMsg[g.report.id]}</span>}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div className="divide-y divide-line-soft">
+                  {g.items.map((s) => (
+                    <div key={s.id} className="px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-ink truncate">{s.user.name}</p>
+                        <p className="text-xs text-ink-faint font-mono truncate">{s.user.email} · {ROLE_LABEL[s.role] || s.role}</p>
+                      </div>
+                      {dbDatasets.length > 0 && (
+                        <div className="w-full sm:w-56 shrink-0">
+                          <label className="text-[10px] font-semibold text-ink-faint uppercase tracking-widest block mb-1">
+                            Origen de datos
+                          </label>
+                          <select value={s.sourceDatasetId || ''} onChange={(e) => updateSource(s, e.target.value)}
+                            className="field field-sm w-full">
+                            <option value="">Dataset original</option>
+                            {dbDatasets.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                          </select>
+                        </div>
+                      )}
+                      {confirmingId === s.id ? (
+                        <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
+                          <button onClick={() => removeShare(s)}
+                            className="text-xs text-rust font-medium hover:underline cursor-pointer">
+                            Confirmar
+                          </button>
+                          <button onClick={() => setConfirmingId(null)}
+                            className="text-xs text-ink-faint hover:text-ink cursor-pointer">
+                            Cancelar
+                          </button>
+                        </div>
+                      ) : (
+                        <button onClick={() => removeShare(s)}
+                          className="flex items-center gap-1 text-xs text-ink-faint hover:text-rust transition cursor-pointer shrink-0 self-start sm:self-center">
+                          <Icon name="x" size={13} /> Quitar acceso
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function TemplatesPanel({ orgs }) {
   const [templates, setTemplates] = useState(null);
   const [newTitle, setNewTitle] = useState('');
@@ -1430,6 +1631,7 @@ const ORG_TABS = [
   { id: 'users', label: 'Usuarios', icon: 'users' },
   { id: 'areas', label: 'Áreas', icon: 'layers' },
   { id: 'reports', label: 'Reportes', icon: 'chart' },
+  { id: 'shares', label: 'Compartidos', icon: 'users' },
   { id: 'audit', label: 'Auditoría', icon: 'shield' },
 ];
 
@@ -1538,6 +1740,7 @@ export default function Admin() {
           {[
             { id: 'orgs', label: 'Organizaciones', icon: 'building' },
             { id: 'templates', label: 'Plantillas base', icon: 'copy' },
+            { id: 'shares', label: 'Reportes compartidos', icon: 'users' },
             { id: 'plans', label: 'Planes', icon: 'layers' },
             { id: 'superadmins', label: 'Super admins', icon: 'shield' },
             { id: 'storage', label: 'Almacenamiento', icon: 'database' },
@@ -1555,6 +1758,7 @@ export default function Admin() {
 
         {error && <p className="text-rust text-sm mb-4 bg-rust-soft px-3 py-2.5 rounded-lg">{error}</p>}
 
+        {view === 'shares' && <SharesPanel />}
         {view === 'templates' && orgs && <TemplatesPanel orgs={orgs} />}
         {view === 'templates' && !orgs && <div className="skeleton h-48 rounded-2xl" />}
         {view === 'plans' && <PlansPanel orgs={orgs} />}
@@ -1667,6 +1871,7 @@ export default function Admin() {
                     {activeTab === 'users' && <OrgUsersPanel key={selectedOrg.id} org={selectedOrg} me={me} />}
                     {activeTab === 'areas' && <OrgAreasPanel key={selectedOrg.id} org={selectedOrg} />}
                     {activeTab === 'reports' && <OrgReportsPanel key={selectedOrg.id} org={selectedOrg} />}
+                    {activeTab === 'shares' && <SharesPanel key={selectedOrg.id} orgId={selectedOrg.id} />}
                     {activeTab === 'audit' && <OrgAuditPanel key={selectedOrg.id} org={selectedOrg} />}
                   </div>
                 </div>
