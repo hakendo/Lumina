@@ -3,9 +3,10 @@ import api from '../../lib/api';
 import { CACHE, PENDING } from '../../lib/datasetCache';
 import { useReportStore, applyFilters } from '../../store/reportStore';
 import { Icon } from '../ui';
-import KPIWidget   from '../widgets/KPIWidget';
-import TableWidget from '../widgets/TableWidget';
-import PivotWidget from '../widgets/PivotWidget';
+import KPIWidget    from '../widgets/KPIWidget';
+import TableWidget  from '../widgets/TableWidget';
+import PivotWidget  from '../widgets/PivotWidget';
+import KanbanWidget from '../widgets/KanbanWidget';
 
 const ChartWidget = lazy(() => import('../widgets/ChartWidget'));
 const MapWidget   = lazy(() => import('../widgets/MapWidget'));
@@ -152,6 +153,7 @@ const WidgetRenderer = memo(function WidgetRenderer({ widget, publicSlug, refres
   }
   if (widget.widgetType === 'table') return <TableWidget {...props} />;
   if (widget.widgetType === 'pivot') return <PivotWidget {...props} />;
+  if (widget.widgetType === 'kanban') return <KanbanWidget {...props} />;
   return <div className="flex items-center justify-center h-full text-ink-faint text-sm">Widget desconocido</div>;
 });
 

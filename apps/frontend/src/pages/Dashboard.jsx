@@ -10,6 +10,8 @@ export default function Dashboard() {
   const [favorites, setFavorites] = useState([]);
   const [shared, setShared] = useState([]);
   const [areas, setAreas] = useState([]);
+  const [templates, setTemplates] = useState([]);
+  const isSuperadmin = user?.role === 'superadmin';
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [newTitle, setNewTitle] = useState('');
@@ -35,6 +37,11 @@ export default function Dashboard() {
       .catch(() => setLoadError('No se pudieron cargar tus reportes. Recarga la página.'))
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!isSuperadmin) return;
+    api.get('/admin/reports/templates').then(({ data }) => setTemplates(data)).catch(() => {});
+  }, [isSuperadmin]);
 
   const createReport = async (e) => {
     e.preventDefault();
@@ -83,9 +90,10 @@ export default function Dashboard() {
     { key: 'areas', label: 'Áreas', count: areas.length },
     { key: 'shared', label: 'Compartidos', count: shared.length },
     { key: 'favorites', label: 'Favoritos', count: favorites.length },
+    ...(isSuperadmin ? [{ key: 'templates', label: 'Plantillas', count: templates.length }] : []),
   ];
 
-  const baseList = tab === 'mine' ? reports : tab === 'shared' ? shared : favorites;
+  const baseList = tab === 'mine' ? reports : tab === 'shared' ? shared : tab === 'templates' ? templates : favorites;
   const displayed = search.trim()
     ? baseList.filter((r) => r.title.toLowerCase().includes(search.toLowerCase()) ||
         r.description?.toLowerCase().includes(search.toLowerCase()))
@@ -159,6 +167,9 @@ export default function Dashboard() {
           ) : tab === 'shared' ? (
             <EmptyState icon="link" title="Nada compartido contigo"
               hint="Cuando alguien comparta un reporte con tu email, aparecerá aquí." />
+          ) : tab === 'templates' ? (
+            <EmptyState icon="copy" title="Sin plantillas"
+              hint="Creá una plantilla base desde Admin → Plantillas base." />
           ) : (
             <EmptyState icon="chart" title="Tu mesa está vacía"
               hint="Dale un nombre a tu primer reporte arriba y empieza a armar tu dashboard." />

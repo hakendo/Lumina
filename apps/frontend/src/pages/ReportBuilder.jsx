@@ -18,6 +18,7 @@ const WIDGET_TYPES = [
   { type: 'table', label: 'Tabla', icon: 'table' },
   { type: 'pivot', label: 'Pivot', icon: 'grid' },
   { type: 'map', label: 'Mapa', icon: 'pin' },
+  { type: 'kanban', label: 'Kanban', icon: 'kanban' },
 ];
 
 // react-grid-layout calls handleComponent(axis, ref) as (axis, ref) => ReactNode.

@@ -94,6 +94,11 @@ function getWells(widgetType, chartType) {
     { key: 'colField',   label: 'Columnas', hint: 'texto',  preferred: 'text',   optional: true },
     { key: 'valueField', label: 'Valores',  hint: 'número', preferred: 'number' },
   ];
+  if (widgetType === 'kanban') return [
+    { key: 'groupField', label: 'Columnas (estado)', hint: 'texto', preferred: 'text' },
+    { key: 'titleField', label: 'Título de tarjeta',  hint: 'texto', preferred: 'text' },
+    { key: 'colorField', label: 'Color de acento',    hint: 'texto', preferred: 'text', optional: true },
+  ];
   return [];
 }
 
@@ -387,6 +392,42 @@ export default function WidgetConfigPanel({ widget, onClose }) {
                 placeholder="DD/MM/YYYY HH:mm"
                 className="field field-sm field-mono"
               />
+            </Field>
+          </div>
+        </div>
+      )}
+
+      {/* ── Kanban card fields ── */}
+      {widget.widgetType === 'kanban' && datasetId && columnsWithTypes.length > 0 && (
+        <div className="px-3 py-2.5 border-b border-line-soft shrink-0">
+          <p className="text-[10px] font-semibold text-ink-faint uppercase tracking-widest mb-2">Campos en la tarjeta</p>
+          <div className="flex flex-wrap gap-1">
+            {columnsWithTypes.map(({ name, type }) => {
+              const active = cfg.cardFields?.includes(name);
+              return (
+                <button
+                  key={name}
+                  onClick={() => {
+                    const current = cfg.cardFields || [];
+                    const next = current.includes(name)
+                      ? current.filter((c) => c !== name)
+                      : [...current, name];
+                    set('cardFields', next);
+                  }}
+                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono transition cursor-pointer border ${
+                    active
+                      ? 'bg-lumen-soft text-lumen-deep border-lumen-line'
+                      : 'bg-paper-deep text-ink-faint border-line'
+                  }`}
+                >
+                  <TypeBadge type={type} /> {name}
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-2 space-y-2">
+            <Field label="Cross-filter al hacer clic">
+              <ColSelect value={cfg.crossFilterField} onChange={(v) => set('crossFilterField', v)} columns={columns} placeholder="— Usa la columna de estado —" />
             </Field>
           </div>
         </div>

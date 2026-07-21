@@ -19,3 +19,6 @@ check-*.js
 sync-*.ps1
 gen-prisma.ps1
 deploy-backend.ps1
+
+# Contiene config.xlsx con credenciales reales de BD (Mesa de Ayuda) — nunca al repo
+docs/newFeatures/
