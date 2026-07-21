@@ -18,6 +18,8 @@ export default function ShareModal({ report, onChange, onClose }) {
   const [msg, setMsg] = useState('');
   const [copied, setCopied] = useState(false);
   const [toggling, setToggling] = useState(false);
+  const [expandedShare, setExpandedShare] = useState(null);
+  const [datasetSources, setDatasetSources] = useState({}); // shareId -> [{id,name,sourceDatasetId}]
   const [selectedAreaId, setSelectedAreaId] = useState(report.area?.id ?? '');
   const [publishing, setPublishing] = useState(false);
   const [policy, setPolicy] = useState({ allowPublicLink: true, allowExternalShare: true, allowPublishToArea: true });
@@ -71,6 +73,25 @@ export default function ShareModal({ report, onChange, onClose }) {
   const removeShare = async (s) => {
     await api.delete(`/reports/${report.id}/shares/${s.id}`);
     setShares((prev) => prev.filter((x) => x.id !== s.id));
+  };
+
+  const toggleDatasetSources = async (shareId) => {
+    if (expandedShare === shareId) { setExpandedShare(null); return; }
+    setExpandedShare(shareId);
+    if (!datasetSources[shareId]) {
+      const { data } = await api.get(`/reports/${report.id}/shares/${shareId}/dataset-sources`);
+      setDatasetSources((m) => ({ ...m, [shareId]: data }));
+    }
+  };
+
+  const updateDatasetSource = async (shareId, datasetId, sourceDatasetId) => {
+    const { data } = await api.put(`/reports/${report.id}/shares/${shareId}/dataset-sources/${datasetId}`, {
+      sourceDatasetId: sourceDatasetId || null,
+    });
+    setDatasetSources((m) => ({
+      ...m,
+      [shareId]: m[shareId].map((d) => (d.id === datasetId ? { ...d, sourceDatasetId: data.sourceDatasetId } : d)),
+    }));
   };
 
   const togglePublic = async () => {
@@ -147,32 +168,60 @@ export default function ShareModal({ report, onChange, onClose }) {
       ) : (
         <ul className="mb-4 divide-y divide-line-soft border border-line-soft rounded-lg overflow-hidden">
           {shares.map((s) => (
-            <li key={s.id} className="flex items-center gap-2 px-3 py-2 bg-surface flex-wrap">
-              <span className="grid place-items-center w-7 h-7 rounded-full bg-lumen-soft text-lumen-deep text-xs font-semibold shrink-0">
-                {s.user.name?.[0]?.toUpperCase() || '?'}
-              </span>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm text-ink truncate">{s.user.name}</p>
-                <p className="text-xs text-ink-faint font-mono truncate">{s.user.email}</p>
-              </div>
-              <select value={s.role}
-                onChange={(e) => upsertShare(s.user.email, e.target.value, s.sourceDatasetId)}
-                className="field field-sm w-30 shrink-0">
-                {ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
-              </select>
-              {dbDatasets.length > 0 && (
-                <select value={s.sourceDatasetId || ''}
-                  title="Conexión de origen para este cliente (misma query, distinta base)"
-                  onChange={(e) => upsertShare(s.user.email, s.role, e.target.value)}
-                  className="field field-sm w-full sm:w-44 shrink-0">
-                  <option value="">— Dataset original —</option>
-                  {dbDatasets.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            <li key={s.id} className="flex flex-col gap-2 px-3 py-2 bg-surface">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="grid place-items-center w-7 h-7 rounded-full bg-lumen-soft text-lumen-deep text-xs font-semibold shrink-0">
+                  {s.user.name?.[0]?.toUpperCase() || '?'}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-ink truncate">{s.user.name}</p>
+                  <p className="text-xs text-ink-faint font-mono truncate">{s.user.email}</p>
+                </div>
+                <select value={s.role}
+                  onChange={(e) => upsertShare(s.user.email, e.target.value, s.sourceDatasetId)}
+                  className="field field-sm w-30 shrink-0">
+                  {ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
                 </select>
+                {dbDatasets.length > 0 && (
+                  <select value={s.sourceDatasetId || ''}
+                    title="Conexión de origen para este cliente (misma query, distinta base)"
+                    onChange={(e) => upsertShare(s.user.email, s.role, e.target.value)}
+                    className="field field-sm w-full sm:w-44 shrink-0">
+                    <option value="">— Dataset original —</option>
+                    {dbDatasets.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                )}
+                {dbDatasets.length > 0 && (
+                  <button type="button" onClick={() => toggleDatasetSources(s.id)}
+                    title="Origen por dataset (más fino que el de arriba)"
+                    className={`text-ink-faint hover:text-lumen-deep transition cursor-pointer p-1 ${expandedShare === s.id ? 'text-lumen-deep' : ''}`}>
+                    <Icon name="database" size={14} />
+                  </button>
+                )}
+                <button onClick={() => removeShare(s)} title="Quitar acceso"
+                  className="text-ink-faint hover:text-rust transition cursor-pointer p-1">
+                  <Icon name="x" size={14} />
+                </button>
+              </div>
+              {expandedShare === s.id && (
+                <div className="ml-9 pl-3 border-l-2 border-line-soft flex flex-col gap-1.5">
+                  {!datasetSources[s.id] ? (
+                    <p className="text-xs text-ink-faint">Cargando datasets…</p>
+                  ) : datasetSources[s.id].length === 0 ? (
+                    <p className="text-xs text-ink-faint">Este reporte no usa datasets de base de datos.</p>
+                  ) : datasetSources[s.id].map((d) => (
+                    <div key={d.id} className="flex items-center gap-2">
+                      <span className="text-xs text-ink flex-1 min-w-0 truncate">{d.name}</span>
+                      <select value={d.sourceDatasetId || ''}
+                        onChange={(e) => updateDatasetSource(s.id, d.id, e.target.value)}
+                        className="field field-sm w-full sm:w-44 shrink-0">
+                        <option value="">— Usar origen general —</option>
+                        {dbDatasets.filter((db) => db.id !== d.id).map((db) => <option key={db.id} value={db.id}>{db.name}</option>)}
+                      </select>
+                    </div>
+                  ))}
+                </div>
               )}
-              <button onClick={() => removeShare(s)} title="Quitar acceso"
-                className="text-ink-faint hover:text-rust transition cursor-pointer p-1">
-                <Icon name="x" size={14} />
-              </button>
             </li>
           ))}
         </ul>

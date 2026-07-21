@@ -138,6 +138,8 @@ model Dataset {
   widgets      ReportWidget[]
   slotBindings DatasetSlotBinding[]
   reportShareSources ReportShare[]
+  shareDatasetSourceTargets ReportShareDatasetSource[] @relation("DatasetSourceOverrideTarget")
+  shareDatasetSourceOverrides ReportShareDatasetSource[] @relation("DatasetSourceOverrideSource")
 }
 
 model DatasetRow {
@@ -201,7 +203,29 @@ model ReportShare {
   sourceDatasetId String?
   sourceDataset   Dataset? @relation(fields: [sourceDatasetId], references: [id], onDelete: SetNull)
 
+  datasetSources ReportShareDatasetSource[]
+
   @@unique([reportId, userId])
+}
+
+// Override de conexión más fino que ReportShare.sourceDatasetId: en vez de
+// pisar la conexión de TODO el reporte para un cliente, permite pisarla
+// dataset por dataset (varios widgets que comparten el mismo dataset se
+// mueven juntos). Si existe fila acá para (share, dataset), gana sobre
+// ReportShare.sourceDatasetId. Ver GET /:reportId/widgets/:widgetId/rows.
+model ReportShareDatasetSource {
+  id        String   @id @default(cuid())
+  shareId   String
+  share     ReportShare @relation(fields: [shareId], references: [id], onDelete: Cascade)
+  datasetId String
+  dataset   Dataset  @relation("DatasetSourceOverrideTarget", fields: [datasetId], references: [id], onDelete: Cascade)
+
+  sourceDatasetId String
+  sourceDataset   Dataset @relation("DatasetSourceOverrideSource", fields: [sourceDatasetId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([shareId, datasetId])
 }
 
 model Notification {

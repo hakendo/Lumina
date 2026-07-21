@@ -649,6 +649,58 @@ router.delete('/:id/shares/:shareId', auth, async (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Overrides de conexión por dataset, por cliente ─────────────────
+// Más fino que ReportShare.sourceDatasetId (que pisa TODO el reporte):
+// permite elegir, dataset por dataset, con qué conexión resolver ese
+// dataset para este cliente puntual. Ver GET /:reportId/widgets/:widgetId/rows.
+
+router.get('/:id/shares/:shareId/dataset-sources', auth, async (req, res) => {
+  const report = await prisma.report.findUnique({ where: { id: req.params.id } });
+  if (!report || !(await isOwnerOrSuperadmin(report, req.user.id))) return res.status(404).json({ error: 'Not found' });
+  const share = await prisma.reportShare.findUnique({ where: { id: req.params.shareId } });
+  if (!share || share.reportId !== report.id) return res.status(404).json({ error: 'Share not found' });
+
+  const widgets = await prisma.reportWidget.findMany({
+    where: { reportId: report.id },
+    include: { dataset: true },
+  });
+  const distinct = [...new Map(
+    widgets.filter((w) => w.dataset?.sourceType === 'db').map((w) => [w.dataset.id, w.dataset])
+  ).values()];
+
+  const overrides = await prisma.reportShareDatasetSource.findMany({ where: { shareId: share.id } });
+  const overrideMap = new Map(overrides.map((o) => [o.datasetId, o.sourceDatasetId]));
+
+  res.json(distinct.map((d) => ({ id: d.id, name: d.name, sourceDatasetId: overrideMap.get(d.id) || null })));
+});
+
+router.put('/:id/shares/:shareId/dataset-sources/:datasetId', auth, async (req, res) => {
+  const report = await prisma.report.findUnique({ where: { id: req.params.id } });
+  if (!report || !(await isOwnerOrSuperadmin(report, req.user.id))) return res.status(404).json({ error: 'Not found' });
+  const share = await prisma.reportShare.findUnique({ where: { id: req.params.shareId } });
+  if (!share || share.reportId !== report.id) return res.status(404).json({ error: 'Share not found' });
+
+  const { sourceDatasetId } = req.body;
+  if (!sourceDatasetId) {
+    await prisma.reportShareDatasetSource.deleteMany({
+      where: { shareId: share.id, datasetId: req.params.datasetId },
+    });
+    return res.json({ ok: true, sourceDatasetId: null });
+  }
+
+  const src = await prisma.dataset.findUnique({ where: { id: sourceDatasetId } });
+  if (!src || src.sourceType !== 'db' || !src.config._enc) {
+    return res.status(400).json({ error: 'sourceDatasetId inválido: debe ser un DB connector con conexión propia' });
+  }
+
+  await prisma.reportShareDatasetSource.upsert({
+    where: { shareId_datasetId: { shareId: share.id, datasetId: req.params.datasetId } },
+    create: { shareId: share.id, datasetId: req.params.datasetId, sourceDatasetId },
+    update: { sourceDatasetId },
+  });
+  res.json({ ok: true, sourceDatasetId });
+});
+
 // ── Link público ──────────────────────────────────────────────────
 
 router.post('/:id/share', auth, async (req, res) => {
@@ -786,10 +838,17 @@ router.get('/:reportId/widgets/:widgetId/rows', auth, async (req, res) => {
   let effectiveConfig = dataset.config;
   const share = await prisma.reportShare.findUnique({
     where: { reportId_userId: { reportId: report.id, userId: req.user.id } },
-    select: { sourceDatasetId: true },
+    select: { id: true, sourceDatasetId: true },
   });
-  if (share?.sourceDatasetId) {
-    const override = await prisma.dataset.findUnique({ where: { id: share.sourceDatasetId } });
+  let overrideDatasetId = share?.sourceDatasetId || null;
+  if (share) {
+    const dsOverride = await prisma.reportShareDatasetSource.findUnique({
+      where: { shareId_datasetId: { shareId: share.id, datasetId: dataset.id } },
+    });
+    if (dsOverride) overrideDatasetId = dsOverride.sourceDatasetId; // gana sobre el override de todo el reporte
+  }
+  if (overrideDatasetId) {
+    const override = await prisma.dataset.findUnique({ where: { id: overrideDatasetId } });
     if (override?.sourceType === 'db') {
       effectiveConfig = { ...override.config, query: dataset.config.query };
     }
