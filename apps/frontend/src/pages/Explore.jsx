@@ -36,11 +36,11 @@ export default function Explore() {
     navigate(`/report/${data.id}`);
   };
 
-  const areaCount = reports.filter((r) => r.area).length;
+  const areaCount = reports.filter((r) => r.areas?.length > 0).length;
   const publicCount = reports.filter((r) => r.isPublic).length;
 
   const displayed = filter === 'public' ? reports.filter((r) => r.isPublic)
-    : filter === 'area' ? reports.filter((r) => r.area)
+    : filter === 'area' ? reports.filter((r) => r.areas?.length > 0)
     : reports;
 
   const TABS = [
@@ -141,11 +141,11 @@ function ExploreCard({ report: r, index, onToggleFavorite, onDuplicate }) {
         {r.isPublic && (
           <span className="font-sans text-[11px] bg-sea-soft text-sea px-2 py-0.5 rounded-full">Público</span>
         )}
-        {r.area && (
-          <span className="font-sans text-[11px] bg-lumen-soft text-lumen-deep px-2 py-0.5 rounded-full flex items-center gap-1">
-            <Icon name="layers" size={9} /> {r.area.name}
+        {(r.areas || []).map((a) => (
+          <span key={a.id} className="font-sans text-[11px] bg-lumen-soft text-lumen-deep px-2 py-0.5 rounded-full flex items-center gap-1">
+            <Icon name="layers" size={9} /> {a.name}
           </span>
-        )}
+        ))}
       </div>
 
       <div className="flex gap-1.5 mt-auto">

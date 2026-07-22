@@ -567,7 +567,7 @@ function OrgReportsPanel({ org }) {
   const [areas, setAreas] = useState([]);
   const [search, setSearch] = useState('');
   const [movingReport, setMovingReport] = useState(null);
-  const [targetAreaId, setTargetAreaId] = useState('');
+  const [targetAreaIds, setTargetAreaIds] = useState(new Set());
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -581,16 +581,25 @@ function OrgReportsPanel({ org }) {
 
   const transferArea = async () => {
     try {
-      await api.patch(`/admin/reports/${movingReport.id}`, { areaId: targetAreaId || null });
-      const areaObj = areas.find((a) => a.id === targetAreaId) || null;
+      const areaIds = [...targetAreaIds];
+      await api.patch(`/admin/reports/${movingReport.id}`, { areaIds });
+      const newAreas = areas.filter((a) => areaIds.includes(a.id));
       setReports((prev) => prev.map((r) =>
-        r.id === movingReport.id ? { ...r, area: areaObj } : r
+        r.id === movingReport.id ? { ...r, areas: newAreas } : r
       ));
       setMovingReport(null);
-      setTargetAreaId('');
+      setTargetAreaIds(new Set());
     } catch (err) {
       setError(err.response?.data?.error || 'Error al mover reporte');
     }
+  };
+
+  const toggleTargetArea = (areaId) => {
+    setTargetAreaIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(areaId)) next.delete(areaId); else next.add(areaId);
+      return next;
+    });
   };
 
   const filtered = reports
@@ -644,12 +653,14 @@ function OrgReportsPanel({ org }) {
                   <td className="px-3 py-2.5 text-xs text-ink-soft">{r.owner?.name}</td>
                   <td className="px-3 py-2.5">
                     <button
-                      onClick={() => { setMovingReport(r); setTargetAreaId(r.area?.id || ''); }}
-                      className="group flex items-center gap-1 cursor-pointer"
-                      title="Clic para mover a otra área"
+                      onClick={() => { setMovingReport(r); setTargetAreaIds(new Set((r.areas || []).map((a) => a.id))); }}
+                      className="group flex items-center gap-1 flex-wrap cursor-pointer"
+                      title="Clic para editar las áreas"
                     >
-                      {r.area
-                        ? <span className="text-xs bg-lumen-soft text-lumen-deep px-2 py-0.5 rounded-full group-hover:bg-lumen/20 transition">{r.area.name}</span>
+                      {r.areas?.length > 0
+                        ? r.areas.map((a) => (
+                            <span key={a.id} className="text-xs bg-lumen-soft text-lumen-deep px-2 py-0.5 rounded-full group-hover:bg-lumen/20 transition">{a.name}</span>
+                          ))
                         : <span className="text-xs text-ink-faint group-hover:text-ink-soft transition">Privado</span>
                       }
                       <Icon name="pencil" size={10} className="text-ink-faint opacity-0 group-hover:opacity-100 transition" />
@@ -673,17 +684,19 @@ function OrgReportsPanel({ org }) {
       )}
 
       {movingReport && (
-        <Modal title={`Mover reporte: ${movingReport.title}`} onClose={() => setMovingReport(null)} maxWidth="max-w-sm">
-          <p className="text-sm text-ink-soft mb-4">Asigna este reporte a otra área de la organización.</p>
-          <Field label="Área destino">
-            <select className="field" value={targetAreaId} onChange={(e) => setTargetAreaId(e.target.value)}>
-              <option value="">Sin área (privado)</option>
-              {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </select>
-          </Field>
+        <Modal title={`Áreas: ${movingReport.title}`} onClose={() => setMovingReport(null)} maxWidth="max-w-sm">
+          <p className="text-sm text-ink-soft mb-4">Elegí a qué áreas de la organización queda publicado este reporte (podés marcar varias, o ninguna para dejarlo privado).</p>
+          <div className="flex flex-col gap-1.5 mb-4">
+            {areas.map((a) => (
+              <label key={a.id} className="flex items-center gap-2 text-sm text-ink cursor-pointer">
+                <input type="checkbox" checked={targetAreaIds.has(a.id)} onChange={() => toggleTargetArea(a.id)} />
+                <span>{a.name}</span>
+              </label>
+            ))}
+          </div>
           <div className="flex justify-end gap-2 mt-4">
             <Button variant="soft" onClick={() => setMovingReport(null)}>Cancelar</Button>
-            <Button onClick={transferArea}>Mover</Button>
+            <Button onClick={transferArea}>Guardar</Button>
           </div>
         </Modal>
       )}

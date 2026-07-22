@@ -71,6 +71,7 @@ model Area {
   members   AreaMember[]
   datasets  Dataset[]
   reports   Report[]
+  reportPublications ReportAreaPublication[]
   policy    AreaPolicy?
 }
 
@@ -231,6 +232,23 @@ model Report {
   favoritedBy    UserFavorite[]
   shares         ReportShare[]
   slotBindings   DatasetSlotBinding[]
+  areaPublications ReportAreaPublication[]
+}
+
+// Publicación de un reporte a un área — reemplaza el viejo Report.areaId
+// (FK simple, un área nomás). Un reporte puede acumular varias filas acá,
+// una por área (incluso de organizaciones distintas). Ver Report.areaId
+// (todavía presente durante la migración en 2 pasos, se borra después del
+// backfill — apps/backend/scripts/backfill-report-area-publications.js).
+model ReportAreaPublication {
+  id        String   @id @default(cuid())
+  reportId  String
+  report    Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  areaId    String
+  area      Area     @relation(fields: [areaId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([reportId, areaId])
 }
 
 model ReportPage {

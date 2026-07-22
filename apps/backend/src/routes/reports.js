@@ -57,6 +57,15 @@ async function isOwnerOrSuperadmin(report, userId) {
   return report.ownerId === userId || await isSuperadmin(userId);
 }
 
+const AREA_PUBLICATIONS_INCLUDE = { areaPublications: { include: { area: { select: { id: true, name: true } } } } };
+
+// Reemplaza el include crudo de areaPublications por un array plano `areas`
+// (varias áreas por reporte — ver ReportAreaPublication en schema.prisma).
+function withAreas(r) {
+  const { areaPublications, ...rest } = r;
+  return { ...rest, areas: (areaPublications || []).map((p) => p.area) };
+}
+
 // Verifica que el usuario tenga acceso al área (miembro o superadmin)
 async function userCanAccessArea(userId, areaId) {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
@@ -67,14 +76,14 @@ async function userCanAccessArea(userId, areaId) {
   return !!membership;
 }
 
-// Retorna la política efectiva para un reporte (área-específica con fallback a org).
-async function getEffectivePolicy(report, orgId) {
+// Retorna la política efectiva para un área objetivo (con fallback a org).
+async function getEffectivePolicy(areaId, orgId) {
   const defaults = { allowPublicLink: true, allowExternalShare: true, allowPublishToArea: true };
   let resolvedOrgId = orgId;
 
-  if (report.areaId) {
+  if (areaId) {
     const area = await prisma.area.findUnique({
-      where: { id: report.areaId },
+      where: { id: areaId },
       include: { policy: true },
     });
     if (area?.policy) {
@@ -108,7 +117,7 @@ router.get('/', auth, async (req, res) => {
         ? { isTemplate: false, deletedAt: null }
         : { ownerId: req.user.id, isTemplate: false, deletedAt: null },
       include: {
-        area: { select: { id: true, name: true } },
+        ...AREA_PUBLICATIONS_INCLUDE,
         _count: { select: { widgets: true, pages: true } },
       },
       orderBy: { updatedAt: 'desc' },
@@ -119,7 +128,7 @@ router.get('/', auth, async (req, res) => {
     }),
   ]);
   const favSet = new Set(favIds.map((f) => f.reportId));
-  res.json(reports.map((r) => ({ ...r, isFavorited: favSet.has(r.id) })));
+  res.json(reports.map((r) => ({ ...withAreas(r), isFavorited: favSet.has(r.id) })));
 });
 
 router.post('/', auth, async (req, res) => {
@@ -135,9 +144,9 @@ router.post('/', auth, async (req, res) => {
       // Crear página inicial por defecto
       pages: { create: [{ title: 'Página 1', order: 0, layout: [], filters: [] }] },
     },
-    include: { ...includePages, area: { select: { id: true, name: true } } },
+    include: { ...includePages, ...AREA_PUBLICATIONS_INCLUDE },
   });
-  res.json(report);
+  res.json(withAreas(report));
 });
 
 // ── Reportes del área (publicados) ───────────────────────────────
@@ -148,10 +157,10 @@ router.get('/area/:areaId', auth, async (req, res) => {
 
   const [reports, favIds] = await Promise.all([
     prisma.report.findMany({
-      where: { areaId: req.params.areaId, deletedAt: null },
+      where: { areaPublications: { some: { areaId: req.params.areaId } }, deletedAt: null },
       include: {
         owner: { select: { name: true } },
-        area: { select: { id: true, name: true } },
+        ...AREA_PUBLICATIONS_INCLUDE,
         _count: { select: { widgets: true, pages: true } },
       },
       orderBy: { updatedAt: 'desc' },
@@ -162,7 +171,7 @@ router.get('/area/:areaId', auth, async (req, res) => {
     }),
   ]);
   const favSet = new Set(favIds.map((f) => f.reportId));
-  res.json(reports.map((r) => ({ ...r, isFavorited: favSet.has(r.id) })));
+  res.json(reports.map((r) => ({ ...withAreas(r), isFavorited: favSet.has(r.id) })));
 });
 
 // ── Explorar reportes públicos ────────────────────────────────────
@@ -185,12 +194,12 @@ router.get('/explore', auth, async (req, res) => {
         deletedAt: null,
         OR: [
           { isPublic: true, ...titleFilter },
-          ...(myAreaIds.length ? [{ areaId: { in: myAreaIds }, ...titleFilter }] : []),
+          ...(myAreaIds.length ? [{ areaPublications: { some: { areaId: { in: myAreaIds } } }, ...titleFilter }] : []),
         ],
       },
       include: {
         owner: { select: { name: true } },
-        area: { select: { id: true, name: true } },
+        ...AREA_PUBLICATIONS_INCLUDE,
         _count: { select: { widgets: true, favoritedBy: true, pages: true } },
       },
       orderBy: { updatedAt: 'desc' },
@@ -206,7 +215,7 @@ router.get('/explore', auth, async (req, res) => {
   const favSet = new Set(favIds.map((f) => f.reportId));
   const seen = new Set();
   const unique = reports.filter((r) => { if (seen.has(r.id)) return false; seen.add(r.id); return true; });
-  res.json(unique.map((r) => ({ ...r, isFavorited: favSet.has(r.id) })));
+  res.json(unique.map((r) => ({ ...withAreas(r), isFavorited: favSet.has(r.id) })));
 });
 
 // ── Compartidos conmigo ───────────────────────────────────────────
@@ -218,14 +227,14 @@ router.get('/shared', auth, async (req, res) => {
       report: {
         include: {
           owner: { select: { name: true } },
-          area: { select: { id: true, name: true } },
+          ...AREA_PUBLICATIONS_INCLUDE,
           _count: { select: { widgets: true } },
         },
       },
     },
     orderBy: { createdAt: 'desc' },
   });
-  res.json(shares.map((s) => ({ ...s.report, myRole: s.role })));
+  res.json(shares.map((s) => ({ ...withAreas(s.report), myRole: s.role })));
 });
 
 // ── Favoritos ─────────────────────────────────────────────────────
@@ -268,7 +277,7 @@ router.post('/:id/favorite', auth, async (req, res) => {
 router.get('/:id', auth, async (req, res) => {
   const report = await prisma.report.findUnique({
     where: { id: req.params.id },
-    include: { ...includePages, ...includeLegacyWidgets, area: { select: { id: true, name: true } } },
+    include: { ...includePages, ...includeLegacyWidgets, ...AREA_PUBLICATIONS_INCLUDE },
   });
   if (!report) return res.status(404).json({ error: 'Not found' });
   const myRole = await getRole(report, req.user.id);
@@ -276,7 +285,7 @@ router.get('/:id', auth, async (req, res) => {
   const isFavorited = !!(await prisma.userFavorite.findUnique({
     where: { userId_reportId: { userId: req.user.id, reportId: report.id } },
   }));
-  res.json({ ...report, isFavorited, myRole });
+  res.json({ ...withAreas(report), isFavorited, myRole });
 });
 
 // Lightweight metadata update (title, description, isTemplate for superadmin)
@@ -417,9 +426,9 @@ router.put('/:id', auth, async (req, res) => {
       ...(title && { title }),
       ...(description !== undefined && { description }),
     },
-    include: { ...includePages, ...includeLegacyWidgets, area: { select: { id: true, name: true } } },
+    include: { ...includePages, ...includeLegacyWidgets, ...AREA_PUBLICATIONS_INCLUDE },
   });
-  res.json(updated);
+  res.json(withAreas(updated));
 });
 
 router.delete('/:id', auth, async (req, res) => {
@@ -436,46 +445,64 @@ router.post('/:id/publish', auth, async (req, res) => {
   const report = await prisma.report.findUnique({ where: { id: req.params.id } });
   if (!report || !(await isOwnerOrSuperadmin(report, req.user.id))) return res.status(404).json({ error: 'Not found' });
 
-  const { areaId } = req.body; // null = despublicar, string = publicar al área
+  const { areaId } = req.body;
+  if (!areaId) return res.status(400).json({ error: 'areaId requerido' });
 
-  if (areaId) {
-    const policy = await getEffectivePolicy(report, req.user.orgId);
-    if (!policy.allowPublishToArea) return res.status(403).json({ error: 'Publicar al área deshabilitado por la política de la organización' });
+  const policy = await getEffectivePolicy(areaId, req.user.orgId);
+  if (!policy.allowPublishToArea) return res.status(403).json({ error: 'Publicar al área deshabilitado por la política de la organización' });
 
-    const canAccess = await userCanAccessArea(req.user.id, areaId);
-    if (!canAccess) return res.status(403).json({ error: 'Sin acceso a esa área' });
-  }
+  const canAccess = await userCanAccessArea(req.user.id, areaId);
+  if (!canAccess) return res.status(403).json({ error: 'Sin acceso a esa área' });
 
-  const updated = await prisma.report.update({
-    where: { id: report.id },
-    data: { areaId: areaId || null },
+  const publication = await prisma.reportAreaPublication.upsert({
+    where: { reportId_areaId: { reportId: report.id, areaId } },
+    update: {},
+    create: { reportId: report.id, areaId },
     include: { area: { select: { id: true, name: true } } },
   });
 
   // Notify all area members (except the publisher) when a report is published
-  if (areaId) {
-    const members = await prisma.areaMember.findMany({
-      where: { areaId, userId: { not: req.user.id } },
-      select: { userId: true },
+  const members = await prisma.areaMember.findMany({
+    where: { areaId, userId: { not: req.user.id } },
+    select: { userId: true },
+  });
+  if (members.length > 0) {
+    const publisher = await prisma.user.findUnique({ where: { id: req.user.id }, select: { name: true } });
+    await prisma.notification.createMany({
+      data: members.map((m) => ({
+        userId: m.userId,
+        type: 'area_published',
+        payload: {
+          reportId: report.id,
+          reportTitle: report.title,
+          areaName: publication.area.name,
+          publishedBy: publisher?.name ?? 'Alguien',
+        },
+      })),
     });
-    if (members.length > 0) {
-      const publisher = await prisma.user.findUnique({ where: { id: req.user.id }, select: { name: true } });
-      await prisma.notification.createMany({
-        data: members.map((m) => ({
-          userId: m.userId,
-          type: 'area_published',
-          payload: {
-            reportId: report.id,
-            reportTitle: report.title,
-            areaName: updated.area?.name ?? '',
-            publishedBy: publisher?.name ?? 'Alguien',
-          },
-        })),
-      });
-    }
   }
 
-  res.json({ areaId: updated.areaId, area: updated.area });
+  const areas = await prisma.reportAreaPublication.findMany({
+    where: { reportId: report.id },
+    include: { area: { select: { id: true, name: true } } },
+  });
+  res.json({ areas: areas.map((p) => p.area) });
+});
+
+router.post('/:id/unpublish', auth, async (req, res) => {
+  const report = await prisma.report.findUnique({ where: { id: req.params.id } });
+  if (!report || !(await isOwnerOrSuperadmin(report, req.user.id))) return res.status(404).json({ error: 'Not found' });
+
+  const { areaId } = req.body;
+  if (!areaId) return res.status(400).json({ error: 'areaId requerido' });
+
+  await prisma.reportAreaPublication.deleteMany({ where: { reportId: report.id, areaId } });
+
+  const areas = await prisma.reportAreaPublication.findMany({
+    where: { reportId: report.id },
+    include: { area: { select: { id: true, name: true } } },
+  });
+  res.json({ areas: areas.map((p) => p.area) });
 });
 
 // ── Páginas ───────────────────────────────────────────────────────
@@ -596,7 +623,9 @@ router.post('/:id/shares', auth, async (req, res) => {
   const report = await prisma.report.findUnique({ where: { id: req.params.id } });
   if (!report || !(await isOwnerOrSuperadmin(report, req.user.id))) return res.status(404).json({ error: 'Not found' });
 
-  const policy = await getEffectivePolicy(report, req.user.orgId);
+  // Un reporte puede estar publicado a varias áreas (o ninguna) — ya no hay
+  // "el" área del reporte, así que esta policy se evalúa a nivel org.
+  const policy = await getEffectivePolicy(null, req.user.orgId);
   if (!policy.allowExternalShare) return res.status(403).json({ error: 'Compartir externo deshabilitado por la política de la organización' });
 
   const { email, role = 'viewer', sourceDatasetId } = req.body;
@@ -709,7 +738,8 @@ router.post('/:id/share', auth, async (req, res) => {
 
   const isPublic = !report.isPublic;
   if (isPublic) {
-    const policy = await getEffectivePolicy(report, req.user.orgId);
+    // Igual que arriba: sin "el" área única del reporte, se evalúa a nivel org.
+    const policy = await getEffectivePolicy(null, req.user.orgId);
     if (!policy.allowPublicLink) return res.status(403).json({ error: 'Links públicos deshabilitados por la política de la organización' });
   }
   const slug = isPublic ? (report.slug || nanoid(10)) : report.slug;

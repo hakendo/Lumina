@@ -190,6 +190,20 @@ export default function WidgetConfigPanel({ widget, onClose }) {
   );
 
   const set = (key, val) => setCfg((c) => ({ ...c, [key]: val }));
+  const setNested = (parentKey, childKey, val) =>
+    setCfg((c) => ({ ...c, [parentKey]: { ...(c[parentKey] || {}), [childKey]: val } }));
+
+  // Valores distintos de groupField (estados del Kanban) para el color por columna.
+  const kanbanGroupValues = useMemo(() => {
+    if (widget.widgetType !== 'kanban' || !cfg.groupField || !cachedRows?.length) return [];
+    const seen = new Set();
+    const out = [];
+    for (const row of cachedRows) {
+      const v = String(row[cfg.groupField] ?? '(vacío)');
+      if (!seen.has(v)) { seen.add(v); out.push(v); }
+    }
+    return out;
+  }, [widget.widgetType, cfg.groupField, cachedRows]);
 
   const wells = getWells(widget.widgetType, cfg.chartType || 'bar');
 
@@ -425,9 +439,61 @@ export default function WidgetConfigPanel({ widget, onClose }) {
               );
             })}
           </div>
+
+          {cfg.cardFields?.length > 0 && (
+            <div className="mt-2 space-y-1">
+              <p className="text-[10px] font-semibold text-ink-faint uppercase tracking-widest">Sufijo por campo (opcional)</p>
+              {cfg.cardFields.map((f) => (
+                <div key={f} className="flex items-center gap-1.5">
+                  <span className="text-[10px] font-mono text-ink-faint w-24 truncate shrink-0">{f}</span>
+                  <input
+                    value={cfg.cardFieldSuffixes?.[f] || ''}
+                    onChange={(e) => setNested('cardFieldSuffixes', f, e.target.value)}
+                    placeholder="ej: hrs"
+                    className="field field-sm flex-1"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {kanbanGroupValues.length > 0 && (
+            <div className="mt-2 space-y-1">
+              <p className="text-[10px] font-semibold text-ink-faint uppercase tracking-widest">Color por columna (opcional)</p>
+              {kanbanGroupValues.map((v) => (
+                <div key={v} className="flex items-center gap-1.5">
+                  <span className="text-[11px] text-ink truncate flex-1">{v}</span>
+                  <input
+                    type="color"
+                    value={cfg.columnColors?.[v] || '#94a3b8'}
+                    onChange={(e) => setNested('columnColors', v, e.target.value)}
+                    className="w-7 h-6 rounded border border-line cursor-pointer shrink-0"
+                  />
+                  {cfg.columnColors?.[v] && (
+                    <button
+                      onClick={() => setNested('columnColors', v, undefined)}
+                      title="Quitar color"
+                      className="text-ink-faint hover:text-rust transition cursor-pointer"
+                    >
+                      <Icon name="x" size={11} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="mt-2 space-y-2">
             <Field label="Cross-filter al hacer clic">
               <ColSelect value={cfg.crossFilterField} onChange={(v) => set('crossFilterField', v)} columns={columns} placeholder="— Usa la columna de estado —" />
+            </Field>
+            <Field label="Formato de fecha/hora (opcional)" hint="Tokens: YYYY MM DD HH mm ss. Ej: DD/MM/YYYY HH:mm.">
+              <input
+                value={cfg.dateFormat || ''}
+                onChange={(e) => set('dateFormat', e.target.value)}
+                placeholder="DD/MM/YYYY HH:mm"
+                className="field field-sm field-mono"
+              />
             </Field>
           </div>
         </div>

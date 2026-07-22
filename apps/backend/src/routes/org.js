@@ -190,23 +190,32 @@ router.patch('/reports/:reportId/visibility', async (req, res) => {
   });
   if (!report) return res.status(404).json({ error: 'Reporte no encontrado en esta organización' });
 
+  if (areaId !== undefined && areaId) {
+    const area = await prisma.area.findUnique({ where: { id: areaId } });
+    if (!area || area.orgId !== orgId)
+      return res.status(400).json({ error: 'El área no pertenece a esta organización' });
+  }
+
   if (areaId !== undefined) {
     if (areaId) {
-      const area = await prisma.area.findUnique({ where: { id: areaId } });
-      if (!area || area.orgId !== orgId)
-        return res.status(400).json({ error: 'El área no pertenece a esta organización' });
+      await prisma.reportAreaPublication.upsert({
+        where: { reportId_areaId: { reportId: report.id, areaId } },
+        update: {},
+        create: { reportId: report.id, areaId },
+      });
+    } else {
+      // areaId === null: despublicar de todas las áreas (equivalente al contrato viejo)
+      await prisma.reportAreaPublication.deleteMany({ where: { reportId: report.id } });
     }
   }
 
   const updated = await prisma.report.update({
     where: { id: report.id },
-    data: {
-      ...(areaId !== undefined && { areaId: areaId || null }),
-      ...(isPublic !== undefined && { isPublic: Boolean(isPublic) }),
-    },
-    select: { id: true, title: true, areaId: true, isPublic: true },
+    data: { ...(isPublic !== undefined && { isPublic: Boolean(isPublic) }) },
+    include: { areaPublications: { include: { area: { select: { id: true, name: true } } } } },
   });
-  res.json(updated);
+  const { areaPublications, ...rest } = updated;
+  res.json({ id: rest.id, title: rest.title, isPublic: rest.isPublic, areas: areaPublications.map((p) => p.area) });
 });
 
 // ── Clonar reporte ────────────────────────────────────────────────────────────
@@ -225,7 +234,6 @@ router.post('/reports/:reportId/clone', async (req, res) => {
       title: `${original.title} (copia)`,
       description: original.description,
       isPublic: false,
-      areaId: null,
       pages: {
         create: original.pages.map((p) => ({
           title: p.title,

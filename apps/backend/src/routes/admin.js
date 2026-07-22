@@ -323,43 +323,54 @@ router.get('/orgs/:orgId/reports', async (req, res) => {
     where: {
       deletedAt: null,
       OR: [
-        { area: { orgId: req.params.orgId } },
+        { areaPublications: { some: { area: { orgId: req.params.orgId } } } },
         {
-          areaId: null,
+          areaPublications: { none: {} },
           owner: { memberships: { some: { orgId: req.params.orgId } } },
         },
       ],
     },
     include: {
       owner: { select: { id: true, name: true, email: true } },
-      area: { select: { id: true, name: true } },
+      areaPublications: { include: { area: { select: { id: true, name: true } } } },
       _count: { select: { widgets: true, pages: true } },
     },
     orderBy: { updatedAt: 'desc' },
   });
-  res.json(reports);
+  res.json(reports.map(({ areaPublications, ...r }) => ({ ...r, areas: areaPublications.map((p) => p.area) })));
 });
 
-// Modificación directa por superadmin: transferir reporte a otro área
+// Modificación directa por superadmin: transferir reporte a un set de áreas
+// (reemplazo total — borra las publicaciones existentes y crea las nuevas).
 router.patch('/reports/:reportId', async (req, res) => {
   const report = await prisma.report.findUnique({ where: { id: req.params.reportId } });
   if (!report) return res.status(404).json({ error: 'Reporte no encontrado' });
 
-  const { areaId, ownerId } = req.body;
+  const { areaIds, ownerId } = req.body;
   const data = {};
-  if (areaId !== undefined) {
-    if (areaId !== null) {
-      const area = await prisma.area.findUnique({ where: { id: areaId } });
-      if (!area) return res.status(404).json({ error: 'Área no encontrada' });
+  if (areaIds !== undefined) {
+    if (!Array.isArray(areaIds)) return res.status(400).json({ error: 'areaIds debe ser un array' });
+    if (areaIds.length) {
+      const found = await prisma.area.findMany({ where: { id: { in: areaIds } }, select: { id: true } });
+      if (found.length !== areaIds.length) return res.status(404).json({ error: 'Alguna área no fue encontrada' });
     }
-    data.areaId = areaId;
+    await prisma.$transaction([
+      prisma.reportAreaPublication.deleteMany({ where: { reportId: report.id } }),
+      prisma.reportAreaPublication.createMany({ data: areaIds.map((areaId) => ({ reportId: report.id, areaId })) }),
+    ]);
   }
   if (ownerId !== undefined) {
     const user = await prisma.user.findUnique({ where: { id: ownerId } });
     if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
     data.ownerId = ownerId;
   }
-  res.json(await prisma.report.update({ where: { id: report.id }, data }));
+  const updated = await prisma.report.update({
+    where: { id: report.id },
+    data,
+    include: { areaPublications: { include: { area: { select: { id: true, name: true } } } } },
+  });
+  const { areaPublications, ...rest } = updated;
+  res.json({ ...rest, areas: areaPublications.map((p) => p.area) });
 });
 
 // ── Usuarios ──────────────────────────────────────────────────────

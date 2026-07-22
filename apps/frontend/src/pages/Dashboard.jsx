@@ -178,8 +178,8 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {displayed.map((r, i) => (
               <ReportCard key={r.id} report={r} index={i}
-                isOwner={r.ownerId === user?.id}
-                canEdit={r.ownerId === user?.id || r.myRole === 'editor'}
+                isOwner={r.ownerId === user?.id || isSuperadmin}
+                canEdit={r.ownerId === user?.id || isSuperadmin || r.myRole === 'editor'}
                 onDelete={(rep) => setDeleteTarget(rep)}
                 onDuplicate={duplicateReport}
                 onToggleFavorite={toggleFavorite}
@@ -225,6 +225,7 @@ function AreasView({ areas, user, onToggleFavorite, onExportPDF }) {
 function AreaSection({ area, index, user, onToggleFavorite, onExportPDF }) {
   const [reports, setReports] = useState(null);
   const [expanded, setExpanded] = useState(index === 0);
+  const isSuperadmin = user?.role === 'superadmin';
 
   useEffect(() => {
     if (expanded && reports === null) {
@@ -266,8 +267,8 @@ function AreaSection({ area, index, user, onToggleFavorite, onExportPDF }) {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {reports.map((r, i) => (
               <ReportCard key={r.id} report={r} index={i}
-                isOwner={r.ownerId === user?.id}
-                canEdit={r.ownerId === user?.id || r.myRole === 'editor'}
+                isOwner={r.ownerId === user?.id || isSuperadmin}
+                canEdit={r.ownerId === user?.id || isSuperadmin || r.myRole === 'editor'}
                 onToggleFavorite={onToggleFavorite}
                 onExportPDF={onExportPDF}
               />
@@ -312,11 +313,11 @@ function ReportCard({ report: r, index, isOwner, canEdit, onDelete, onDuplicate,
             Público
           </span>
         )}
-        {r.area && (
-          <span className="font-sans text-[11px] bg-lumen-soft text-lumen-deep px-2 py-0.5 rounded-full flex items-center gap-1">
-            <Icon name="layers" size={9} /> {r.area.name}
+        {(r.areas || []).map((a) => (
+          <span key={a.id} className="font-sans text-[11px] bg-lumen-soft text-lumen-deep px-2 py-0.5 rounded-full flex items-center gap-1">
+            <Icon name="layers" size={9} /> {a.name}
           </span>
-        )}
+        ))}
       </div>
 
       <div className="flex gap-1.5 mt-auto">

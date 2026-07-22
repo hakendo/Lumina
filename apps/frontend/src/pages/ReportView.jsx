@@ -64,7 +64,7 @@ export default function ReportView() {
     );
   }
 
-  const isOwner = report.ownerId === user?.id;
+  const isOwner = report.myRole === 'owner';
   const canEdit = isOwner || report.myRole === 'editor';
 
   const refreshData = () => {
@@ -101,11 +101,11 @@ export default function ReportView() {
           {report.isPublic && (
             <span className="text-xs bg-sea-soft text-sea px-2 py-0.5 rounded-full shrink-0">Público</span>
           )}
-          {report.area && (
-            <span className="text-xs bg-lumen-soft text-lumen-deep px-2 py-0.5 rounded-full shrink-0 flex items-center gap-1">
-              <Icon name="layers" size={10} /> {report.area.name}
+          {(report.areas || []).map((a) => (
+            <span key={a.id} className="text-xs bg-lumen-soft text-lumen-deep px-2 py-0.5 rounded-full shrink-0 flex items-center gap-1">
+              <Icon name="layers" size={10} /> {a.name}
             </span>
-          )}
+          ))}
           <button onClick={refreshData} disabled={refreshing} title="Actualizar datos"
             className="inline-flex items-center gap-1.5 text-xs bg-paper-deep text-ink-soft hover:bg-line-soft px-3 py-1.5 rounded-lg transition shrink-0 cursor-pointer disabled:opacity-50">
             <Icon name="refresh" size={13} className={refreshing ? 'animate-spin' : ''} /> Actualizar

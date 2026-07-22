@@ -7,7 +7,7 @@ const ROLES = [
   { value: 'editor', label: 'Puede editar' },
 ];
 
-// Modal de compartir: personas con rol (viewer/editor) + área + link público.
+// Modal de compartir: personas con rol (viewer/editor) + áreas (varias) + link público.
 export default function ShareModal({ report, onChange, onClose }) {
   const [shares, setShares] = useState(null);
   const [areas, setAreas] = useState([]);
@@ -20,8 +20,8 @@ export default function ShareModal({ report, onChange, onClose }) {
   const [toggling, setToggling] = useState(false);
   const [expandedShare, setExpandedShare] = useState(null);
   const [datasetSources, setDatasetSources] = useState({}); // shareId -> [{id,name,sourceDatasetId}]
-  const [selectedAreaId, setSelectedAreaId] = useState(report.area?.id ?? '');
-  const [publishing, setPublishing] = useState(false);
+  const [publishing, setPublishing] = useState(null); // areaId siendo togglead ahora mismo, o null
+  const [publishError, setPublishError] = useState('');
   const [policy, setPolicy] = useState({ allowPublicLink: true, allowExternalShare: true, allowPublishToArea: true });
 
   useEffect(() => {
@@ -35,14 +35,14 @@ export default function ShareModal({ report, onChange, onClose }) {
       .then(({ data }) => setDbDatasets((Array.isArray(data) ? data : []).filter((d) => d.sourceType === 'db')))
       .catch(() => {});
 
-    // Load effective policy — area-specific if report has an area, else org-level
-    const policyUrl = report.areaId
-      ? `/areas/${report.areaId}/policy/effective`
-      : '/areas/policy/effective';
-    api.get(policyUrl)
+    // Gate grueso a nivel org — un reporte puede estar publicado a varias
+    // áreas (de varias orgs incluso), así que no hay "la" área para chequear
+    // policy específica acá. Si una área puntual lo bloquea, el backend
+    // devuelve 403 al tocar el checkbox y se muestra ese mensaje.
+    api.get('/areas/policy/effective')
       .then(({ data }) => setPolicy(data))
       .catch(() => {});
-  }, [report.id, report.areaId]);
+  }, [report.id]);
 
   const upsertShare = async (targetEmail, targetRole, sourceDatasetId) => {
     const { data } = await api.post(`/reports/${report.id}/shares`, {
@@ -104,24 +104,16 @@ export default function ShareModal({ report, onChange, onClose }) {
     }
   };
 
-  const publishToArea = async () => {
-    setPublishing(true);
+  const toggleAreaPublication = async (areaId, publish) => {
+    setPublishing(areaId);
+    setPublishError('');
     try {
-      const { data } = await api.post(`/reports/${report.id}/publish`, { areaId: selectedAreaId || null });
-      onChange({ areaId: data.areaId, area: data.area });
+      const { data } = await api.post(`/reports/${report.id}/${publish ? 'publish' : 'unpublish'}`, { areaId });
+      onChange({ areas: data.areas });
+    } catch (err) {
+      setPublishError(err.response?.data?.error || 'No se pudo actualizar la publicación');
     } finally {
-      setPublishing(false);
-    }
-  };
-
-  const unpublish = async () => {
-    setPublishing(true);
-    try {
-      const { data } = await api.post(`/reports/${report.id}/publish`, { areaId: null });
-      onChange({ areaId: data.areaId, area: data.area });
-      setSelectedAreaId('');
-    } finally {
-      setPublishing(false);
+      setPublishing(null);
     }
   };
 
@@ -227,40 +219,30 @@ export default function ShareModal({ report, onChange, onClose }) {
         </ul>
       )}
 
-      {/* Publicar al área */}
+      {/* Publicar a áreas — un reporte puede estar publicado a varias a la vez */}
       {areas.length > 0 && policy.allowPublishToArea && (
         <div className="border-t border-line-soft pt-4 mt-2 mb-4">
           <p className="text-xs font-semibold text-ink-soft uppercase tracking-widest mb-2">
-            Publicar al área
+            Publicar a áreas
           </p>
-          {report.area ? (
-            <div className="flex items-center gap-3 bg-lumen-soft border border-lumen-line rounded-lg px-3 py-2.5">
-              <span className="grid place-items-center w-7 h-7 rounded-lg bg-lumen-deep/10 text-lumen-deep shrink-0">
-                <Icon name="layers" size={14} />
-              </span>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm text-ink font-medium">Publicado en <span className="text-lumen-deep">{report.area.name}</span></p>
-                <p className="text-xs text-ink-faint">Visible para todos los miembros del área.</p>
-              </div>
-              <Button size="sm" variant="soft" onClick={unpublish} disabled={publishing}>
-                <Icon name="x" size={12} /> Despublicar
-              </Button>
-            </div>
-          ) : (
-            <div className="flex gap-2">
-              <select
-                value={selectedAreaId}
-                onChange={(e) => setSelectedAreaId(e.target.value)}
-                className="field field-sm flex-1"
-              >
-                <option value="">Selecciona un área…</option>
-                {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </select>
-              <Button size="sm" onClick={publishToArea} disabled={publishing || !selectedAreaId}>
-                <Icon name="layers" size={13} /> Publicar
-              </Button>
-            </div>
-          )}
+          <p className="text-xs text-ink-faint mb-2">Visible para todos los miembros de cada área marcada.</p>
+          {publishError && <p className="text-xs text-rust mb-2">{publishError}</p>}
+          <div className="flex flex-col gap-1.5">
+            {areas.map((a) => {
+              const checked = (report.areas || []).some((x) => x.id === a.id);
+              return (
+                <label key={a.id} className="flex items-center gap-2 text-sm text-ink cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={publishing === a.id}
+                    onChange={(e) => toggleAreaPublication(a.id, e.target.checked)}
+                  />
+                  <span>{a.name}</span>
+                </label>
+              );
+            })}
+          </div>
         </div>
       )}
 
