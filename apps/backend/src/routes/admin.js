@@ -146,10 +146,11 @@ router.post('/reports/templates', async (req, res) => {
   res.status(201).json(report);
 });
 
-// Clonar plantilla a un usuario de la org cliente
+// Clonar plantilla a un usuario de la org cliente, o directo a toda un área
+// (sin userId) — en ese caso se clona una sola vez y se publica al área
+// entera vía ReportAreaPublication, en vez de un clon por usuario.
 router.post('/reports/:reportId/assign', async (req, res) => {
   const { userId, areaId } = req.body;
-  if (!userId) return res.status(400).json({ error: 'userId es obligatorio' });
   if (!areaId) return res.status(400).json({ error: 'areaId es obligatorio' });
 
   const src = await prisma.report.findUnique({
@@ -161,16 +162,22 @@ router.post('/reports/:reportId/assign', async (req, res) => {
   });
   if (!src) return res.status(404).json({ error: 'Plantilla no encontrada' });
 
-  const targetUser = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
-  if (!targetUser) return res.status(404).json({ error: 'Usuario no encontrado' });
-
-  const area = await prisma.area.findUnique({ where: { id: areaId }, select: { id: true, orgId: true } });
+  const area = await prisma.area.findUnique({ where: { id: areaId }, select: { id: true, orgId: true, name: true } });
   if (!area) return res.status(400).json({ error: 'Área no encontrada' });
 
-  const membership = await prisma.orgMembership.findUnique({
-    where: { userId_orgId: { userId, orgId: area.orgId } },
-  });
-  if (!membership) return res.status(400).json({ error: 'El usuario no pertenece a la organización del área' });
+  if (userId) {
+    const targetUser = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+    if (!targetUser) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+    const membership = await prisma.orgMembership.findUnique({
+      where: { userId_orgId: { userId, orgId: area.orgId } },
+    });
+    if (!membership) return res.status(400).json({ error: 'El usuario no pertenece a la organización del área' });
+  }
+
+  // Dueño de los datasets clonados y del reporte nuevo: el usuario asignado
+  // si hay uno puntual, o quien hace la asignación si es directo al área.
+  const assigneeId = userId || req.user.id;
 
   // ── Clonar / vincular datasets referenciados por la plantilla ─────────────
   // Collect unique datasetIds across all widgets
@@ -213,7 +220,7 @@ router.post('/reports/:reportId/assign', async (req, res) => {
       continue;
     }
     const cloned = await prisma.dataset.create({
-      data: { name: ds.name, sourceType: ds.sourceType, config: strippedConfig, uploadedById: userId, areaId },
+      data: { name: ds.name, sourceType: ds.sourceType, config: strippedConfig, uploadedById: assigneeId, areaId },
     });
     datasetMap[ds.id] = cloned.id;
   }
@@ -237,7 +244,7 @@ router.post('/reports/:reportId/assign', async (req, res) => {
       description: src.description,
       isTemplate: false,
       templateId: src.id,
-      ownerId: userId,
+      ownerId: assigneeId,
       pages: {
         create: src.pages.map((p) => ({
           title: p.title,
@@ -297,21 +304,43 @@ router.post('/reports/:reportId/assign', async (req, res) => {
     });
   }
 
-  // Ensure target user is a member of the target area
-  await prisma.areaMember.upsert({
-    where: { areaId_userId: { areaId, userId } },
-    update: {},
-    create: { areaId, userId },
-  });
+  if (userId) {
+    // Ensure target user is a member of the target area
+    await prisma.areaMember.upsert({
+      where: { areaId_userId: { areaId, userId } },
+      update: {},
+      create: { areaId, userId },
+    });
 
-  // Send notification to assigned user
-  await prisma.notification.create({
-    data: {
-      userId,
-      type: 'template_assigned',
-      payload: { reportId: newReport.id, reportTitle: newReport.title },
-    },
-  });
+    // Send notification to assigned user
+    await prisma.notification.create({
+      data: {
+        userId,
+        type: 'template_assigned',
+        payload: { reportId: newReport.id, reportTitle: newReport.title },
+      },
+    });
+  } else {
+    // Asignación directa al área completa: publicar el reporte nuevo a esa
+    // área (visible para todos sus miembros) y notificarles a todos.
+    await prisma.reportAreaPublication.create({ data: { reportId: newReport.id, areaId } });
+
+    const members = await prisma.areaMember.findMany({ where: { areaId }, select: { userId: true } });
+    if (members.length > 0) {
+      await prisma.notification.createMany({
+        data: members.map((m) => ({
+          userId: m.userId,
+          type: 'area_published',
+          payload: {
+            reportId: newReport.id,
+            reportTitle: newReport.title,
+            areaName: area.name,
+            publishedBy: 'Un superadmin',
+          },
+        })),
+      });
+    }
+  }
 
   res.status(201).json({ ...newReport, datasetsCloned: Object.values(datasetMap).filter(Boolean).length });
 });

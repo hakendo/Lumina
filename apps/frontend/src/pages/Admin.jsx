@@ -1676,6 +1676,7 @@ function TemplatesPanel({ orgs }) {
   const [orgAreas, setOrgAreas] = useState([]);
   const [assignUserId, setAssignUserId] = useState('');
   const [assignAreaId, setAssignAreaId] = useState('');
+  const [assignMode, setAssignMode] = useState('user'); // 'user' | 'area'
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [assignLoading, setAssignLoading] = useState(false);
   const [error, setError] = useState('');
@@ -1738,21 +1739,27 @@ function TemplatesPanel({ orgs }) {
     setOrgAreas([]);
     setAssignUserId('');
     setAssignAreaId('');
+    setAssignMode('user');
     setLoadingUsers(true);
     setError('');
     setSuccess('');
   };
 
   const confirmAssign = async () => {
-    if (!assignUserId || !assignAreaId) return;
+    if (!assignAreaId || (assignMode === 'user' && !assignUserId)) return;
     setAssignLoading(true);
     setError('');
     try {
-      const { data } = await api.post(`/admin/reports/${assignTarget.id}/assign`, { userId: assignUserId, areaId: assignAreaId });
-      const user = orgUsers.find((u) => u.id === assignUserId);
+      const body = assignMode === 'user'
+        ? { userId: assignUserId, areaId: assignAreaId }
+        : { areaId: assignAreaId };
+      const { data } = await api.post(`/admin/reports/${assignTarget.id}/assign`, body);
       const org = orgs.find((o) => o.id === assignOrgId);
       const dsMsg = data.datasetsCloned > 0 ? ` · ${data.datasetsCloned} dataset(s) clonado(s) sin credenciales` : '';
-      setSuccess(`Plantilla "${assignTarget.title}" asignada a ${user?.name} (${org?.name})${dsMsg}`);
+      const target = assignMode === 'user'
+        ? orgUsers.find((u) => u.id === assignUserId)?.name
+        : `toda el área "${orgAreas.find((a) => a.id === assignAreaId)?.name}"`;
+      setSuccess(`Plantilla "${assignTarget.title}" asignada a ${target} (${org?.name})${dsMsg}`);
       setAssignTarget(null);
     } catch (err) {
       setError(err.response?.data?.error || 'Error al asignar');
@@ -1823,13 +1830,29 @@ function TemplatesPanel({ orgs }) {
 
       {assignTarget && (
         <Modal title={`Asignar: ${assignTarget.title}`} onClose={() => setAssignTarget(null)} maxWidth="max-w-sm">
+          <div className="flex gap-1 p-1 bg-paper-deep rounded-xl border border-line-soft mb-4 w-fit">
+            {[{ id: 'user', label: 'A un usuario' }, { id: 'area', label: 'A toda el área' }].map((m) => (
+              <button key={m.id} onClick={() => setAssignMode(m.id)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition cursor-pointer ${
+                  assignMode === m.id ? 'bg-surface text-ink shadow-sm border border-line-soft' : 'text-ink-soft hover:text-ink'
+                }`}>
+                {m.label}
+              </button>
+            ))}
+          </div>
           <div className="text-sm text-ink-soft mb-4 space-y-2">
-            <p>Se creará una copia del reporte en la cuenta del usuario seleccionado.</p>
+            <p>
+              {assignMode === 'user'
+                ? 'Se creará una copia del reporte en la cuenta del usuario seleccionado.'
+                : 'Se creará una sola copia del reporte, publicada directo al área — visible para todos sus miembros, sin clones por persona.'}
+            </p>
             <ul className="text-xs text-ink-faint space-y-1 border border-line-soft rounded-lg px-3 py-2.5 bg-paper-deep/40">
               <li>· Los <strong className="text-ink">datasets API/DB</strong> se clonan en el área destino, sin credenciales.</li>
-              <li>· Los datasets con <strong className="text-ink">slot</strong> quedan pendientes — el usuario los vincula desde Datasets.</li>
-              <li>· Los datasets <strong className="text-ink">CSV/Excel</strong> no se transfieren — el usuario debe subir su propio archivo.</li>
-              <li>· El usuario se agrega automáticamente al área destino si aún no es miembro.</li>
+              <li>· Los datasets con <strong className="text-ink">slot</strong> quedan pendientes — se vinculan desde Datasets.</li>
+              <li>· Los datasets <strong className="text-ink">CSV/Excel</strong> no se transfieren — hay que subir el archivo aparte.</li>
+              {assignMode === 'user'
+                ? <li>· El usuario se agrega automáticamente al área destino si aún no es miembro.</li>
+                : <li>· Se notifica a todos los miembros actuales del área.</li>}
             </ul>
           </div>
           <div className="space-y-4">
@@ -1843,7 +1866,7 @@ function TemplatesPanel({ orgs }) {
             ) : (
               <>
                 <Field label="Área destino"
-                  hint="Los datasets clonados quedarán en esta área. El usuario también se agregará como miembro si aún no lo es.">
+                  hint="Los datasets clonados quedarán en esta área.">
                   <select className="field" value={assignAreaId} onChange={(e) => setAssignAreaId(e.target.value)}>
                     <option value="">— Seleccionar área —</option>
                     {orgAreas.map((a) => (
@@ -1851,22 +1874,24 @@ function TemplatesPanel({ orgs }) {
                     ))}
                   </select>
                 </Field>
-                <Field label="Asignar a usuario">
-                  <select className="field" value={assignUserId}
-                    onChange={(e) => setAssignUserId(e.target.value)}>
-                    <option value="">— Seleccionar —</option>
-                    {orgUsers.map((u) => (
-                      <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
-                    ))}
-                  </select>
-                </Field>
+                {assignMode === 'user' && (
+                  <Field label="Asignar a usuario">
+                    <select className="field" value={assignUserId}
+                      onChange={(e) => setAssignUserId(e.target.value)}>
+                      <option value="">— Seleccionar —</option>
+                      {orgUsers.map((u) => (
+                        <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
+                      ))}
+                    </select>
+                  </Field>
+                )}
               </>
             )}
           </div>
           {error && <p className="text-rust text-xs mt-3 bg-rust-soft px-3 py-2 rounded-lg">{error}</p>}
           <div className="flex justify-end gap-2 mt-5">
             <Button variant="soft" onClick={() => setAssignTarget(null)}>Cancelar</Button>
-            <Button onClick={confirmAssign} disabled={!assignUserId || !assignAreaId || assignLoading}>
+            <Button onClick={confirmAssign} disabled={!assignAreaId || (assignMode === 'user' && !assignUserId) || assignLoading}>
               {assignLoading ? 'Asignando…' : 'Confirmar asignación'}
             </Button>
           </div>

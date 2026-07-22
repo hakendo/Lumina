@@ -43,7 +43,13 @@ async function getRole(report, userId) {
     where: { reportId_userId: { reportId: report.id, userId } },
   });
   if (share) return share.role;
-  return report.isPublic ? 'viewer' : null;
+  if (report.isPublic) return 'viewer';
+
+  // Publicado a un área de la que el usuario es miembro
+  const areaAccess = await prisma.reportAreaPublication.findFirst({
+    where: { reportId: report.id, area: { members: { some: { userId } } } },
+  });
+  return areaAccess ? 'viewer' : null;
 }
 
 const CAN_EDIT = new Set(['owner', 'editor']);
