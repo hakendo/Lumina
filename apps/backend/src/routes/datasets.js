@@ -100,7 +100,17 @@ async function canReadDataset(dataset, userId) {
     where: { datasetId: dataset.id, report: { shares: { some: { userId } } } },
     select: { id: true },
   });
-  return Boolean(viaShare);
+  if (viaShare) return true;
+
+  // Dataset usado por un widget de un reporte publicado a un área de la que el usuario es miembro
+  const viaAreaPublication = await prisma.reportWidget.findFirst({
+    where: {
+      datasetId: dataset.id,
+      report: { areaPublications: { some: { area: { members: { some: { userId } } } } } },
+    },
+    select: { id: true },
+  });
+  return Boolean(viaAreaPublication);
 }
 
 // Verifica acceso de escritura: uploadedBy o org_admin del área o superadmin
@@ -188,10 +198,30 @@ router.post('/sync-all', auth, syncRateLimit, async (req, res) => {
 // ── Slots de plantilla ────────────────────────────────────────────
 // Must be registered BEFORE /:id routes to avoid Express matching /slots as id='slots'
 
-// GET /datasets/slots — list slot bindings pending config for the current user's reports
+// Un slot pendiente lo puede configurar el dueño del reporte, un superadmin,
+// o cualquier miembro de un área a la que ese reporte esté publicado (caso
+// de plantillas asignadas directo a un área — ahí no hay un dueño "cliente").
+async function canConfigureReportSlots(reportId, ownerId, userId) {
+  if (ownerId === userId) return true;
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+  if (user?.role === 'superadmin') return true;
+  const areaAccess = await prisma.reportAreaPublication.findFirst({
+    where: { reportId, area: { members: { some: { userId } } } },
+  });
+  return !!areaAccess;
+}
+
+// GET /datasets/slots — list slot bindings pending config for reports the user can access
 router.get('/slots', auth, async (req, res) => {
   const bindings = await prisma.datasetSlotBinding.findMany({
-    where: { report: { ownerId: req.user.id } },
+    where: {
+      report: {
+        OR: [
+          { ownerId: req.user.id },
+          { areaPublications: { some: { area: { members: { some: { userId: req.user.id } } } } } },
+        ],
+      },
+    },
     include: {
       report: { select: { id: true, title: true, templateId: true } },
       clientDataset: { select: { id: true, name: true, sourceType: true } },
@@ -205,9 +235,9 @@ router.get('/slots', auth, async (req, res) => {
 router.post('/slots/:id/bind', auth, async (req, res) => {
   const binding = await prisma.datasetSlotBinding.findUnique({
     where: { id: req.params.id },
-    include: { report: { select: { ownerId: true } } },
+    include: { report: { select: { id: true, ownerId: true } } },
   });
-  if (!binding || binding.report.ownerId !== req.user.id) {
+  if (!binding || !(await canConfigureReportSlots(binding.report.id, binding.report.ownerId, req.user.id))) {
     return res.status(404).json({ error: 'Slot no encontrado' });
   }
 
