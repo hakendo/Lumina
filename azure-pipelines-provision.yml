@@ -36,6 +36,8 @@ variables:
   urlRewriteMsiUrl: 'https://download.microsoft.com/download/1/2/8/128E2E22-C1B9-44A4-BE2A-5859ED1D4592/rewrite_amd64_en-US.msi'
   arrMsiUrl: 'https://download.microsoft.com/download/E/9/8/E9849D6A-020E-47E4-9FD0-A023E99B54EB/requestRouter_amd64.msi'
   nssmZipUrl: 'https://nssm.cc/release/nssm-2.24.zip'
+  pnpmExeUrl: 'https://github.com/pnpm/pnpm/releases/latest/download/pnpm-win-x64.exe'
+  installerCacheDir: 'C:\_pipeline-cache\installers'   # persistente en el agente, entre runs
   # TODO: confirmar versión exacta vigente de PostgreSQL 17 antes de correr
   # (https://www.postgresql.org/download/windows/ -> EDB installer, Windows x64)
   postgresInstallerUrl: 'https://get.enterprisedb.com/postgresql/postgresql-17.6-1-windows-x64.exe'
@@ -58,21 +60,28 @@ stages:
               secureFile: '$(envSecureFileName)'
 
           - powershell: |
-              New-Item -ItemType Directory -Path "$(Agent.TempDirectory)\installers" -Force | Out-Null
+              # Cache persistente entre runs (no Agent.TempDirectory, que se
+              # limpia cada vez) - si el instalador ya está bajado, lo reusa.
+              New-Item -ItemType Directory -Path "$(installerCacheDir)" -Force | Out-Null
               $files = @{
                 'node.msi'       = '$(nodeMsiUrl)'
                 'urlrewrite.msi' = '$(urlRewriteMsiUrl)'
                 'arr.msi'        = '$(arrMsiUrl)'
                 'nssm.zip'       = '$(nssmZipUrl)'
                 'postgres.exe'   = '$(postgresInstallerUrl)'
+                'pnpm.exe'       = '$(pnpmExeUrl)'
               }
               foreach ($f in $files.GetEnumerator()) {
-                $dest = "$(Agent.TempDirectory)\installers\$($f.Key)"
-                Write-Host "Descargando $($f.Key)..."
-                Invoke-WebRequest -Uri $f.Value -OutFile $dest -UseBasicParsing
+                $dest = "$(installerCacheDir)\$($f.Key)"
+                if (Test-Path $dest) {
+                  Write-Host "$($f.Key) ya está en cache, no lo bajo de nuevo."
+                } else {
+                  Write-Host "Descargando $($f.Key)..."
+                  Invoke-WebRequest -Uri $f.Value -OutFile $dest -UseBasicParsing
+                }
               }
-              Write-Host "Descargas OK"
-            displayName: 'Descargar instaladores (agente, tiene internet)'
+              Write-Host "Instaladores listos en $(installerCacheDir)"
+            displayName: 'Descargar instaladores (agente, con cache persistente)'
 
           - powershell: |
               $session = New-PSSession -ComputerName '$(targetVm)'
@@ -81,7 +90,7 @@ stages:
                 Invoke-Command -Session $session -ScriptBlock {
                   New-Item -ItemType Directory -Path 'C:\_provision' -Force | Out-Null
                 }
-                Copy-Item "$(Agent.TempDirectory)\installers\*" 'C:\_provision' -ToSession $session -Force
+                Copy-Item "$(installerCacheDir)\*" 'C:\_provision' -ToSession $session -Force
 
                 # ── IIS (feature de Windows, no necesita descarga) ──
                 Invoke-Command -Session $session -ScriptBlock {
@@ -136,12 +145,12 @@ stages:
                   }
                 }
 
-                # ── pnpm (via npm, ya con Node instalado) ──
+                # ── pnpm (binario standalone, copiado — la VM no tiene
+                #    internet, así que `npm install -g pnpm` ahí nunca funciona) ──
                 Invoke-Command -Session $session -ScriptBlock {
-                  $env:Path = [System.Environment]::GetEnvironmentVariable('Path','Machine')
-                  if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
+                  if (-not (Test-Path 'C:\Program Files\nodejs\pnpm.exe')) {
                     Write-Output "Instalando pnpm..."
-                    npm install -g pnpm
+                    Copy-Item 'C:\_provision\pnpm.exe' 'C:\Program Files\nodejs\pnpm.exe' -Force
                   } else {
                     Write-Output "pnpm ya estaba instalado, salteando."
                   }
