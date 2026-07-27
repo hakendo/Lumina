@@ -25,7 +25,7 @@ trigger:
       - master
 
 pool:
-  name: 'prod-deploy-agent'   # TODO: nombre real del agent pool una vez registrado
+  name: 'local-deploy-agent'
 
 variables:
   targetVm: '192.168.180.155'                                # VM de Staging
