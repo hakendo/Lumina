@@ -55,6 +55,7 @@ stages:
             workingDirectory: '$(Build.SourcesDirectory)'
             env:
               PUPPETEER_SKIP_DOWNLOAD: 'true'
+              NODE_TLS_REJECT_UNAUTHORIZED: '0'
 
           - powershell: |
               pnpm --filter lumina-frontend run build
@@ -67,6 +68,8 @@ stages:
               pnpm --filter lumina-backend exec prisma generate
             displayName: 'Validar schema de Prisma (sanity check local)'
             workingDirectory: '$(Build.SourcesDirectory)'
+            env:
+              NODE_TLS_REJECT_UNAUTHORIZED: '0'
 
           - powershell: |
               $deployRoot = '$(deployRoot)'
@@ -120,6 +123,7 @@ stages:
                   # PUPPETEER_SKIP_DOWNLOAD: el env: del step no cruza la sesión WinRM
                   # remota (es un proceso aparte en otra máquina) — hay que setearlo acá adentro.
                   $env:PUPPETEER_SKIP_DOWNLOAD = 'true'
+                  $env:NODE_TLS_REJECT_UNAUTHORIZED = '0'
                   pnpm install --frozen-lockfile
                   if ($LASTEXITCODE -ne 0) { throw "pnpm install fallo en la VM" }
                   pnpm exec prisma generate
