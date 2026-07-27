@@ -28,10 +28,10 @@ pool:
   name: 'prod-deploy-agent'   # TODO: nombre real del agent pool una vez registrado
 
 variables:
-  targetVm: 'PROD-VM-HOSTNAME-O-IP'                          # TODO: host/IP real de la VM
-  deployRoot: 'C:\inetpub\lumina'                            # TODO: confirmar ruta real en la VM
+  targetVm: '192.168.180.155'                                # VM de Staging
+  deployRoot: 'C:\inetpub\lumina'                            # TODO: confirmar ruta real en la VM (asumo igual a QA)
   backendServiceName: 'lumina-backend'                       # nombre del servicio NSSM en la VM
-  healthUrl: 'http://PROD-VM-HOSTNAME-O-IP:8090/health'      # TODO: confirmar puerto/binding real
+  healthUrl: 'http://192.168.180.155:8090/health'            # TODO: confirmar puerto real (asumo igual a QA, 8090)
 
 stages:
   - stage: BuildAndDeploy
