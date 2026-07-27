@@ -12,6 +12,12 @@
 # de versión con el tiempo) — están puestas como variables para ajustar
 # fácil sin tocar la lógica de los steps.
 #
+# El .env real (DATABASE_URL, JWT_SECRET, ENCRYPTION_KEY, FRONTEND_URL) se
+# sube UNA VEZ como Secure File en Pipelines > Library > Secure files
+# (nombre esperado: el de `envSecureFileName` abajo) — nunca vive en el
+# repo ni en el YAML. Este pipeline lo baja y lo copia a la VM, solo si
+# todavía no existe ahí (no pisa un .env real en una VM ya en uso).
+#
 # Uso: Pipelines > este pipeline > Run pipeline > completar `targetVm` si
 # es distinta a la de abajo.
 
@@ -34,6 +40,7 @@ variables:
   # (https://www.postgresql.org/download/windows/ -> EDB installer, Windows x64)
   postgresInstallerUrl: 'https://get.enterprisedb.com/postgresql/postgresql-17.6-1-windows-x64.exe'
   postgresVersion: '17'
+  envSecureFileName: 'staging.env'   # nombre del Secure File subido en Library
 
 stages:
   - stage: Provision
@@ -43,6 +50,12 @@ stages:
         displayName: 'Descargar instaladores + instalar en la VM (WinRM)'
         steps:
           - checkout: none
+
+          - task: DownloadSecureFile@1
+            name: envFile
+            displayName: 'Descargar .env real desde Library (Secure files)'
+            inputs:
+              secureFile: '$(envSecureFileName)'
 
           - powershell: |
               New-Item -ItemType Directory -Path "$(Agent.TempDirectory)\installers" -Force | Out-Null
@@ -173,6 +186,20 @@ stages:
                   New-Item -ItemType Directory -Path "$deployRoot\apps\backend\prisma" -Force | Out-Null
                   New-Item -ItemType Directory -Path "$deployRoot\_backups" -Force | Out-Null
                 } -ArgumentList '$(deployRoot)'
+
+                # ── .env real (bajado como Secure File arriba) ──
+                # Solo si no existe ya en la VM — nunca pisa un .env real
+                # de una VM que ya está en uso.
+                $envExists = Invoke-Command -Session $session -ScriptBlock {
+                  param($deployRoot)
+                  Test-Path "$deployRoot\apps\backend\.env"
+                } -ArgumentList '$(deployRoot)'
+                if (-not $envExists) {
+                  Write-Output "Copiando .env a la VM..."
+                  Copy-Item "$(envFile.secureFilePath)" "$(deployRoot)\apps\backend\.env" -ToSession $session -Force
+                } else {
+                  Write-Output ".env ya existe en la VM, no lo piso."
+                }
 
                 # ── Sitio IIS ──
                 Invoke-Command -Session $session -ScriptBlock {
