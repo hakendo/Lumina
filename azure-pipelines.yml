@@ -1,0 +1,128 @@
+# Pipeline de build + deploy de Lumina a producción.
+#
+# Requisitos antes de que esto pueda correr (ver REQUISITOS-SERVIDOR-PRODUCCION.md):
+#   1. Servidor de producción aprovisionado (Windows Server, IIS+ARR, Node, Postgres, NSSM).
+#   2. Agente self-hosted de Azure Pipelines instalado y registrado en ese servidor,
+#      en un pool con el nombre configurado en `pool.name` abajo.
+#   3. Prisma CLI disponible en el servidor (se instala como parte de `pnpm install`,
+#      ya que está en devDependencies de apps/backend — no hace falta nada extra).
+#   4. apps/backend/.env ya existe en el servidor con DATABASE_URL, JWT_SECRET,
+#      ENCRYPTION_KEY, FRONTEND_URL — este pipeline NUNCA toca ese archivo (mismo
+#      criterio que ya se usa en QA: los secrets se gestionan aparte, no via pipeline).
+#
+# Ajustar los valores bajo `variables:` a la ruta/nombres reales del servidor nuevo.
+
+trigger:
+  branches:
+    include:
+      - master
+
+pool:
+  name: 'prod-windows'   # TODO: nombre real del agent pool una vez registrado el agente
+
+variables:
+  deployRoot: 'C:\inetpub\lumina'                          # TODO: confirmar ruta real
+  iisSiteName: 'lumina'                                     # TODO: confirmar nombre real del sitio IIS
+  backendServiceName: 'lumina-backend'                      # nombre del servicio NSSM
+  healthUrl: 'http://localhost:8090/health'                 # TODO: confirmar puerto/binding real
+
+stages:
+  - stage: BuildAndDeploy
+    displayName: 'Build + Deploy a producción'
+    jobs:
+      - job: Deploy
+        displayName: 'Build, migrar DB y desplegar'
+        steps:
+          - checkout: self
+            displayName: 'Checkout del repo'
+
+          - powershell: |
+              node --version
+              pnpm --version
+            displayName: 'Verificar Node/pnpm disponibles en el agente'
+
+          - powershell: |
+              pnpm install --frozen-lockfile
+            displayName: 'Instalar dependencias (root, ambos workspaces)'
+            workingDirectory: '$(Build.SourcesDirectory)'
+
+          - powershell: |
+              pnpm --filter lumina-frontend run build
+            displayName: 'Build del frontend (Vite)'
+            workingDirectory: '$(Build.SourcesDirectory)'
+
+          - powershell: |
+              # Solo valida que el schema es correcto antes de tocar el server —
+              # el client que realmente importa se genera más abajo, en destino,
+              # porque node_modules no viaja con el robocopy (solo src/prisma).
+              pnpm --filter lumina-backend exec prisma generate
+            displayName: 'Validar schema de Prisma (sanity check)'
+            workingDirectory: '$(Build.SourcesDirectory)'
+
+          - powershell: |
+              $ts = Get-Date -Format "yyyyMMddHHmmss"
+              $backupDir = "$(deployRoot)\_backups\deploy-$ts"
+              New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+              if (Test-Path "$(deployRoot)\apps\frontend\dist") {
+                Copy-Item "$(deployRoot)\apps\frontend\dist" "$backupDir\dist" -Recurse
+              }
+              if (Test-Path "$(deployRoot)\apps\backend\src") {
+                Copy-Item "$(deployRoot)\apps\backend\src" "$backupDir\src" -Recurse
+              }
+              Write-Host "Backup en $backupDir"
+            displayName: 'Backup de la versión actual'
+
+          - powershell: |
+              Stop-Service -Name '$(backendServiceName)' -Force -ErrorAction SilentlyContinue
+            displayName: 'Detener el servicio backend'
+
+          - powershell: |
+              # robocopy /MIR reemplaza el destino por completo de forma atómica —
+              # evita el bug de Copy-Item anidando carpetas cuando el destino ya existe.
+              # web.config viaja DENTRO de dist (apps/frontend/public/web.config, Vite
+              # lo copia solo) así que /MIR no lo pierde como pasaba con el proceso manual.
+              robocopy "$(Build.SourcesDirectory)\apps\frontend\dist" "$(deployRoot)\apps\frontend\dist" /MIR /NFL /NDL
+              if ($LASTEXITCODE -ge 8) { throw "robocopy frontend fallo con codigo $LASTEXITCODE" }
+
+              robocopy "$(Build.SourcesDirectory)\apps\backend\src" "$(deployRoot)\apps\backend\src" /MIR /NFL /NDL
+              if ($LASTEXITCODE -ge 8) { throw "robocopy backend src fallo con codigo $LASTEXITCODE" }
+
+              robocopy "$(Build.SourcesDirectory)\apps\backend\prisma" "$(deployRoot)\apps\backend\prisma" /MIR /NFL /NDL
+              if ($LASTEXITCODE -ge 8) { throw "robocopy prisma fallo con codigo $LASTEXITCODE" }
+
+              Copy-Item "$(Build.SourcesDirectory)\apps\backend\package.json" "$(deployRoot)\apps\backend\package.json" -Force
+            displayName: 'Copiar build + backend al servidor (robocopy /MIR)'
+
+          - powershell: |
+              Set-Location "$(deployRoot)\apps\backend"
+              # Sin --prod a propósito: Prisma CLI vive en devDependencies y la
+              # necesitamos acá para `prisma generate`/`migrate deploy` más abajo.
+              pnpm install --frozen-lockfile
+            displayName: 'Instalar dependencias en destino (incluye Prisma CLI)'
+
+          - powershell: |
+              Set-Location "$(deployRoot)\apps\backend"
+              pnpm exec prisma generate
+            displayName: 'Generar Prisma Client en destino (el que realmente usa el servicio)'
+
+          - powershell: |
+              Set-Location "$(deployRoot)\apps\backend"
+              pnpm exec prisma migrate deploy
+            displayName: 'Aplicar migraciones de Prisma'
+
+          - powershell: |
+              Start-Service -Name '$(backendServiceName)'
+            displayName: 'Iniciar el servicio backend'
+
+          - powershell: |
+              $ok = $false
+              for ($i = 0; $i -lt 10; $i++) {
+                Start-Sleep -Seconds 3
+                try {
+                  $r = Invoke-RestMethod -Uri '$(healthUrl)' -TimeoutSec 5
+                  if ($r.ok -eq $true) { $ok = $true; break }
+                } catch {}
+              }
+              if (-not $ok) { throw "Health check fallo tras el deploy — revisar logs del servicio" }
+              Write-Host "Health check OK"
+            displayName: 'Health check post-deploy'
