@@ -53,6 +53,8 @@ stages:
               pnpm install --frozen-lockfile
             displayName: 'Instalar dependencias (agente, ambos workspaces)'
             workingDirectory: '$(Build.SourcesDirectory)'
+            env:
+              PUPPETEER_SKIP_DOWNLOAD: 'true'
 
           - powershell: |
               pnpm --filter lumina-frontend run build
@@ -115,6 +117,9 @@ stages:
                   param($deployRoot)
                   Set-Location "$deployRoot\apps\backend"
                   # Sin --prod a propósito: Prisma CLI vive en devDependencies.
+                  # PUPPETEER_SKIP_DOWNLOAD: el env: del step no cruza la sesión WinRM
+                  # remota (es un proceso aparte en otra máquina) — hay que setearlo acá adentro.
+                  $env:PUPPETEER_SKIP_DOWNLOAD = 'true'
                   pnpm install --frozen-lockfile
                   if ($LASTEXITCODE -ne 0) { throw "pnpm install fallo en la VM" }
                   pnpm exec prisma generate
@@ -132,6 +137,8 @@ stages:
                 Remove-PSSession $session
               }
             displayName: 'Deploy completo a la VM (WinRM, una sola sesión)'
+            env:
+              PUPPETEER_SKIP_DOWNLOAD: 'true'
 
           - powershell: |
               $ok = $false
