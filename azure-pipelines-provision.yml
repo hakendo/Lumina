@@ -1,0 +1,210 @@
+# Provisioning de un servidor nuevo para Lumina — corre UNA VEZ por VM,
+# nunca automático (sin trigger). Pensado para VMs sin salida a internet:
+# el agente (que sí tiene internet) descarga todos los instaladores en el
+# workspace local, los empuja a la VM por WinRM, y recién ahí los instala.
+#
+# Idempotente: cada paso chequea si el recurso ya existe antes de instalar
+# — correr esto de nuevo sobre una VM ya provisionada no debería romper
+# nada (no reinstala Postgres si ya hay datos, no pisa el .env).
+#
+# TODO antes de correr: verificar que las versiones/URLs de descarga de
+# abajo siguen vigentes (Node, PostgreSQL, URL Rewrite, ARR, NSSM cambian
+# de versión con el tiempo) — están puestas como variables para ajustar
+# fácil sin tocar la lógica de los steps.
+#
+# Uso: Pipelines > este pipeline > Run pipeline > completar `targetVm` si
+# es distinta a la de abajo.
+
+trigger: none
+
+pool:
+  name: 'local-deploy-agent'
+
+variables:
+  targetVm: '192.168.180.155'
+  deployRoot: 'C:\inetpub\lumina'
+  iisSiteName: 'lumina'
+  backendServiceName: 'lumina-backend'
+  nodeVersion: '24.15.0'
+  nodeMsiUrl: 'https://nodejs.org/dist/v$(nodeVersion)/node-v$(nodeVersion)-x64.msi'
+  urlRewriteMsiUrl: 'https://download.microsoft.com/download/1/2/8/128E2E22-C1B9-44A4-BE2A-5859ED1D4592/rewrite_amd64_en-US.msi'
+  arrMsiUrl: 'https://download.microsoft.com/download/E/9/8/E9849D6A-020E-47E4-9FD0-A023E99B54EB/requestRouter_amd64.msi'
+  nssmZipUrl: 'https://nssm.cc/release/nssm-2.24.zip'
+  # TODO: confirmar versión exacta vigente de PostgreSQL 17 antes de correr
+  # (https://www.postgresql.org/download/windows/ -> EDB installer, Windows x64)
+  postgresInstallerUrl: 'https://get.enterprisedb.com/postgresql/postgresql-17.6-1-windows-x64.exe'
+  postgresVersion: '17'
+
+stages:
+  - stage: Provision
+    displayName: 'Provisionar VM nueva'
+    jobs:
+      - job: Provision
+        displayName: 'Descargar instaladores + instalar en la VM (WinRM)'
+        steps:
+          - checkout: none
+
+          - powershell: |
+              New-Item -ItemType Directory -Path "$(Agent.TempDirectory)\installers" -Force | Out-Null
+              $files = @{
+                'node.msi'       = '$(nodeMsiUrl)'
+                'urlrewrite.msi' = '$(urlRewriteMsiUrl)'
+                'arr.msi'        = '$(arrMsiUrl)'
+                'nssm.zip'       = '$(nssmZipUrl)'
+                'postgres.exe'   = '$(postgresInstallerUrl)'
+              }
+              foreach ($f in $files.GetEnumerator()) {
+                $dest = "$(Agent.TempDirectory)\installers\$($f.Key)"
+                Write-Host "Descargando $($f.Key)..."
+                Invoke-WebRequest -Uri $f.Value -OutFile $dest -UseBasicParsing
+              }
+              Write-Host "Descargas OK"
+            displayName: 'Descargar instaladores (agente, tiene internet)'
+
+          - powershell: |
+              $session = New-PSSession -ComputerName '$(targetVm)'
+              try {
+                # Carpeta de trabajo remota para los instaladores
+                Invoke-Command -Session $session -ScriptBlock {
+                  New-Item -ItemType Directory -Path 'C:\_provision' -Force | Out-Null
+                }
+                Copy-Item "$(Agent.TempDirectory)\installers\*" 'C:\_provision' -ToSession $session -Force
+
+                # ── IIS (feature de Windows, no necesita descarga) ──
+                Invoke-Command -Session $session -ScriptBlock {
+                  if (-not (Get-Service W3SVC -ErrorAction SilentlyContinue)) {
+                    Write-Output "Instalando IIS..."
+                    Install-WindowsFeature -Name Web-Server, Web-Common-Http, Web-Default-Doc, Web-Static-Content, Web-Http-Errors -IncludeManagementTools
+                  } else {
+                    Write-Output "IIS ya estaba instalado, salteando."
+                  }
+                }
+
+                # ── URL Rewrite ──
+                Invoke-Command -Session $session -ScriptBlock {
+                  $installed = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
+                    Where-Object { $_.DisplayName -like 'IIS URL Rewrite*' }
+                  if (-not $installed) {
+                    Write-Output "Instalando URL Rewrite..."
+                    Start-Process msiexec.exe -ArgumentList '/i C:\_provision\urlrewrite.msi /quiet /norestart' -Wait
+                  } else {
+                    Write-Output "URL Rewrite ya estaba instalado, salteando."
+                  }
+                }
+
+                # ── Application Request Routing ──
+                Invoke-Command -Session $session -ScriptBlock {
+                  $installed = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
+                    Where-Object { $_.DisplayName -like 'Application Request Routing*' }
+                  if (-not $installed) {
+                    Write-Output "Instalando ARR..."
+                    Start-Process msiexec.exe -ArgumentList '/i C:\_provision\arr.msi /quiet /norestart' -Wait
+                  } else {
+                    Write-Output "ARR ya estaba instalado, salteando."
+                  }
+                }
+
+                # ── Habilitar el proxy de ARR (paso que ya nos mordió en QA) ──
+                Invoke-Command -Session $session -ScriptBlock {
+                  Import-Module WebAdministration -ErrorAction SilentlyContinue
+                  Set-WebConfigurationProperty -Filter "system.webServer/proxy" -PSPath "IIS:\" -Name "enabled" -Value $true
+                  Write-Output "Proxy de ARR habilitado."
+                }
+
+                # ── Node.js ──
+                Invoke-Command -Session $session -ScriptBlock {
+                  $existing = Get-Command node -ErrorAction SilentlyContinue
+                  if (-not $existing) {
+                    Write-Output "Instalando Node.js..."
+                    Start-Process msiexec.exe -ArgumentList '/i C:\_provision\node.msi /quiet /norestart' -Wait
+                    $env:Path = [System.Environment]::GetEnvironmentVariable('Path','Machine')
+                  } else {
+                    Write-Output "Node ya estaba instalado ($(node --version)), salteando."
+                  }
+                }
+
+                # ── pnpm (via npm, ya con Node instalado) ──
+                Invoke-Command -Session $session -ScriptBlock {
+                  $env:Path = [System.Environment]::GetEnvironmentVariable('Path','Machine')
+                  if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
+                    Write-Output "Instalando pnpm..."
+                    npm install -g pnpm
+                  } else {
+                    Write-Output "pnpm ya estaba instalado, salteando."
+                  }
+                }
+
+                # ── PostgreSQL ──
+                Invoke-Command -Session $session -ScriptBlock {
+                  param($pgVersion)
+                  $svc = Get-Service -Name "postgresql-x64-$pgVersion" -ErrorAction SilentlyContinue
+                  if (-not $svc) {
+                    Write-Output "Instalando PostgreSQL $pgVersion..."
+                    # --unattendedmodeui minimal + password fija temporal (CAMBIAR después
+                    # del provisioning, esto no debe quedar así en un ambiente real).
+                    Start-Process 'C:\_provision\postgres.exe' -ArgumentList @(
+                      '--mode', 'unattended',
+                      '--unattendedmodeui', 'minimal',
+                      '--superpassword', 'CAMBIAR_ESTA_PASSWORD',
+                      '--servicename', "postgresql-x64-$pgVersion"
+                    ) -Wait
+                  } else {
+                    Write-Output "PostgreSQL ya estaba instalado ($($svc.Name)), salteando."
+                  }
+                } -ArgumentList '$(postgresVersion)'
+
+                # ── NSSM ──
+                Invoke-Command -Session $session -ScriptBlock {
+                  if (-not (Test-Path 'C:\nssm\nssm.exe')) {
+                    Write-Output "Instalando NSSM..."
+                    Expand-Archive -Path 'C:\_provision\nssm.zip' -DestinationPath 'C:\_provision\nssm-extract' -Force
+                    New-Item -ItemType Directory -Path 'C:\nssm' -Force | Out-Null
+                    Copy-Item 'C:\_provision\nssm-extract\nssm-2.24\win64\nssm.exe' 'C:\nssm\nssm.exe' -Force
+                  } else {
+                    Write-Output "NSSM ya estaba instalado, salteando."
+                  }
+                }
+
+                # ── Estructura de carpetas de la app ──
+                Invoke-Command -Session $session -ScriptBlock {
+                  param($deployRoot)
+                  New-Item -ItemType Directory -Path "$deployRoot\apps\frontend\dist" -Force | Out-Null
+                  New-Item -ItemType Directory -Path "$deployRoot\apps\backend\src" -Force | Out-Null
+                  New-Item -ItemType Directory -Path "$deployRoot\apps\backend\prisma" -Force | Out-Null
+                  New-Item -ItemType Directory -Path "$deployRoot\_backups" -Force | Out-Null
+                } -ArgumentList '$(deployRoot)'
+
+                # ── Sitio IIS ──
+                Invoke-Command -Session $session -ScriptBlock {
+                  param($siteName, $deployRoot)
+                  Import-Module WebAdministration -ErrorAction SilentlyContinue
+                  if (-not (Get-Website -Name $siteName -ErrorAction SilentlyContinue)) {
+                    Write-Output "Creando sitio IIS $siteName..."
+                    New-Website -Name $siteName -PhysicalPath "$deployRoot\apps\frontend\dist" -Port 8090
+                  } else {
+                    Write-Output "Sitio IIS $siteName ya existe, salteando."
+                  }
+                } -ArgumentList '$(iisSiteName)', '$(deployRoot)'
+
+                # ── Servicio NSSM del backend ──
+                Invoke-Command -Session $session -ScriptBlock {
+                  param($svc, $deployRoot)
+                  if (-not (Get-Service -Name $svc -ErrorAction SilentlyContinue)) {
+                    Write-Output "Registrando servicio $svc..."
+                    & 'C:\nssm\nssm.exe' install $svc "$(where.exe node)" "$deployRoot\apps\backend\src\index.js"
+                    & 'C:\nssm\nssm.exe' set $svc AppDirectory "$deployRoot\apps\backend"
+                    & 'C:\nssm\nssm.exe' set $svc Start SERVICE_AUTO_START
+                  } else {
+                    Write-Output "Servicio $svc ya existe, salteando (no lo reconfiguro por las dudas)."
+                  }
+                } -ArgumentList '$(backendServiceName)', '$(deployRoot)'
+
+                Write-Output "=== Provisioning terminado ==="
+                Write-Output "PENDIENTE MANUAL: crear apps\backend\.env en la VM con DATABASE_URL,"
+                Write-Output "JWT_SECRET, ENCRYPTION_KEY, FRONTEND_URL antes del primer deploy."
+                Write-Output "PENDIENTE MANUAL: cambiar la password de Postgres puesta arriba."
+              } finally {
+                Invoke-Command -Session $session -ScriptBlock { Remove-Item 'C:\_provision' -Recurse -Force -ErrorAction SilentlyContinue }
+                Remove-PSSession $session
+              }
+            displayName: 'Instalar todo en la VM (idempotente, vía WinRM)'
