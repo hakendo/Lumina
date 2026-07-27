@@ -69,7 +69,6 @@ stages:
                 'arr.msi'        = '$(arrMsiUrl)'
                 'nssm.zip'       = '$(nssmZipUrl)'
                 'postgres.exe'   = '$(postgresInstallerUrl)'
-                'pnpm.exe'       = '$(pnpmExeUrl)'
               }
               foreach ($f in $files.GetEnumerator()) {
                 $dest = "$(installerCacheDir)\$($f.Key)"
@@ -91,6 +90,15 @@ stages:
                   } while ($attempt -lt 3)
                 }
               }
+              # pnpm: no se descarga — se copia la carpeta standalone que ya
+              # tiene instalada el agente (self-contained, no depende de Node).
+              # Evita depender de la URL de releases de GitHub, que venía fallando.
+              $pnpmSrc = (Get-Command pnpm -ErrorAction SilentlyContinue).Source
+              if (-not $pnpmSrc) { throw "pnpm no encontrado en el agente — no se puede provisionar sin eso" }
+              $pnpmDir = Split-Path $pnpmSrc -Parent
+              New-Item -ItemType Directory -Path "$(installerCacheDir)\pnpm-standalone" -Force | Out-Null
+              Copy-Item "$pnpmDir\*" "$(installerCacheDir)\pnpm-standalone" -Recurse -Force
+
               Write-Host "Instaladores listos en $(installerCacheDir)"
             displayName: 'Descargar instaladores (agente, con cache persistente)'
 
@@ -101,7 +109,7 @@ stages:
                 Invoke-Command -Session $session -ScriptBlock {
                   New-Item -ItemType Directory -Path 'C:\_provision' -Force | Out-Null
                 }
-                Copy-Item "$(installerCacheDir)\*" 'C:\_provision' -ToSession $session -Force
+                Copy-Item "$(installerCacheDir)\*" 'C:\_provision' -ToSession $session -Recurse -Force
 
                 # ── IIS (feature de Windows, no necesita descarga) ──
                 Invoke-Command -Session $session -ScriptBlock {
@@ -156,12 +164,17 @@ stages:
                   }
                 }
 
-                # ── pnpm (binario standalone, copiado — la VM no tiene
-                #    internet, así que `npm install -g pnpm` ahí nunca funciona) ──
+                # ── pnpm (carpeta standalone copiada del agente — la VM no
+                #    tiene internet, `npm install -g pnpm` ahí nunca funciona) ──
                 Invoke-Command -Session $session -ScriptBlock {
-                  if (-not (Test-Path 'C:\Program Files\nodejs\pnpm.exe')) {
+                  if (-not (Test-Path 'C:\pnpm\pnpm.exe')) {
                     Write-Output "Instalando pnpm..."
-                    Copy-Item 'C:\_provision\pnpm.exe' 'C:\Program Files\nodejs\pnpm.exe' -Force
+                    New-Item -ItemType Directory -Path 'C:\pnpm' -Force | Out-Null
+                    Copy-Item 'C:\_provision\pnpm-standalone\*' 'C:\pnpm' -Recurse -Force
+                    $machinePath = [System.Environment]::GetEnvironmentVariable('Path','Machine')
+                    if ($machinePath -notlike '*C:\pnpm*') {
+                      [System.Environment]::SetEnvironmentVariable('Path', "$machinePath;C:\pnpm", 'Machine')
+                    }
                   } else {
                     Write-Output "pnpm ya estaba instalado, salteando."
                   }
