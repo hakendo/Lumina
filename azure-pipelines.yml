@@ -2,25 +2,22 @@
 #
 # La VM de producción NO tiene salida a internet, así que el agente de
 # Azure Pipelines NO puede vivir ahí (necesita alcanzar dev.azure.com).
-# El agente corre en una máquina CON internet (tu PC, o un contenedor
-# Docker ahí mismo — misma red y misma identidad Windows) que además
-# tenga línea de WinRM hacia la VM. El build corre local en el agente;
-# el deploy real se empuja a la VM por WinRM (mismo patrón manual que
-# usamos toda la sesión para QA — Invoke-Command / Copy-Item -ToSession).
+# El agente corre instalado nativo (sin Docker — pwsh/WinRM no andan bien
+# desde un container Linux sin trabajo extra) en una PC con internet y
+# línea de red hacia la VM, registrado como servicio Windows corriendo
+# BAJO LA CUENTA de quien ya tiene WinRM confiado hacia la VM (no la
+# cuenta default del servicio) — así no hace falta credencial explícita
+# en los pasos de abajo, igual que se usó a mano toda la sesión.
 #
 # Requisitos antes de que esto corra (ver REQUISITOS-SERVIDOR-PRODUCCION.md):
 #   1. VM de producción aprovisionada (Windows Server, IIS+ARR, Node, Postgres, NSSM).
-#   2. Agente self-hosted registrado en un pool con el nombre de `pool.name` abajo,
-#      corriendo en una máquina con internet Y con WinRM habilitado hacia $(targetVm).
-#   3. El agente debe correr bajo una identidad Windows con acceso WinRM ya confiado
-#      a $(targetVm) (mismo usuario que se usó manualmente hasta ahora — sin
-#      -Credential explícito en los pasos de abajo; si eso cambia más adelante a una
-#      cuenta de servicio dedicada, hay que agregar -Credential a cada Invoke-Command).
-#   4. Prisma CLI disponible en la VM (se instala solo, es devDependency del backend).
-#   5. apps/backend/.env ya existe en la VM con DATABASE_URL, JWT_SECRET,
+#   2. Agente self-hosted registrado en el pool de `pool.name` abajo (config.cmd,
+#      instalación nativa, servicio corriendo bajo la cuenta con WinRM confiado).
+#   3. Prisma CLI disponible en la VM (se instala solo, es devDependency del backend).
+#   4. apps/backend/.env ya existe en la VM con DATABASE_URL, JWT_SECRET,
 #      ENCRYPTION_KEY, FRONTEND_URL — este pipeline NUNCA toca ese archivo.
 #
-# Ajustar `targetVm`, `deployRoot`, `iisSiteName`, `healthUrl` a los valores reales.
+# Ajustar `targetVm`, `deployRoot`, `healthUrl` a los valores reales.
 
 trigger:
   branches:
@@ -70,87 +67,71 @@ stages:
             workingDirectory: '$(Build.SourcesDirectory)'
 
           - powershell: |
-              Invoke-Command -ComputerName '$(targetVm)' -ScriptBlock {
-                param($deployRoot)
-                $ts = Get-Date -Format "yyyyMMddHHmmss"
-                $backupDir = "$deployRoot\_backups\deploy-$ts"
-                New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
-                if (Test-Path "$deployRoot\apps\frontend\dist") {
-                  Copy-Item "$deployRoot\apps\frontend\dist" "$backupDir\dist" -Recurse
-                }
-                if (Test-Path "$deployRoot\apps\backend\src") {
-                  Copy-Item "$deployRoot\apps\backend\src" "$backupDir\src" -Recurse
-                }
-                Write-Output "Backup en $backupDir"
-              } -ArgumentList '$(deployRoot)'
-            displayName: 'Backup de la versión actual (en la VM)'
+              $deployRoot = '$(deployRoot)'
+              $svc = '$(backendServiceName)'
 
-          - powershell: |
-              Invoke-Command -ComputerName '$(targetVm)' -ScriptBlock {
-                param($svc)
-                Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue
-              } -ArgumentList '$(backendServiceName)'
-            displayName: 'Detener el servicio backend (en la VM)'
-
-          - powershell: |
-              # robocopy /MIR vía sesión remota reemplaza el destino por completo de
-              # forma atómica — evita el bug de Copy-Item anidando carpetas cuando el
-              # destino ya existe (nos pasó en QA esta semana). web.config viaja DENTRO
-              # de dist (apps/frontend/public/web.config, Vite lo copia solo).
               $session = New-PSSession -ComputerName '$(targetVm)'
               try {
+                # 1. Backup de la versión actual
                 Invoke-Command -Session $session -ScriptBlock {
                   param($deployRoot)
+                  $ts = Get-Date -Format "yyyyMMddHHmmss"
+                  $backupDir = "$deployRoot\_backups\deploy-$ts"
+                  New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+                  if (Test-Path "$deployRoot\apps\frontend\dist") {
+                    Copy-Item "$deployRoot\apps\frontend\dist" "$backupDir\dist" -Recurse
+                  }
+                  if (Test-Path "$deployRoot\apps\backend\src") {
+                    Copy-Item "$deployRoot\apps\backend\src" "$backupDir\src" -Recurse
+                  }
+                  Write-Output "Backup en $backupDir"
+                } -ArgumentList $deployRoot
+
+                # 2. Detener el servicio backend
+                Invoke-Command -Session $session -ScriptBlock {
+                  param($svc)
+                  Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue
+                } -ArgumentList $svc
+
+                # 3. Copiar build + backend (reemplazo completo, no Copy-Item anidado —
+                #    ver comentario del incidente de QA en REQUISITOS-SERVIDOR-PRODUCCION.md)
+                Invoke-Command -Session $session -ScriptBlock {
+                  param($deployRoot)
+                  Remove-Item "$deployRoot\apps\frontend\dist" -Recurse -Force -ErrorAction SilentlyContinue
+                  Remove-Item "$deployRoot\apps\backend\src" -Recurse -Force -ErrorAction SilentlyContinue
+                  Remove-Item "$deployRoot\apps\backend\prisma" -Recurse -Force -ErrorAction SilentlyContinue
                   New-Item -ItemType Directory -Path "$deployRoot\apps\frontend\dist" -Force | Out-Null
                   New-Item -ItemType Directory -Path "$deployRoot\apps\backend\src" -Force | Out-Null
                   New-Item -ItemType Directory -Path "$deployRoot\apps\backend\prisma" -Force | Out-Null
-                } -ArgumentList '$(deployRoot)'
+                } -ArgumentList $deployRoot
 
-                Remove-Item "$(Build.SourcesDirectory)\apps\frontend\dist\.deploystamp" -ErrorAction SilentlyContinue
-                Copy-Item "$(Build.SourcesDirectory)\apps\frontend\dist\*" "$(deployRoot)\apps\frontend\dist" -ToSession $session -Recurse -Force
-                Copy-Item "$(Build.SourcesDirectory)\apps\backend\src\*" "$(deployRoot)\apps\backend\src" -ToSession $session -Recurse -Force
-                Copy-Item "$(Build.SourcesDirectory)\apps\backend\prisma\*" "$(deployRoot)\apps\backend\prisma" -ToSession $session -Recurse -Force
-                Copy-Item "$(Build.SourcesDirectory)\apps\backend\package.json" "$(deployRoot)\apps\backend\package.json" -ToSession $session -Force
+                Copy-Item "$(Build.SourcesDirectory)\apps\frontend\dist\*" "$deployRoot\apps\frontend\dist" -ToSession $session -Recurse -Force
+                Copy-Item "$(Build.SourcesDirectory)\apps\backend\src\*" "$deployRoot\apps\backend\src" -ToSession $session -Recurse -Force
+                Copy-Item "$(Build.SourcesDirectory)\apps\backend\prisma\*" "$deployRoot\apps\backend\prisma" -ToSession $session -Recurse -Force
+                Copy-Item "$(Build.SourcesDirectory)\apps\backend\package.json" "$deployRoot\apps\backend\package.json" -ToSession $session -Force
+
+                # 4. Instalar deps + generar Prisma Client + migrar, todo en la VM
+                Invoke-Command -Session $session -ScriptBlock {
+                  param($deployRoot)
+                  Set-Location "$deployRoot\apps\backend"
+                  # Sin --prod a propósito: Prisma CLI vive en devDependencies.
+                  pnpm install --frozen-lockfile
+                  if ($LASTEXITCODE -ne 0) { throw "pnpm install fallo en la VM" }
+                  pnpm exec prisma generate
+                  if ($LASTEXITCODE -ne 0) { throw "prisma generate fallo en la VM" }
+                  pnpm exec prisma migrate deploy
+                  if ($LASTEXITCODE -ne 0) { throw "prisma migrate deploy fallo en la VM" }
+                } -ArgumentList $deployRoot
+
+                # 5. Iniciar el servicio backend
+                Invoke-Command -Session $session -ScriptBlock {
+                  param($svc)
+                  Start-Service -Name $svc
+                } -ArgumentList $svc
               } finally {
                 Remove-PSSession $session
               }
-            displayName: 'Copiar build + backend a la VM (WinRM)'
-
-          - powershell: |
-              Invoke-Command -ComputerName '$(targetVm)' -ScriptBlock {
-                param($deployRoot)
-                Set-Location "$deployRoot\apps\backend"
-                # Sin --prod a propósito: Prisma CLI vive en devDependencies y la
-                # necesitamos acá para `prisma generate`/`migrate deploy`.
-                pnpm install --frozen-lockfile
-                if ($LASTEXITCODE -ne 0) { throw "pnpm install fallo en la VM" }
-              } -ArgumentList '$(deployRoot)'
-            displayName: 'Instalar dependencias en la VM (incluye Prisma CLI)'
-
-          - powershell: |
-              Invoke-Command -ComputerName '$(targetVm)' -ScriptBlock {
-                param($deployRoot)
-                Set-Location "$deployRoot\apps\backend"
-                pnpm exec prisma generate
-                if ($LASTEXITCODE -ne 0) { throw "prisma generate fallo en la VM" }
-              } -ArgumentList '$(deployRoot)'
-            displayName: 'Generar Prisma Client en la VM'
-
-          - powershell: |
-              Invoke-Command -ComputerName '$(targetVm)' -ScriptBlock {
-                param($deployRoot)
-                Set-Location "$deployRoot\apps\backend"
-                pnpm exec prisma migrate deploy
-                if ($LASTEXITCODE -ne 0) { throw "prisma migrate deploy fallo en la VM" }
-              } -ArgumentList '$(deployRoot)'
-            displayName: 'Aplicar migraciones de Prisma (en la VM)'
-
-          - powershell: |
-              Invoke-Command -ComputerName '$(targetVm)' -ScriptBlock {
-                param($svc)
-                Start-Service -Name $svc
-              } -ArgumentList '$(backendServiceName)'
-            displayName: 'Iniciar el servicio backend (en la VM)'
+            displayName: 'Deploy completo a la VM (WinRM, una sola sesión)'
 
           - powershell: |
               $ok = $false
