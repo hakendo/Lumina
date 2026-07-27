@@ -77,7 +77,18 @@ stages:
                   Write-Host "$($f.Key) ya está en cache, no lo bajo de nuevo."
                 } else {
                   Write-Host "Descargando $($f.Key)..."
-                  Invoke-WebRequest -Uri $f.Value -OutFile $dest -UseBasicParsing
+                  $attempt = 0
+                  do {
+                    $attempt++
+                    try {
+                      Invoke-WebRequest -Uri $f.Value -OutFile $dest -UseBasicParsing -TimeoutSec 120
+                      break
+                    } catch {
+                      Write-Host "Intento $attempt fallo: $($_.Exception.Message)"
+                      if ($attempt -ge 3) { throw }
+                      Start-Sleep -Seconds 5
+                    }
+                  } while ($attempt -lt 3)
                 }
               }
               Write-Host "Instaladores listos en $(installerCacheDir)"
