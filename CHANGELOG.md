@@ -5,6 +5,18 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### CI/CD — Pipelines de deploy y provisioning para producción/staging
+
+#### Agregado
+- `azure-pipelines.yml` — build en agente + deploy vía WinRM a VM sin salida a internet.
+- `azure-pipelines-provision.yml` — provisioning idempotente de servidores nuevos (IIS/ARR, Node, PostgreSQL, NSSM), manual/no-automático, con cache de instaladores entre runs.
+- Gate obligatorio de `CHANGELOG.md` en el pipeline de deploy.
+- `web.config` pasa a versionarse en `apps/frontend/public/` (antes vivía suelto en el servidor).
+
+---
+
 ## [0.5.0] — 2026-06-18
 
 ### Rendimiento — Agregación server-side, bulk upsert, connection pooling
