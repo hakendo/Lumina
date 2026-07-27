@@ -42,6 +42,26 @@ stages:
         steps:
           - checkout: self
             displayName: 'Checkout del repo'
+            fetchDepth: 2   # necesario para poder diffear contra el commit anterior (gate de CHANGELOG)
+
+          - powershell: |
+              $changed = git diff --name-only HEAD~1 HEAD
+              if ($changed -notcontains 'CHANGELOG.md') {
+                throw "CHANGELOG.md no fue modificado en este commit/PR. Agregá una entrada antes de deployar."
+              }
+              Write-Host "CHANGELOG.md actualizado, OK."
+            displayName: 'Gate: CHANGELOG.md actualizado'
+            workingDirectory: '$(Build.SourcesDirectory)'
+
+          # Gate de tests — DESACTIVADO a propósito: hoy el repo no tiene
+          # tests configurados (ver CLAUDE.md). Activar esto bloquearía
+          # todos los deploys hasta que exista una suite real. Cuando haya
+          # tests, descomentar y ajustar el comando (`pnpm test`, etc).
+          # - powershell: |
+          #     pnpm test
+          #     if ($LASTEXITCODE -ne 0) { throw "Tests fallaron — deploy bloqueado" }
+          #   displayName: 'Gate: tests automatizados'
+          #   workingDirectory: '$(Build.SourcesDirectory)'
 
           - powershell: |
               node --version
