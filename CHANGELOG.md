@@ -15,6 +15,9 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 - Gate obligatorio de `CHANGELOG.md` en el pipeline de deploy.
 - `web.config` pasa a versionarse en `apps/frontend/public/` (antes vivía suelto en el servidor).
 
+#### Corregido
+- pnpm en la VM de staging ahora se copia como `.exe` real del agente (antes copiaba un shim con paths relativos que no sobrevivía la copia).
+
 ---
 
 ## [0.5.0] — 2026-06-18
