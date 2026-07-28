@@ -155,7 +155,11 @@ stages:
                 Invoke-Command -Session $session -ScriptBlock {
                   param($deployRoot)
                   Remove-Item "$deployRoot\node_modules" -Recurse -Force -ErrorAction SilentlyContinue
-                  tar -xzf "$deployRoot\node_modules.tar.gz" -C $deployRoot
+                  # Ruta completa: una sesión WinRM nueva no siempre ve el PATH
+                  # esperado (mismo motivo que pnpm más abajo). tar.exe viene
+                  # con Windows Server 2019+/10 1803+ en System32.
+                  & C:\Windows\System32\tar.exe -xzf "$deployRoot\node_modules.tar.gz" -C $deployRoot
+                  if ($LASTEXITCODE -ne 0) { throw "tar -x fallo descomprimiendo node_modules en la VM" }
                   Remove-Item "$deployRoot\node_modules.tar.gz" -Force
                 } -ArgumentList $deployRoot
 
