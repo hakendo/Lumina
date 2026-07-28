@@ -104,7 +104,15 @@ stages:
               # viene incluido en todas las versiones de Windows Server
               # (falta en la VM de Staging) — estos cmdlets sí son nativos
               # de PowerShell 5.1 en cualquier Windows.
+              # OJO: con node-linker=hoisted, apps/backend TIENE su propio
+              # node_modules real (prisma, @prisma/client con el query engine
+              # ya compilado para windows, deps agregadas a mano en el pasado
+              # — ver incidente de QA) además del node_modules raíz. Hay que
+              # subir los DOS: si falta el de backend, `prisma`/`@prisma/client`
+              # no se encuentran localmente y pnpm sale a buscarlos a
+              # registry.npmjs.org, que la VM no puede alcanzar.
               Compress-Archive -Path "$(Build.SourcesDirectory)\node_modules" -DestinationPath "$(Build.ArtifactStagingDirectory)\node_modules.zip" -Force
+              Compress-Archive -Path "$(Build.SourcesDirectory)\apps\backend\node_modules" -DestinationPath "$(Build.ArtifactStagingDirectory)\backend_node_modules.zip" -Force
             displayName: 'Empaquetar node_modules (para subir ya compilado)'
             workingDirectory: '$(Build.SourcesDirectory)'
 
@@ -152,15 +160,21 @@ stages:
                 Copy-Item "$(Build.SourcesDirectory)\apps\backend\prisma\*" "$deployRoot\apps\backend\prisma" -ToSession $session -Recurse -Force
                 Copy-Item "$(Build.SourcesDirectory)\apps\backend\package.json" "$deployRoot\apps\backend\package.json" -ToSession $session -Force
 
-                # 4. Subir node_modules ya compilado (un solo archivo, mucho más
-                #    rápido por WinRM que copiar miles de archivos sueltos) y
-                #    reemplazarlo completo en la VM (no Copy-Item anidado).
+                # 4. Subir los dos node_modules ya compilados (un solo archivo
+                #    cada uno, mucho más rápido por WinRM que copiar miles de
+                #    archivos sueltos) y reemplazarlos completos en la VM
+                #    (no Copy-Item anidado).
                 Copy-Item "$(Build.ArtifactStagingDirectory)\node_modules.zip" "$deployRoot\node_modules.zip" -ToSession $session -Force
+                Copy-Item "$(Build.ArtifactStagingDirectory)\backend_node_modules.zip" "$deployRoot\backend_node_modules.zip" -ToSession $session -Force
                 Invoke-Command -Session $session -ScriptBlock {
                   param($deployRoot)
                   Remove-Item "$deployRoot\node_modules" -Recurse -Force -ErrorAction SilentlyContinue
                   Expand-Archive -Path "$deployRoot\node_modules.zip" -DestinationPath $deployRoot -Force
                   Remove-Item "$deployRoot\node_modules.zip" -Force
+
+                  Remove-Item "$deployRoot\apps\backend\node_modules" -Recurse -Force -ErrorAction SilentlyContinue
+                  Expand-Archive -Path "$deployRoot\backend_node_modules.zip" -DestinationPath "$deployRoot\apps\backend" -Force
+                  Remove-Item "$deployRoot\backend_node_modules.zip" -Force
                 } -ArgumentList $deployRoot
 
                 # 5. Migrar (sin instalar ni generar nada acá — la VM no tiene
@@ -169,13 +183,16 @@ stages:
                   param($deployRoot)
                   Set-Location "$deployRoot\apps\backend"
                   $env:CHECKPOINT_DISABLE = '1'
-                  # Ruta completa, no confiar en PATH: una sesión WinRM nueva no
-                  # siempre ve un cambio de PATH a nivel máquina recién hecho.
+                  # Se llama el binario de prisma DIRECTO (node_modules\.bin),
+                  # no `pnpm exec prisma` — pnpm exec corre un chequeo de
+                  # dependencias contra el registry (runDepsStatusCheck) antes
+                  # de ejecutar, aunque el paquete ya esté instalado local, y
+                  # la VM no tiene internet para eso.
                   # 2>&1 | Out-String: PowerShell remoto trunca stderr nativo
                   # multilinea a un solo ErrorRecord (se pierde el mensaje real
                   # de node, solo queda la primera línea) — se captura como
                   # texto plano y se imprime entero antes de chequear el exit code.
-                  $out = & C:\pnpm\pnpm.exe exec prisma migrate deploy 2>&1 | Out-String
+                  $out = & "$deployRoot\apps\backend\node_modules\.bin\prisma.CMD" migrate deploy 2>&1 | Out-String
                   Write-Output $out
                   if ($LASTEXITCODE -ne 0) { throw "prisma migrate deploy fallo en la VM" }
                 } -ArgumentList $deployRoot

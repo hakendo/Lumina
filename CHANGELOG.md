@@ -26,6 +26,8 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 - El deploy ya no corre `pnpm install`/`prisma generate` en la VM (no tiene internet, iba a fallar apenas se resolvieran los bugs de pnpm) — ahora `node_modules` se instala y el Prisma Client se genera en el agente, se empaqueta (`tar.gz`) y se sube ya compilado; en la VM solo se descomprime y se corre `prisma migrate deploy`.
 - El paso de creación de rol/DB de Postgres en provisioning ahora chequea el exit code de `psql` y muestra el error real (auth fallida, etc.) en vez de crashear con "cannot call a method on a null-valued expression" cuando la conexión fallaba silenciosamente.
 - El empaquetado/desempaquetado de `node_modules` usa `Compress-Archive`/`Expand-Archive` en vez de `tar` — `tar.exe` no viene incluido en la versión de Windows Server de la VM de Staging.
+- El deploy ahora sube también `apps/backend/node_modules` (no solo el raíz) — con `node-linker=hoisted` esa carpeta tiene sus propios paquetes reales (`prisma`, `@prisma/client`), y sin ella `pnpm`/`prisma` salían a buscarlos a `registry.npmjs.org`, inalcanzable desde la VM.
+- La migración llama al binario de `prisma` directo (`node_modules\.bin\prisma.CMD`) en vez de `pnpm exec prisma` — `pnpm exec` corre un chequeo de dependencias contra el registry antes de ejecutar, incluso con el paquete ya instalado localmente.
 
 ---
 
