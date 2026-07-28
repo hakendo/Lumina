@@ -13,7 +13,9 @@
 #   1. VM de producción aprovisionada (Windows Server, IIS+ARR, Node, Postgres, NSSM).
 #   2. Agente self-hosted registrado en el pool de `pool.name` abajo (config.cmd,
 #      instalación nativa, servicio corriendo bajo la cuenta con WinRM confiado).
-#   3. Prisma CLI disponible en la VM (se instala solo, es devDependency del backend).
+#   3. `node_modules` (con Prisma CLI + Client ya generado) se instala/genera
+#      EN EL AGENTE y se sube comprimido — la VM no tiene internet, no puede
+#      correr `pnpm install` ni `prisma generate` por su cuenta.
 #   4. apps/backend/.env ya existe en la VM con DATABASE_URL, JWT_SECRET,
 #      ENCRYPTION_KEY, FRONTEND_URL — este pipeline NUNCA toca ese archivo.
 #
@@ -83,13 +85,24 @@ stages:
             workingDirectory: '$(Build.SourcesDirectory)'
 
           - powershell: |
-              # Solo valida que el schema es correcto antes de tocar la VM —
-              # el client que realmente importa se genera más abajo, EN la VM.
+              # El Prisma Client que se sube a la VM se genera ACÁ, no ahí —
+              # la VM no tiene internet, no puede resolver/descargar el motor
+              # (query engine) de Prisma. El agente es Windows igual que la
+              # VM, así que el binario generado acá es compatible.
               pnpm --filter lumina-backend exec prisma generate
-            displayName: 'Validar schema de Prisma (sanity check local)'
+            displayName: 'Generar Prisma Client (en el agente — la VM no tiene internet)'
             workingDirectory: '$(Build.SourcesDirectory)'
             env:
               NODE_TLS_REJECT_UNAUTHORIZED: '0'
+
+          - powershell: |
+              # La VM no tiene internet: no puede correr `pnpm install` ni
+              # `prisma generate` ahí. Se empaqueta el node_modules YA
+              # instalado (hoisted, ver .npmrc) del agente para subirlo entero
+              # y precompilado — la VM solo lo descomprime.
+              tar -czf "$(Build.ArtifactStagingDirectory)\node_modules.tar.gz" -C "$(Build.SourcesDirectory)" node_modules
+            displayName: 'Empaquetar node_modules (para subir ya compilado)'
+            workingDirectory: '$(Build.SourcesDirectory)'
 
           - powershell: |
               $deployRoot = '$(deployRoot)'
@@ -135,33 +148,35 @@ stages:
                 Copy-Item "$(Build.SourcesDirectory)\apps\backend\prisma\*" "$deployRoot\apps\backend\prisma" -ToSession $session -Recurse -Force
                 Copy-Item "$(Build.SourcesDirectory)\apps\backend\package.json" "$deployRoot\apps\backend\package.json" -ToSession $session -Force
 
-                # 4. Instalar deps + generar Prisma Client + migrar, todo en la VM
+                # 4. Subir node_modules ya compilado (un solo archivo, mucho más
+                #    rápido por WinRM que copiar miles de archivos sueltos) y
+                #    reemplazarlo completo en la VM (no Copy-Item anidado).
+                Copy-Item "$(Build.ArtifactStagingDirectory)\node_modules.tar.gz" "$deployRoot\node_modules.tar.gz" -ToSession $session -Force
+                Invoke-Command -Session $session -ScriptBlock {
+                  param($deployRoot)
+                  Remove-Item "$deployRoot\node_modules" -Recurse -Force -ErrorAction SilentlyContinue
+                  tar -xzf "$deployRoot\node_modules.tar.gz" -C $deployRoot
+                  Remove-Item "$deployRoot\node_modules.tar.gz" -Force
+                } -ArgumentList $deployRoot
+
+                # 5. Migrar (sin instalar ni generar nada acá — la VM no tiene
+                #    internet, todo lo de arriba ya vino precompilado del agente).
                 Invoke-Command -Session $session -ScriptBlock {
                   param($deployRoot)
                   Set-Location "$deployRoot\apps\backend"
-                  # Sin --prod a propósito: Prisma CLI vive en devDependencies.
-                  # PUPPETEER_SKIP_DOWNLOAD: el env: del step no cruza la sesión WinRM
-                  # remota (es un proceso aparte en otra máquina) — hay que setearlo acá adentro.
-                  $env:PUPPETEER_SKIP_DOWNLOAD = 'true'
-                  $env:NODE_TLS_REJECT_UNAUTHORIZED = '0'
+                  $env:CHECKPOINT_DISABLE = '1'
                   # Ruta completa, no confiar en PATH: una sesión WinRM nueva no
                   # siempre ve un cambio de PATH a nivel máquina recién hecho.
                   # 2>&1 | Out-String: PowerShell remoto trunca stderr nativo
                   # multilinea a un solo ErrorRecord (se pierde el mensaje real
                   # de node, solo queda la primera línea) — se captura como
                   # texto plano y se imprime entero antes de chequear el exit code.
-                  $out = & C:\pnpm\pnpm.exe install --frozen-lockfile 2>&1 | Out-String
-                  Write-Output $out
-                  if ($LASTEXITCODE -ne 0) { throw "pnpm install fallo en la VM" }
-                  $out = & C:\pnpm\pnpm.exe exec prisma generate 2>&1 | Out-String
-                  Write-Output $out
-                  if ($LASTEXITCODE -ne 0) { throw "prisma generate fallo en la VM" }
                   $out = & C:\pnpm\pnpm.exe exec prisma migrate deploy 2>&1 | Out-String
                   Write-Output $out
                   if ($LASTEXITCODE -ne 0) { throw "prisma migrate deploy fallo en la VM" }
                 } -ArgumentList $deployRoot
 
-                # 5. Iniciar el servicio backend
+                # 6. Iniciar el servicio backend
                 Invoke-Command -Session $session -ScriptBlock {
                   param($svc)
                   Start-Service -Name $svc
@@ -170,8 +185,6 @@ stages:
                 Remove-PSSession $session
               }
             displayName: 'Deploy completo a la VM (WinRM, una sola sesión)'
-            env:
-              PUPPETEER_SKIP_DOWNLOAD: 'true'
 
           - powershell: |
               $ok = $false

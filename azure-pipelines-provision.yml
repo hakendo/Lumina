@@ -285,19 +285,33 @@ stages:
 
                   $env:PGPASSWORD = $superPassword
                   try {
-                    $roleExists = & $psql -U postgres -h localhost -tAc "SELECT 1 FROM pg_roles WHERE rolname='$dbUser'"
+                    # 2>&1 + join a string: si psql no puede conectar (password
+                    # del superusuario no coincide, servidor no responde, etc.)
+                    # el output queda $null y un .Trim() sobre eso revienta con
+                    # "cannot call a method on a null-valued expression" sin
+                    # decir por qué — se chequea el exit code explícito y se
+                    # muestra el error real de psql (p.ej. auth failed).
+                    $roleExists = (& $psql -U postgres -h localhost -tAc "SELECT 1 FROM pg_roles WHERE rolname='$dbUser'" 2>&1) -join "`n"
+                    if ($LASTEXITCODE -ne 0) {
+                      throw "psql fallo chequeando el rol '$dbUser' (exit $LASTEXITCODE): $roleExists"
+                    }
                     if ($roleExists.Trim() -ne '1') {
                       Write-Output "Creando rol '$dbUser' en Postgres..."
                       $passEscaped = $dbPass.Replace("'", "''")
-                      & $psql -U postgres -h localhost -c "CREATE ROLE `"$dbUser`" LOGIN PASSWORD '$passEscaped';"
+                      $createOut = (& $psql -U postgres -h localhost -c "CREATE ROLE `"$dbUser`" LOGIN PASSWORD '$passEscaped';" 2>&1) -join "`n"
+                      if ($LASTEXITCODE -ne 0) { throw "psql fallo creando el rol '$dbUser' (exit $LASTEXITCODE): $createOut" }
                     } else {
                       Write-Output "Rol '$dbUser' ya existe, salteando."
                     }
 
-                    $dbExists = & $psql -U postgres -h localhost -tAc "SELECT 1 FROM pg_database WHERE datname='$dbName'"
+                    $dbExists = (& $psql -U postgres -h localhost -tAc "SELECT 1 FROM pg_database WHERE datname='$dbName'" 2>&1) -join "`n"
+                    if ($LASTEXITCODE -ne 0) {
+                      throw "psql fallo chequeando la base '$dbName' (exit $LASTEXITCODE): $dbExists"
+                    }
                     if ($dbExists.Trim() -ne '1') {
                       Write-Output "Creando base '$dbName' (owner '$dbUser')..."
-                      & $psql -U postgres -h localhost -c "CREATE DATABASE `"$dbName`" OWNER `"$dbUser`";"
+                      $createDbOut = (& $psql -U postgres -h localhost -c "CREATE DATABASE `"$dbName`" OWNER `"$dbUser`";" 2>&1) -join "`n"
+                      if ($LASTEXITCODE -ne 0) { throw "psql fallo creando la base '$dbName' (exit $LASTEXITCODE): $createDbOut" }
                     } else {
                       Write-Output "Base '$dbName' ya existe, salteando."
                     }
