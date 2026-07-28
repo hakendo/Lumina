@@ -100,7 +100,11 @@ stages:
               # `prisma generate` ahí. Se empaqueta el node_modules YA
               # instalado (hoisted, ver .npmrc) del agente para subirlo entero
               # y precompilado — la VM solo lo descomprime.
-              tar -czf "$(Build.ArtifactStagingDirectory)\node_modules.tar.gz" -C "$(Build.SourcesDirectory)" node_modules
+              # Compress-Archive/Expand-Archive en vez de tar: tar.exe no
+              # viene incluido en todas las versiones de Windows Server
+              # (falta en la VM de Staging) — estos cmdlets sí son nativos
+              # de PowerShell 5.1 en cualquier Windows.
+              Compress-Archive -Path "$(Build.SourcesDirectory)\node_modules" -DestinationPath "$(Build.ArtifactStagingDirectory)\node_modules.zip" -Force
             displayName: 'Empaquetar node_modules (para subir ya compilado)'
             workingDirectory: '$(Build.SourcesDirectory)'
 
@@ -151,16 +155,12 @@ stages:
                 # 4. Subir node_modules ya compilado (un solo archivo, mucho más
                 #    rápido por WinRM que copiar miles de archivos sueltos) y
                 #    reemplazarlo completo en la VM (no Copy-Item anidado).
-                Copy-Item "$(Build.ArtifactStagingDirectory)\node_modules.tar.gz" "$deployRoot\node_modules.tar.gz" -ToSession $session -Force
+                Copy-Item "$(Build.ArtifactStagingDirectory)\node_modules.zip" "$deployRoot\node_modules.zip" -ToSession $session -Force
                 Invoke-Command -Session $session -ScriptBlock {
                   param($deployRoot)
                   Remove-Item "$deployRoot\node_modules" -Recurse -Force -ErrorAction SilentlyContinue
-                  # Ruta completa: una sesión WinRM nueva no siempre ve el PATH
-                  # esperado (mismo motivo que pnpm más abajo). tar.exe viene
-                  # con Windows Server 2019+/10 1803+ en System32.
-                  & C:\Windows\System32\tar.exe -xzf "$deployRoot\node_modules.tar.gz" -C $deployRoot
-                  if ($LASTEXITCODE -ne 0) { throw "tar -x fallo descomprimiendo node_modules en la VM" }
-                  Remove-Item "$deployRoot\node_modules.tar.gz" -Force
+                  Expand-Archive -Path "$deployRoot\node_modules.zip" -DestinationPath $deployRoot -Force
+                  Remove-Item "$deployRoot\node_modules.zip" -Force
                 } -ArgumentList $deployRoot
 
                 # 5. Migrar (sin instalar ni generar nada acá — la VM no tiene

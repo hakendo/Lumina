@@ -25,7 +25,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 - Provisioning copia la carpeta `dist\` completa junto al `pnpm.exe` real (es un Node SEA, necesita `dist\pnpm.mjs` al lado — copiar solo el `.exe` rompía con `Cannot find module 'dist\pnpm.mjs'`). El chequeo de idempotencia ahora valida ambos archivos, no solo el `.exe` (si no, una instalación vieja incompleta quedaba marcada como "ya instalado" para siempre).
 - El deploy ya no corre `pnpm install`/`prisma generate` en la VM (no tiene internet, iba a fallar apenas se resolvieran los bugs de pnpm) — ahora `node_modules` se instala y el Prisma Client se genera en el agente, se empaqueta (`tar.gz`) y se sube ya compilado; en la VM solo se descomprime y se corre `prisma migrate deploy`.
 - El paso de creación de rol/DB de Postgres en provisioning ahora chequea el exit code de `psql` y muestra el error real (auth fallida, etc.) en vez de crashear con "cannot call a method on a null-valued expression" cuando la conexión fallaba silenciosamente.
-- El deploy llama `tar.exe` por ruta completa (`C:\Windows\System32\tar.exe`) al descomprimir `node_modules` en la VM — la sesión WinRM nueva no lo encontraba por PATH (mismo motivo que pnpm).
+- El empaquetado/desempaquetado de `node_modules` usa `Compress-Archive`/`Expand-Archive` en vez de `tar` — `tar.exe` no viene incluido en la versión de Windows Server de la VM de Staging.
 
 ---
 
