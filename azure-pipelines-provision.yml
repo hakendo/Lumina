@@ -42,6 +42,8 @@ variables:
   # (https://www.postgresql.org/download/windows/ -> EDB installer, Windows x64)
   postgresInstallerUrl: 'https://get.enterprisedb.com/postgresql/postgresql-17.6-1-windows-x64.exe'
   postgresVersion: '17'
+  # TODO: mover a variable secreta de Library en vez de texto plano acá.
+  postgresSuperPassword: 'CAMBIAR_ESTA_PASSWORD'
   envSecureFileName: 'staging.env'   # nombre del Secure File subido en Library
 
 stages:
@@ -181,7 +183,7 @@ stages:
 
                 # ── PostgreSQL ──
                 Invoke-Command -Session $session -ScriptBlock {
-                  param($pgVersion)
+                  param($pgVersion, $superPassword)
                   $svc = Get-Service -Name "postgresql-x64-$pgVersion" -ErrorAction SilentlyContinue
                   if (-not $svc) {
                     Write-Output "Instalando PostgreSQL $pgVersion..."
@@ -190,13 +192,21 @@ stages:
                     Start-Process 'C:\_provision\postgres.exe' -ArgumentList @(
                       '--mode', 'unattended',
                       '--unattendedmodeui', 'minimal',
-                      '--superpassword', 'CAMBIAR_ESTA_PASSWORD',
+                      '--superpassword', $superPassword,
                       '--servicename', "postgresql-x64-$pgVersion"
                     ) -Wait
+                    $svc = Get-Service -Name "postgresql-x64-$pgVersion" -ErrorAction SilentlyContinue
                   } else {
                     Write-Output "PostgreSQL ya estaba instalado ($($svc.Name)), salteando."
                   }
-                } -ArgumentList '$(postgresVersion)'
+                  # Ya nos pasó en QA que el servicio quedó en Manual y con eso
+                  # tirado el backend después de un reboot — forzar Automatic
+                  # siempre, instale o no instale esta corrida.
+                  if ($svc -and $svc.StartType -ne 'Automatic') {
+                    Set-Service -Name "postgresql-x64-$pgVersion" -StartupType Automatic
+                    Write-Output "PostgreSQL: StartupType forzado a Automatic."
+                  }
+                } -ArgumentList '$(postgresVersion)', '$(postgresSuperPassword)'
 
                 # ── NSSM ──
                 Invoke-Command -Session $session -ScriptBlock {
@@ -232,6 +242,54 @@ stages:
                 } else {
                   Write-Output ".env ya existe en la VM, no lo piso."
                 }
+
+                # ── DB + usuario de la app en Postgres ──
+                # El .env trae DATABASE_URL apuntando a un user/db que Postgres
+                # todavía no tiene (el instalador solo crea el superusuario) —
+                # sin esto el backend arranca pero no puede conectar. Se lee el
+                # DATABASE_URL real de la VM (no el de acá) por si ya existía
+                # un .env propio, y se crea el rol/db solo si faltan (idempotente).
+                Invoke-Command -Session $session -ScriptBlock {
+                  param($pgVersion, $superPassword, $deployRoot)
+
+                  $envContent = Get-Content "$deployRoot\apps\backend\.env" -Raw
+                  if ($envContent -notmatch 'DATABASE_URL\s*=\s*"?([^"\r\n]+)"?') {
+                    throw "No se encontro DATABASE_URL en $deployRoot\apps\backend\.env"
+                  }
+                  $dbUrl = $Matches[1]
+                  if ($dbUrl -notmatch 'postgres(?:ql)?://([^:]+):([^@]+)@[^/]+/([^?"\s]+)') {
+                    throw "No se pudo parsear DATABASE_URL (formato inesperado): $dbUrl"
+                  }
+                  $dbUser = $Matches[1]
+                  $dbPass = $Matches[2]
+                  $dbName = $Matches[3]
+
+                  $psql = Get-ChildItem "C:\Program Files\PostgreSQL\$pgVersion" -Recurse -Filter 'psql.exe' -ErrorAction SilentlyContinue |
+                    Select-Object -First 1 -ExpandProperty FullName
+                  if (-not $psql) { throw "No se encontro psql.exe (instalacion de Postgres $pgVersion incompleta?)" }
+
+                  $env:PGPASSWORD = $superPassword
+                  try {
+                    $roleExists = & $psql -U postgres -h localhost -tAc "SELECT 1 FROM pg_roles WHERE rolname='$dbUser'"
+                    if ($roleExists.Trim() -ne '1') {
+                      Write-Output "Creando rol '$dbUser' en Postgres..."
+                      $passEscaped = $dbPass.Replace("'", "''")
+                      & $psql -U postgres -h localhost -c "CREATE ROLE `"$dbUser`" LOGIN PASSWORD '$passEscaped';"
+                    } else {
+                      Write-Output "Rol '$dbUser' ya existe, salteando."
+                    }
+
+                    $dbExists = & $psql -U postgres -h localhost -tAc "SELECT 1 FROM pg_database WHERE datname='$dbName'"
+                    if ($dbExists.Trim() -ne '1') {
+                      Write-Output "Creando base '$dbName' (owner '$dbUser')..."
+                      & $psql -U postgres -h localhost -c "CREATE DATABASE `"$dbName`" OWNER `"$dbUser`";"
+                    } else {
+                      Write-Output "Base '$dbName' ya existe, salteando."
+                    }
+                  } finally {
+                    Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
+                  }
+                } -ArgumentList '$(postgresVersion)', '$(postgresSuperPassword)', '$(deployRoot)'
 
                 # ── Sitio IIS ──
                 Invoke-Command -Session $session -ScriptBlock {

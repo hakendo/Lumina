@@ -15,9 +15,12 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 - Gate obligatorio de `CHANGELOG.md` en el pipeline de deploy.
 - `web.config` pasa a versionarse en `apps/frontend/public/` (antes vivía suelto en el servidor).
 
+- Provisioning crea el rol y la base de Postgres que la app necesita (parseando `DATABASE_URL` del `.env` real), antes solo instalaba el motor con el superusuario.
+
 #### Corregido
 - pnpm en la VM de staging ahora se copia como `.exe` real del agente (antes copiaba un shim con paths relativos que no sobrevivía la copia).
 - El deploy remoto llama pnpm por ruta completa (`C:\pnpm\pnpm.exe`) en vez de confiar en el PATH, que no siempre llega a una sesión WinRM recién abierta.
+- El servicio de PostgreSQL fuerza `StartupType Automatic` en cada corrida de provisioning (había quedado en `Manual` en QA, tirando el backend tras un reboot).
 
 ---
 
