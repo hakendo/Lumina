@@ -144,11 +144,13 @@ stages:
                   # remota (es un proceso aparte en otra máquina) — hay que setearlo acá adentro.
                   $env:PUPPETEER_SKIP_DOWNLOAD = 'true'
                   $env:NODE_TLS_REJECT_UNAUTHORIZED = '0'
-                  pnpm install --frozen-lockfile
+                  # Ruta completa, no confiar en PATH: una sesión WinRM nueva no
+                  # siempre ve un cambio de PATH a nivel máquina recién hecho.
+                  & C:\pnpm\pnpm.exe install --frozen-lockfile
                   if ($LASTEXITCODE -ne 0) { throw "pnpm install fallo en la VM" }
-                  pnpm exec prisma generate
+                  & C:\pnpm\pnpm.exe exec prisma generate
                   if ($LASTEXITCODE -ne 0) { throw "prisma generate fallo en la VM" }
-                  pnpm exec prisma migrate deploy
+                  & C:\pnpm\pnpm.exe exec prisma migrate deploy
                   if ($LASTEXITCODE -ne 0) { throw "prisma migrate deploy fallo en la VM" }
                 } -ArgumentList $deployRoot
 
