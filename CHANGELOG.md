@@ -17,6 +17,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 #### Corregido
 - pnpm en la VM de staging ahora se copia como `.exe` real del agente (antes copiaba un shim con paths relativos que no sobrevivía la copia).
+- El deploy remoto llama pnpm por ruta completa (`C:\pnpm\pnpm.exe`) en vez de confiar en el PATH, que no siempre llega a una sesión WinRM recién abierta.
 
 ---
 
