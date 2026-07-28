@@ -95,10 +95,18 @@ stages:
               # pnpm: no se descarga — se copia el .exe REAL del store del
               # agente (no el shim de Get-Command, que es un .cmd con
               # junctions/paths relativos que no sobreviven una copia).
-              $realPnpm = Get-ChildItem "$env:LOCALAPPDATA\pnpm" -Recurse -Filter 'pnpm.exe' -Force -ErrorAction SilentlyContinue |
+              # OJO: el .exe es un Node SEA (single executable app) — necesita
+              # su carpeta `dist\` (pnpm.mjs, worker.js, vendor) AL LADO. Copiar
+              # solo el .exe rompe en runtime con "Cannot find module
+              # 'dist\pnpm.mjs'". Se copia la carpeta completa, no solo el .exe.
+              $realPnpmExe = Get-ChildItem "$env:LOCALAPPDATA\pnpm" -Recurse -Filter 'pnpm.exe' -Force -ErrorAction SilentlyContinue |
                 Select-Object -First 1 -ExpandProperty FullName
-              if (-not $realPnpm) { throw "No se encontro el pnpm.exe real en el agente — no se puede provisionar sin eso" }
-              Copy-Item $realPnpm "$(installerCacheDir)\pnpm.exe" -Force
+              if (-not $realPnpmExe) { throw "No se encontro el pnpm.exe real en el agente — no se puede provisionar sin eso" }
+              $realPnpmDir = Split-Path $realPnpmExe -Parent
+              Remove-Item "$(installerCacheDir)\pnpm-exe" -Recurse -Force -ErrorAction SilentlyContinue
+              New-Item -ItemType Directory -Path "$(installerCacheDir)\pnpm-exe\dist" -Force | Out-Null
+              Copy-Item "$realPnpmDir\pnpm.exe" "$(installerCacheDir)\pnpm-exe\pnpm.exe" -Force
+              Copy-Item "$realPnpmDir\dist\*" "$(installerCacheDir)\pnpm-exe\dist" -Recurse -Force
 
               Write-Host "Instaladores listos en $(installerCacheDir)"
             displayName: 'Descargar instaladores (agente, con cache persistente)'
@@ -165,19 +173,26 @@ stages:
                   }
                 }
 
-                # ── pnpm (.exe real copiado del agente — la VM no tiene
-                #    internet, `npm install -g pnpm` ahí nunca funciona) ──
+                # ── pnpm (.exe real + carpeta dist/ copiados del agente — la VM
+                #    no tiene internet, `npm install -g pnpm` ahí nunca funciona;
+                #    el .exe es un Node SEA, necesita dist\pnpm.mjs al lado) ──
                 Invoke-Command -Session $session -ScriptBlock {
-                  if (-not (Test-Path 'C:\pnpm\pnpm.exe')) {
-                    Write-Output "Instalando pnpm..."
-                    New-Item -ItemType Directory -Path 'C:\pnpm' -Force | Out-Null
-                    Copy-Item 'C:\_provision\pnpm.exe' 'C:\pnpm\pnpm.exe' -Force
+                  $pnpmOk = (Test-Path 'C:\pnpm\pnpm.exe') -and (Test-Path 'C:\pnpm\dist\pnpm.mjs')
+                  if (-not $pnpmOk) {
+                    Write-Output "Instalando pnpm (.exe + dist/)..."
+                    # Por si quedó una instalación previa incompleta (solo el
+                    # .exe, sin dist/) de una corrida vieja — se limpia y se
+                    # copia todo de nuevo en vez de confiar en lo que haya.
+                    Remove-Item 'C:\pnpm' -Recurse -Force -ErrorAction SilentlyContinue
+                    New-Item -ItemType Directory -Path 'C:\pnpm\dist' -Force | Out-Null
+                    Copy-Item 'C:\_provision\pnpm-exe\pnpm.exe' 'C:\pnpm\pnpm.exe' -Force
+                    Copy-Item 'C:\_provision\pnpm-exe\dist\*' 'C:\pnpm\dist' -Recurse -Force
                     $machinePath = [System.Environment]::GetEnvironmentVariable('Path','Machine')
                     if ($machinePath -notlike '*C:\pnpm*') {
                       [System.Environment]::SetEnvironmentVariable('Path', "$machinePath;C:\pnpm", 'Machine')
                     }
                   } else {
-                    Write-Output "pnpm ya estaba instalado, salteando."
+                    Write-Output "pnpm ya estaba instalado (.exe + dist/ OK), salteando."
                   }
                 }
 

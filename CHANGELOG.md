@@ -22,6 +22,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 - El deploy remoto llama pnpm por ruta completa (`C:\pnpm\pnpm.exe`) en vez de confiar en el PATH, que no siempre llega a una sesión WinRM recién abierta.
 - El servicio de PostgreSQL fuerza `StartupType Automatic` en cada corrida de provisioning (había quedado en `Manual` en QA, tirando el backend tras un reboot).
 - El deploy captura stdout/stderr de `pnpm install`/`prisma generate`/`prisma migrate deploy` como texto plano (`2>&1 | Out-String`) antes de chequear el exit code — PowerShell remoto truncaba el stderr nativo multilinea de node a una sola línea, perdiendo el mensaje real del error.
+- Provisioning copia la carpeta `dist\` completa junto al `pnpm.exe` real (es un Node SEA, necesita `dist\pnpm.mjs` al lado — copiar solo el `.exe` rompía con `Cannot find module 'dist\pnpm.mjs'`). El chequeo de idempotencia ahora valida ambos archivos, no solo el `.exe` (si no, una instalación vieja incompleta quedaba marcada como "ya instalado" para siempre).
 
 ---
 
