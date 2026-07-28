@@ -146,11 +146,18 @@ stages:
                   $env:NODE_TLS_REJECT_UNAUTHORIZED = '0'
                   # Ruta completa, no confiar en PATH: una sesión WinRM nueva no
                   # siempre ve un cambio de PATH a nivel máquina recién hecho.
-                  & C:\pnpm\pnpm.exe install --frozen-lockfile
+                  # 2>&1 | Out-String: PowerShell remoto trunca stderr nativo
+                  # multilinea a un solo ErrorRecord (se pierde el mensaje real
+                  # de node, solo queda la primera línea) — se captura como
+                  # texto plano y se imprime entero antes de chequear el exit code.
+                  $out = & C:\pnpm\pnpm.exe install --frozen-lockfile 2>&1 | Out-String
+                  Write-Output $out
                   if ($LASTEXITCODE -ne 0) { throw "pnpm install fallo en la VM" }
-                  & C:\pnpm\pnpm.exe exec prisma generate
+                  $out = & C:\pnpm\pnpm.exe exec prisma generate 2>&1 | Out-String
+                  Write-Output $out
                   if ($LASTEXITCODE -ne 0) { throw "prisma generate fallo en la VM" }
-                  & C:\pnpm\pnpm.exe exec prisma migrate deploy
+                  $out = & C:\pnpm\pnpm.exe exec prisma migrate deploy 2>&1 | Out-String
+                  Write-Output $out
                   if ($LASTEXITCODE -ne 0) { throw "prisma migrate deploy fallo en la VM" }
                 } -ArgumentList $deployRoot
 
